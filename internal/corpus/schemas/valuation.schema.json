@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantasy-football-corpus/schemas/valuation.schema.json",
+  "title": "Valuation (valuations.jsonl) — external values as dated market observations",
+  "type": "object",
+  "required": ["valuation_id","player_id","source","valuation_type","format_context","value","observed_at","source_url","confidence","evidence_record_id"],
+  "additionalProperties": false,
+  "properties": {
+    "valuation_id": { "type": "string", "pattern": "^valuation:[0-9a-f]{16,}$" },
+    "player_id": { "type": "string", "pattern": "^nfl:" },
+    "source": { "type": "string" },
+    "valuation_type": { "type": "string", "enum": ["ranking","trade-value","adp","projection"] },
+    "format_context": { "type": "string" },
+    "value": { "description": "Source-specific value (int trade-value, int rank, string adp, etc.)" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "source_url": { "type": ["string","null"] },
+    "confidence": { "type": "string", "enum": ["high","medium","low"] },
+    "evidence_record_id": { "type": ["string","null"], "pattern": "^sha256:" }
+  }
+}

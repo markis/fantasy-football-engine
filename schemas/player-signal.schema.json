@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantasy-football-corpus/schemas/player-signal.schema.json",
+  "title": "Player signal (player-signals.jsonl)",
+  "type": "object",
+  "required": ["signal_id","player_id","signal_type","value","source","source_url","observed_at","confidence","status","evidence_record_id"],
+  "additionalProperties": false,
+  "properties": {
+    "signal_id": { "type": "string", "pattern": "^signal:[0-9a-f]{16,}$" },
+    "player_id": { "type": "string", "pattern": "^nfl:" },
+    "signal_type": { "type": "string", "enum": ["injury","usage","role","market-ranking","trade-value","projection","transaction","other"] },
+    "value": { "description": "Structured or scalar value" },
+    "source": { "type": "string" },
+    "source_url": { "type": ["string","null"], "format": "uri" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "published_at": { "type": ["string","null"], "format": "date-time" },
+    "confidence": { "type": "string", "enum": ["high","medium","low"] },
+    "status": { "type": "string", "enum": ["current","superseded","unverified"] },
+    "evidence_record_id": { "type": ["string","null"], "pattern": "^sha256:" }
+  }
+}

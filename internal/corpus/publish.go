@@ -1,0 +1,264 @@
+package corpus
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+
+	"github.com/markis/fantasy-football-engine/internal/models"
+)
+
+// Publisher is the corpus publishing orchestrator.
+type Publisher struct {
+	common *Common
+}
+
+// NewPublisher creates a new publisher.
+func NewPublisher(common *Common) *Publisher {
+	return &Publisher{common: common}
+}
+
+// PublishResult is the result of a publish run.
+type PublishResult struct {
+	Mode             string `json:"mode"`
+	Committed        bool   `json:"committed"`
+	EvidenceCurrent  int    `json:"evidence_current"`
+	EvidenceSuperseded int  `json:"evidence_superseded"`
+	Changes          int    `json:"changes"`
+	Players          int    `json:"players"`
+	Signals          int    `json:"signals"`
+	Valuations       int    `json:"valuations"`
+	Status           string `json:"status"`
+}
+
+// Publish runs the full render → validate → commit → push cycle.
+func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*PublishResult, error) {
+	result := &PublishResult{Mode: mode, Status: "ok"}
+
+	staging := p.common.StagingDir()
+	corpus := p.common.CorpusDir()
+
+	// Clear staging
+	if err := os.RemoveAll(staging); err != nil {
+		return nil, fmt.Errorf("clear staging: %w", err)
+	}
+	if err := os.MkdirAll(staging, 0755); err != nil {
+		return nil, fmt.Errorf("create staging: %w", err)
+	}
+
+	slog.Info("rendering to staging", "mode", mode)
+
+	// Render all sections
+	teamSummary, err := p.renderTeam(ctx, staging)
+	if err != nil {
+		slog.Warn("render team", "err", err)
+	}
+
+	evidenceSummary, err := p.renderEvidence(ctx, staging, corpus)
+	if err != nil {
+		slog.Warn("render evidence", "err", err)
+	}
+
+	datasetsSummary, err := p.renderDatasets(ctx, staging)
+	if err != nil {
+		slog.Warn("render datasets", "err", err)
+	}
+
+	currentSummary, err := p.renderCurrent(ctx, staging)
+	if err != nil {
+		slog.Warn("render current", "err", err)
+	}
+
+	leaguemateSummary, err := p.renderLeaguemates(ctx, staging)
+	if err != nil {
+		slog.Warn("render leaguemates", "err", err)
+	}
+
+	manifestSummary, err := p.renderManifest(ctx, staging, corpus, evidenceSummary)
+	if err != nil {
+		slog.Warn("render manifest", "err", err)
+	}
+
+	_ = teamSummary
+	_ = currentSummary
+	_ = leaguemateSummary
+
+	// Validate
+	slog.Info("validating staging...")
+	errs := Validate(staging)
+	if len(errs) > 0 {
+		slog.Error("validation failed", "errors", len(errs))
+		for _, e := range errs {
+			slog.Error("validation error", "msg", e)
+		}
+		result.Status = "validation_failed"
+		return result, fmt.Errorf("validation failed: %d errors", len(errs))
+	}
+	slog.Info("validation OK")
+
+	if evidenceSummary != nil {
+		result.EvidenceCurrent = evidenceSummary["current_count"].(int)
+		result.EvidenceSuperseded = evidenceSummary["superseded_count"].(int)
+	}
+	if datasetsSummary != nil {
+		result.Players = datasetsSummary["players"].(int)
+		result.Signals = datasetsSummary["signals"].(int)
+		result.Valuations = datasetsSummary["valuations"].(int)
+	}
+	if manifestSummary != nil {
+		result.Changes = manifestSummary["changes"].(int)
+	}
+
+	if mode == "export" || dryRun {
+		slog.Info("export complete (no commit)")
+		return result, nil
+	}
+
+	// Check for material changes
+	if !p.materialChanges(staging, corpus) {
+		slog.Info("no material changes — skipping commit/push")
+		return result, nil
+	}
+
+	// Sync staging to corpus
+	slog.Info("material changes detected — syncing")
+	if err := p.sync(staging, corpus); err != nil {
+		return nil, fmt.Errorf("sync: %w", err)
+	}
+
+	// Commit and push
+	if err := p.commitAndPush(ctx, result); err != nil {
+		slog.Warn("commit and push", "err", err)
+	}
+	result.Committed = true
+
+	slog.Info("publish complete")
+	return result, nil
+}
+
+func (p *Publisher) materialChanges(staging, corpus string) bool {
+	// Simplified: if corpus dir doesn't exist or is empty, there are changes
+	entries, err := os.ReadDir(corpus)
+	if err != nil || len(entries) == 0 {
+		return true
+	}
+	// Compare file lists and hashes
+	stagingFiles := listSubstanceFiles(staging)
+	corpusFiles := listSubstanceFiles(corpus)
+	if len(stagingFiles) != len(corpusFiles) {
+		return true
+	}
+	for rel, sfull := range stagingFiles {
+		cfull, ok := corpusFiles[rel]
+		if !ok {
+			return true
+		}
+		sHash, _ := FileSHA256Bytes(sfull)
+		cHash, _ := FileSHA256Bytes(cfull)
+		if sHash != cHash {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Publisher) sync(staging, corpus string) error {
+	stagingFiles := listSubstanceFiles(staging)
+	for rel, full := range stagingFiles {
+		dst := filepath.Join(corpus, rel)
+		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+			return err
+		}
+		data, err := os.ReadFile(full)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(dst, data, 0644); err != nil {
+			return err
+		}
+	}
+	// Copy extras
+	for _, extra := range []string{"evidence/index.md", "corpus-manifest.json", "datasets/change-log.jsonl"} {
+		src := filepath.Join(staging, extra)
+		if _, err := os.Stat(src); err == nil {
+			dst := filepath.Join(corpus, extra)
+			os.MkdirAll(filepath.Dir(dst), 0755)
+			data, _ := os.ReadFile(src)
+			os.WriteFile(dst, data, 0644)
+		}
+	}
+	return nil
+}
+
+func (p *Publisher) commitAndPush(ctx context.Context, result *PublishResult) error {
+	// In the Go version, we use go-git for commit + push.
+	// This is handled by the git.go module.
+	return p.gitCommitAndPush(ctx, result)
+}
+
+// listSubstanceFiles walks a directory and returns relative path -> full path.
+func listSubstanceFiles(root string) map[string]string {
+	files := make(map[string]string)
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return files
+	}
+	walkDir(root, "", files, entries)
+	return files
+}
+
+func walkDir(root, prefix string, files map[string]string, entries []os.DirEntry) {
+	for _, entry := range entries {
+		if entry.IsDir() {
+			if entry.Name() == ".git" || entry.Name() == ".staging" || entry.Name() == "schemas" {
+				continue
+			}
+			sub, err := os.ReadDir(filepath.Join(root, prefix, entry.Name()))
+			if err != nil {
+				continue
+			}
+			walkDir(root, filepath.Join(prefix, entry.Name()), files, sub)
+		} else {
+			name := entry.Name()
+			if name == ".gitignore" || name == "corpus-manifest.json" || name == ".publish.log" {
+				continue
+			}
+			rel := filepath.Join(prefix, name)
+			// Skip protected files
+			if isProtected(rel) {
+				continue
+			}
+			files[rel] = filepath.Join(root, rel)
+		}
+	}
+}
+
+func isProtected(rel string) bool {
+	protected := []string{
+		"README.md", "AGENTS.md", "source-registry.csv",
+		"strategy/decision-log.jsonl", "strategy/outcome-review.jsonl",
+		"team/league-constitution.md", "team/league-context.md",
+		"strategy/dynasty-playbook.md", "strategy/trade-policy.md",
+		"strategy/draft-policy.md", "strategy/waiver-policy.md",
+		"strategy/lineup-policy.md",
+	}
+	for _, p := range protected {
+		if rel == p {
+			return true
+		}
+	}
+	// Skip .gitkeep
+	if filepath.Base(rel) == ".gitkeep" {
+		return true
+	}
+	// Skip archive dir
+	if filepath.Dir(rel) == "archive" {
+		return true
+	}
+	return false
+}
+
+// Ensure models import is used
+var _ = models.MarkisUserID

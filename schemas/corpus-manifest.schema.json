@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantasy-football-corpus/schemas/corpus-manifest.schema.json",
+  "title": "Corpus manifest",
+  "type": "object",
+  "required": ["generated_at","schema_version","change_log_cursor","counts","files"],
+  "additionalProperties": false,
+  "properties": {
+    "generated_at": { "type": "string", "format": "date-time" },
+    "schema_version": { "type": "integer" },
+    "change_log_cursor": { "type": ["string","null"] },
+    "as_of_window_hours": { "type": "integer" },
+    "counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer" },
+      "description": "Per-entity-type counts (evidence, player_signal, valuation, decision, etc.)"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path","sha256","bytes"],
+        "additionalProperties": false,
+        "properties": {
+          "path": { "type": "string" },
+          "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "bytes": { "type": "integer" }
+        }
+      }
+    },
+    "leagues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["league_id","name"],
+        "additionalProperties": false,
+        "properties": {
+          "league_id": { "type": "string" },
+          "name": { "type": "string" }
+        }
+      }
+    },
+    "team_state_hash": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

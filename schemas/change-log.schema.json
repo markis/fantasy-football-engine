@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantasy-football-corpus/schemas/change-log.schema.json",
+  "title": "Change-log entry (change-log.jsonl)",
+  "type": "object",
+  "required": ["change_id","timestamp","operation","entity_type","entity_id","paths","content_hash","summary"],
+  "additionalProperties": false,
+  "properties": {
+    "change_id": { "type": "string", "pattern": "^change:[0-9a-f]{16,}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "operation": { "type": "string", "enum": ["added","updated","superseded","archived","removed"] },
+    "entity_type": { "type": "string", "enum": ["evidence","team-state","strategy","player-signal","valuation","decision"] },
+    "entity_id": { "type": "string" },
+    "paths": { "type": "array", "items": { "type": "string" } },
+    "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "summary": { "type": "string" }
+  }
+}

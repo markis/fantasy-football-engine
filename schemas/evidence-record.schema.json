@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantasy-football-corpus/schemas/evidence-record.schema.json",
+  "title": "Evidence record",
+  "description": "A normalized, source-linked public fact/observation, filtered to decision-relevant items.",
+  "type": "object",
+  "required": ["id", "canonical_url", "title", "player_ids", "team_ids", "topic", "publisher", "source_type", "retrieved_at", "summary", "claims", "decision_relevance", "status", "content_hash"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "canonical_url": { "type": "string", "format": "uri" },
+    "title": { "type": "string" },
+    "player_ids": { "type": "array", "items": { "type": "string", "pattern": "^nfl:" } },
+    "team_ids": { "type": "array", "items": { "type": "string", "pattern": "^nfl:" } },
+    "topic": { "type": "string", "enum": ["injury","transaction","usage","production","depth-chart","market","rookie","schedule","league","other"] },
+    "publisher": { "type": "string" },
+    "source_type": { "type": "string", "enum": ["primary","secondary","community","agent-derived"] },
+    "published_at": { "type": ["string","null"], "format": "date-time" },
+    "retrieved_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": ["string","null"], "format": "date-time" },
+    "summary": { "type": "string" },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "confidence"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^claim:[0-9a-f]{16,}$" },
+          "text": { "type": "string" },
+          "confidence": { "type": "string", "enum": ["high","medium","low"] }
+        }
+      }
+    },
+    "decision_relevance": {
+      "type": "object",
+      "required": ["relevant_to_roster","relevant_to_trade_target","relevant_to_pick_value","reason"],
+      "additionalProperties": false,
+      "properties": {
+        "relevant_to_roster": { "type": "boolean" },
+        "relevant_to_trade_target": { "type": "boolean" },
+        "relevant_to_pick_value": { "type": "boolean" },
+        "reason": { "type": "string" }
+      }
+    },
+    "status": { "type": "string", "enum": ["current","superseded","archived","unverified"] },
+    "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "supersedes": { "type": "array", "items": { "type": "string", "pattern": "^sha256:" } }
+  }
+}

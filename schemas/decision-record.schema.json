@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantasy-football-corpus/schemas/decision-record.schema.json",
+  "title": "Decision record (decision-log.jsonl)",
+  "type": "object",
+  "required": ["decision_id","timestamp","decision_type","status","summary","team_context_snapshot","playbook_references","evidence_record_ids","rationale","risks","expected_outcome","review_after"],
+  "additionalProperties": false,
+  "properties": {
+    "decision_id": { "type": "string", "pattern": "^decision:[0-9a-f]{16,}$" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "decision_type": { "type": "string", "enum": ["trade","waiver","lineup","draft","hold","drop","strategy-review"] },
+    "status": { "type": "string", "enum": ["proposed","accepted","rejected","completed","expired"] },
+    "summary": { "type": "string" },
+    "team_context_snapshot": { "type": "string" },
+    "playbook_references": { "type": "array", "items": { "type": "string" } },
+    "evidence_record_ids": { "type": "array", "items": { "type": "string", "pattern": "^sha256:" } },
+    "rationale": { "type": "string" },
+    "risks": { "type": "array", "items": { "type": "string" } },
+    "expected_outcome": { "type": "string" },
+    "review_after": { "type": ["string","null"], "format": "date-time" }
+  }
+}

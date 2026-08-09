@@ -1,0 +1,48 @@
+services:
+  ff-pg:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: fantasy
+      POSTGRES_PASSWORD: ${FF_PG_PASSWORD}
+      POSTGRES_DB: fantasy_football
+    volumes:
+      - ff-pg-data:/var/lib/postgresql/data
+      # In-place upgrade: mount the existing data directory here at cutover
+      # - ~/src/zc-fantasy-football/ff-pg/pg-data:/var/lib/postgresql/data
+    networks:
+      - homelab-shared
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fantasy -d fantasy_football"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ff-engine:
+    build: .
+    # image: ghcr.io/markis/fantasy-football-engine:latest
+    ports:
+      - "3102:3100"
+    volumes:
+      - ./config.yaml:/data/config.yaml:ro
+      - ff-corpus:/data/corpus
+    environment:
+      FF_PG_PASSWORD: ${FF_PG_PASSWORD}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      FF_GITHUB_PAT: ${FF_GITHUB_PAT:-}
+      GNUPGHOME: /data/.gnupg
+      PASSWORD_STORE_DIR: /data/.password-store
+    depends_on:
+      ff-pg:
+        condition: service_healthy
+    networks:
+      - homelab-shared
+    restart: unless-stopped
+
+volumes:
+  ff-pg-data:
+  ff-corpus:
+
+networks:
+  homelab-shared:
+    external: true

@@ -1,0 +1,441 @@
+package corpus
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/markis/fantasy-football-engine/internal/models"
+)
+
+const evidenceWindowDays = 14
+const evidenceMaxRecords = 600
+
+// renderEvidence renders evidence/ from decision-relevant news items.
+func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir string) (map[string]interface{}, error) {
+	recDir := filepath.Join(targetDir, "evidence", "records")
+	if err := os.MkdirAll(recDir, 0755); err != nil {
+		return nil, err
+	}
+
+	// Build watch set
+	watchIDs, nameIndex, ownership := p.buildWatchSet(ctx)
+
+	// Query relevant items
+	items := p.queryRelevantItems(ctx, watchIDs, nameIndex)
+
+	// Build current records
+	current := make(map[string]map[string]interface{})
+	for _, item := range items {
+		rec := p.buildEvidenceRecord(item, ownership)
+		current[rec["id"].(string)] = rec
+	}
+
+	// Load previous records
+	prevRecords := loadExistingRecords(filepath.Join(prevDir, "evidence", "records"))
+
+	// Write current records
+	var added, superseded []string
+	for rid, rec := range current {
+		filename := strings.Replace(rid, "sha256:", "", 1) + ".json"
+		if err := WriteJSON(filepath.Join(recDir, filename), rec); err != nil {
+			slog.Warn("write evidence record", "err", err)
+		}
+		if _, ok := prevRecords[rid]; !ok {
+			added = append(added, rid)
+		}
+	}
+
+	// Preserve prior records as superseded
+	for rid, prev := range prevRecords {
+		if _, ok := current[rid]; ok {
+			continue
+		}
+		prev["status"] = "superseded"
+		filename := strings.Replace(rid, "sha256:", "", 1) + ".json"
+		WriteJSON(filepath.Join(recDir, filename), prev)
+		superseded = append(superseded, rid)
+	}
+
+	// Write index.md
+	var lines []string
+	lines = append(lines, "# Evidence Index", "",
+		fmt.Sprintf("_Current records: %d · superseded preserved: %d · window: last %d days. Generated %s._",
+			len(current), len(superseded), evidenceWindowDays, p.common.NowISO()), "",
+		"| Published | Topic | Title | Players | Source |", "|---|---|---|---|---|")
+	// Sort by published_at desc
+	var sortedRecs []map[string]interface{}
+	for _, rec := range current {
+		sortedRecs = append(sortedRecs, rec)
+	}
+	// Simple sort by published_at
+	for i := 0; i < len(sortedRecs); i++ {
+		for j := i + 1; j < len(sortedRecs); j++ {
+			if getStr(sortedRecs[i], "published_at") < getStr(sortedRecs[j], "published_at") {
+				sortedRecs[i], sortedRecs[j] = sortedRecs[j], sortedRecs[i]
+			}
+		}
+	}
+	for _, rec := range sortedRecs {
+		pub := getStr(rec, "published_at")
+		if len(pub) > 10 {
+			pub = pub[:10]
+		}
+		players := ""
+		if pids, ok := rec["player_ids"].([]string); ok {
+			for i, pid := range pids {
+				if i >= 4 {
+					break
+				}
+				if i > 0 {
+					players += ", "
+				}
+				players += strings.TrimPrefix(pid, "nfl:")
+			}
+		}
+		title := getStr(rec, "title")
+		if len(title) > 60 {
+			title = title[:60]
+		}
+		title = strings.ReplaceAll(title, "|", "/")
+		lines = append(lines, fmt.Sprintf("| %s | %s | %s | %s | %s |",
+			pub, getStr(rec, "topic"), title, players, getStr(rec, "publisher")))
+	}
+	WriteText(filepath.Join(targetDir, "evidence", "index.md"), strings.Join(lines, "\n"))
+
+	return map[string]interface{}{
+		"current_count":    len(current),
+		"superseded_count": len(superseded),
+		"added":            added,
+		"superseded":       superseded,
+	}, nil
+}
+
+func (p *Publisher) buildWatchSet(ctx context.Context) ([]string, map[string][]string, map[string][][2]string) {
+	watchIDs := make(map[string]bool)
+	ownership := make(map[string][][2]string)
+
+	for leagueID, lf := range models.LeagueFormats {
+		rosters, err := p.common.LeagueRosters(ctx, leagueID)
+		if err != nil {
+			slog.Warn("get rosters for watch set", "league", leagueID, "err", err)
+			continue
+		}
+		myRoster := p.common.MyRoster(rosters)
+		myPlayers := make(map[string]bool)
+		if myRoster != nil {
+			for _, pid := range toStringSlice(myRoster["players"]) {
+				myPlayers[pid] = true
+			}
+		}
+		for _, pid := range p.common.AllRosterPlayerIDs(rosters) {
+			watchIDs[pid] = true
+			role := "rival"
+			if myPlayers[pid] {
+				role = "owned"
+			}
+			ownership[pid] = append(ownership[pid], [2]string{lf.Name, role})
+		}
+	}
+
+	ids := make([]string, 0, len(watchIDs))
+	for id := range watchIDs {
+		ids = append(ids, id)
+	}
+	playerRows := p.common.PlayerRows(ctx, ids)
+	nameIndex := BuildNameIndex(playerRows)
+	return ids, nameIndex, ownership
+}
+
+func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, nameIndex map[string][]string) []map[string]interface{} {
+	cutoff := time.Now().UTC().AddDate(0, 0, -evidenceWindowDays)
+	rows, err := p.common.pool.Query(ctx, `
+		SELECT id, canonical_url, url, title, summary_short, content_hash,
+		       entities, topics, author, published_at, fetched_at, updated_at, news_story
+		FROM news_item
+		WHERE is_relevant = true AND COALESCE(is_news, true)
+		  AND quality_score >= 0
+		  AND published_at >= $1
+		ORDER BY published_at DESC
+		LIMIT $2
+	`, cutoff, evidenceMaxRecords*2)
+	if err != nil {
+		slog.Warn("query relevant items", "err", err)
+		return nil
+	}
+	defer rows.Close()
+
+	cols := []string{"id", "canonical_url", "url", "title", "summary_short", "content_hash",
+		"entities", "topics", "author", "published_at", "fetched_at", "updated_at", "news_story"}
+	var result []map[string]interface{}
+	seenURLs := make(map[string]bool)
+	for rows.Next() {
+		var id, canonicalURL, url, title, summaryShort, contentHash, author, newsStory interface{}
+		var entities, topics []string
+		var publishedAt, fetchedAt, updatedAt *time.Time
+		if err := rows.Scan(&id, &canonicalURL, &url, &title, &summaryShort, &contentHash,
+			&entities, &topics, &author, &publishedAt, &fetchedAt, &updatedAt, &newsStory); err != nil {
+			continue
+		}
+		d := map[string]interface{}{
+			"id":             id,
+			"canonical_url":  canonicalURL,
+			"url":            url,
+			"title":          title,
+			"summary_short":  summaryShort,
+			"content_hash":   contentHash,
+			"entities":       entities,
+			"topics":         topics,
+			"author":         author,
+			"published_at":   publishedAt,
+			"fetched_at":     fetchedAt,
+			"updated_at":     updatedAt,
+			"news_story":     newsStory,
+		}
+		_ = cols
+		hits := MatchEntitiesToPlayers(entities, nameIndex)
+		if len(hits) == 0 {
+			continue
+		}
+		urlStr := fmt.Sprint(canonicalURL)
+		if urlStr == "<nil>" || urlStr == "" {
+			urlStr = fmt.Sprint(url)
+		}
+		if urlStr == "<nil>" || urlStr == "" {
+			continue
+		}
+		if seenURLs[urlStr] {
+			continue
+		}
+		seenURLs[urlStr] = true
+		d["matched_players"] = hits
+		result = append(result, d)
+		if len(result) >= evidenceMaxRecords {
+			break
+		}
+	}
+	return result
+}
+
+func (p *Publisher) buildEvidenceRecord(item map[string]interface{}, ownership map[string][][2]string) map[string]interface{} {
+	urlStr := fmt.Sprint(item["canonical_url"])
+	if urlStr == "<nil>" || urlStr == "" {
+		urlStr = fmt.Sprint(item["url"])
+	}
+	summary := ""
+	if v, ok := item["news_story"].(*string); ok && v != nil {
+		summary = *v
+	}
+	if summary == "" {
+		if v, ok := item["summary_short"].(*string); ok && v != nil {
+			summary = *v
+		}
+	}
+	if summary == "" {
+		if v, ok := item["title"].(*string); ok && v != nil {
+			summary = *v
+		}
+	}
+	if summary == "" {
+		summary = urlStr
+	}
+	if len(summary) > 1200 {
+		summary = summary[:1200]
+	}
+
+	chStr := fmt.Sprint(item["content_hash"])
+	if chStr == "<nil>" || chStr == "" {
+		chStr = ContentHash(summary)
+	}
+
+	recID := EvidenceID(urlStr, chStr)
+
+	matchedPlayers := item["matched_players"].([]string)
+	playerIDs := make([]string, 0, len(matchedPlayers))
+	for _, sid := range matchedPlayers {
+		playerIDs = append(playerIDs, "nfl:"+sid)
+	}
+
+	// Team IDs (heuristic: 2-3 letter all-caps)
+	entities := item["entities"].([]string)
+	var teamIDs []string
+	for _, e := range entities {
+		if len(e) >= 2 && len(e) <= 3 && e == strings.ToUpper(e) {
+			teamIDs = append(teamIDs, "nfl:"+e)
+		}
+	}
+
+	publisher := ""
+	if v, ok := item["author"].(*string); ok && v != nil {
+		publisher = *v
+	}
+	if publisher == "" {
+		publisher = "unknown"
+	}
+
+	titleStr := ""
+	if v, ok := item["title"].(*string); ok && v != nil {
+		titleStr = *v
+	}
+	if titleStr == "" {
+		titleStr = urlStr
+	}
+
+	topics := item["topics"].([]string)
+	topic := TopicFromTopics(topics)
+
+	publishedAt := ""
+	if v, ok := item["published_at"].(*time.Time); ok && v != nil {
+		publishedAt = v.UTC().Format("2006-01-02T15:04:05Z")
+	}
+	fetchedAt := ""
+	if v, ok := item["fetched_at"].(*time.Time); ok && v != nil {
+		fetchedAt = v.UTC().Format("2006-01-02T15:04:05Z")
+	}
+	if fetchedAt == "" {
+		fetchedAt = p.common.NowISO()
+	}
+	updatedAt := ""
+	if v, ok := item["updated_at"].(*time.Time); ok && v != nil {
+		updatedAt = v.UTC().Format("2006-01-02T15:04:05Z")
+	}
+
+	// Facts
+	var claims []map[string]interface{}
+	facts := p.factsForItem(item["id"])
+	for _, fact := range facts {
+		claims = append(claims, fact)
+	}
+
+	// Owner reasons
+	var ownerReasons []string
+	for _, sid := range matchedPlayers {
+		for _, pair := range ownership[sid] {
+			ownerReasons = append(ownerReasons, fmt.Sprintf("%s in %s", pair[1], pair[0]))
+		}
+	}
+	reason := "decision-relevant"
+	if len(ownerReasons) > 0 {
+		// Dedupe
+		seen := make(map[string]bool)
+		var unique []string
+		for _, r := range ownerReasons {
+			if !seen[r] {
+				seen[r] = true
+				unique = append(unique, r)
+			}
+		}
+		reason = "Mentions " + strings.Join(unique, ", ")
+	}
+
+	relevantToRoster := false
+	relevantToTradeTarget := false
+	for _, sid := range matchedPlayers {
+		for _, pair := range ownership[sid] {
+			if pair[1] == "owned" {
+				relevantToRoster = true
+			}
+			if pair[1] == "rival" {
+				relevantToTradeTarget = true
+			}
+		}
+	}
+
+	return map[string]interface{}{
+		"id":            recID,
+		"canonical_url": urlStr,
+		"title":         titleStr,
+		"player_ids":    playerIDs,
+		"team_ids":      teamIDs,
+		"topic":         topic,
+		"publisher":     publisher,
+		"source_type":   "secondary",
+		"published_at":  publishedAt,
+		"retrieved_at":  fetchedAt,
+		"updated_at":    updatedAt,
+		"summary":       summary,
+		"claims":        claims,
+		"decision_relevance": map[string]interface{}{
+			"relevant_to_roster":       relevantToRoster,
+			"relevant_to_trade_target": relevantToTradeTarget,
+			"relevant_to_pick_value":   false,
+			"reason":                   reason,
+		},
+		"status":        "current",
+		"content_hash":  ContentHash(summary),
+		"supersedes":    []interface{}{},
+	}
+}
+
+func (p *Publisher) factsForItem(itemID interface{}) []map[string]interface{} {
+	rows, err := p.common.pool.Query(context.Background(),
+		"SELECT fact_text, confidence FROM fact WHERE news_item_id = $1 ORDER BY occurred_at DESC",
+		itemID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var claims []map[string]interface{}
+	for rows.Next() {
+		var text string
+		var conf *string
+		if err := rows.Scan(&text, &conf); err != nil {
+			continue
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		confStr := "medium"
+		if conf != nil && (*conf == "high" || *conf == "medium" || *conf == "low") {
+			confStr = *conf
+		}
+		claims = append(claims, map[string]interface{}{
+			"id":         ClaimID(text),
+			"text":       text,
+			"confidence": confStr,
+		})
+	}
+	return claims
+}
+
+func loadExistingRecords(recordsDir string) map[string]map[string]interface{} {
+	result := make(map[string]map[string]interface{})
+	entries, err := os.ReadDir(recordsDir)
+	if err != nil {
+		return result
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(recordsDir, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var rec map[string]interface{}
+		if json.Unmarshal(data, &rec) == nil {
+			if id, ok := rec["id"].(string); ok {
+				result[id] = rec
+			}
+		}
+	}
+	return result
+}
+
+func getStr(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok || v == nil {
+		return ""
+	}
+	s := fmt.Sprint(v)
+	if s == "<nil>" {
+		return ""
+	}
+	return s
+}

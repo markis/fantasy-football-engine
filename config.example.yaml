@@ -1,0 +1,139 @@
+# Fantasy Football Engine — configuration template
+# Copy to config.yaml and adjust for your environment.
+
+server:
+  mcp_addr: ":3100"          # MCP Streamable HTTP endpoint
+  metrics_addr: ":3101"      # metrics (optional)
+
+database:
+  dsn: "postgres://fantasy:${FF_PG_PASSWORD}@ff-pg:5432/fantasy_football?sslmode=disable"
+  # or from env: postgres://fantasy:${FF_PG_PASSWORD}@ff-pg:5432/fantasy_football?sslmode=disable
+
+embeddings:
+  provider: "llama-server"   # "llama-server" (HTTP) | "candle" (future)
+  url: "http://llama-server:8080"
+  model: "nomic-embed-text-v1.5"
+  dimensions: 768
+  batch_size: 32             # texts per HTTP call (vs Python's 1-at-a-time)
+
+llm:
+  provider: "ollama-cloud"
+  url: "https://ollama.com"
+  model: "minimax-m3"
+  api_key: ""                # from env OLLAMA_API_KEY or pass show news/ollama-cloud
+  timeout_secs: 300
+  max_concurrency: 4         # gate fan-out
+
+sleeper:
+  base_url: "https://api.sleeper.app/v1"
+  rate_limit_per_min: 1000
+  markis_username: "markis"
+  markis_user_id: "558115100726579200"
+  seasons: [2026]
+
+sources:
+  - name: "Rotowire Fantasy News"
+    url: "https://football.rotowire.com/rss/news.php"
+  - name: "ESPN Fantasy Football"
+    url: "https://www.espn.com/espn/rss/fantasy/news"
+  - name: "CBS Sports NFL"
+    url: "https://www.cbssports.com/rss/headlines/nfl"
+  - name: "PFF Fantasy"
+    url: "https://www.pff.com/feed"
+  - name: "FantasySP NFL"
+    url: "https://www.fantasysp.com/rss/nfl/fantasysp/"
+  - name: "FantasyPros"
+    url: "https://www.fantasypros.com/feed/"
+  - name: "4for4"
+    url: "https://www.4for4.com/rss.xml"
+
+fantasypros:
+  api_key_pass: "football/fantasypros-api"
+  cookie_pass: "football/fantasypros-cookies"
+
+corpus:
+  repo_dir: "/data/corpus"
+  git_url: "https://github.com/markis/fantasy-football-corpus"
+  git_pat: ""                # from env FF_GITHUB_PAT or pass show football/fantasy-github-pat
+  author_name: "Markis Taylor"
+  author_email: "m@rkis.net"
+
+telemetry:
+  otel_endpoint: "http://otel-collector:4318"
+  service_name: "fantasy-football-engine"
+
+scheduler:
+  timezone: "America/New_York"
+  jobs:
+    - name: "fetch_rss"
+      schedule: "0 2 * * * *"       # :02 UTC hourly
+      step: "pipeline.fetch"
+    - name: "fetch_bodies"
+      schedule: "0 27,57 * * * *"   # :27/:57 UTC hourly
+      step: "pipeline.fetch_bodies"
+      limit: 20
+    - name: "fp_news"
+      schedule: "0 30 * * * *"      # :30 ET hourly
+      step: "pipeline.fetch_fp_news"
+    - name: "fp_injuries"
+      schedule: "0 20 * * * *"      # :20 ET hourly
+      step: "sync.fp_injuries"
+    - name: "enrich_embed_dedup_cluster"
+      schedule: "0 33 * * * *"      # :33 UTC hourly
+      step: "pipeline.enrich_embed_dedup_cluster"
+      limit: 10
+    - name: "extract_facts"
+      schedule: "0 37 * * * *"      # :37 UTC hourly
+      step: "pipeline.facts"
+      limit: 10
+    - name: "generate_stories"
+      schedule: "0 41 * * * *"      # :41 UTC hourly
+      step: "pipeline.stories"
+      limit: 10
+    - name: "publish_daily"
+      schedule: "0 45 * * * *"      # :45 UTC hourly
+      step: "corpus.publish"
+      mode: "daily"
+    - name: "fp_expert_notes"
+      schedule: "0 0 */6 * * *"     # every 6h ET
+      step: "pipeline.fetch_fp_news"
+    - name: "assess_leaguemates"
+      schedule: "0 0 9,21 * * *"    # 9am + 9pm ET
+      step: "sync.assess_leaguemates"
+      limit: 12
+    - name: "sync_players"
+      schedule: "0 0 3 * * *"       # 3am ET daily
+      step: "sync.players"
+    - name: "sync_leaguemates"
+      schedule: "0 30 3 * * *"      # 3:30am ET daily
+      step: "sync.leaguemates"
+    - name: "sync_leaguemates_trades"
+      schedule: "0 40 3 * * *"      # 3:40am ET daily
+      step: "sync.leaguemates_trades"
+    - name: "sync_rankings_14"
+      schedule: "0 0 5 * * *"       # 5am ET daily
+      step: "sync.rankings"
+      market: 14
+      source: "Dynasty Daddy"
+    - name: "sync_fantasycalc"
+      schedule: "0 15 5 * * *"      # 5:15am ET daily
+      step: "sync.fantasycalc"
+    - name: "sync_rankings_ktc"
+      schedule: "0 30 5 * * *"      # 5:30am ET daily
+      step: "sync.rankings"
+      market: 0
+      source: "KeepTradeCut"
+    - name: "sync_fp_rankings"
+      schedule: "0 0 6 * * *"       # 6am ET daily
+      step: "sync.fp_rankings"
+    - name: "assess_teams"
+      schedule: "0 0 7 * * 0"       # Sun 7am ET
+      step: "sync.assess_teams"
+    - name: "publish_weekly"
+      schedule: "0 5 8 * * 0"       # Sun 8:05am ET
+      step: "sync.assess_teams_publish_weekly"
+      mode: "weekly"
+    - name: "publish_monthly"
+      schedule: "0 30 2 1 * *"      # 1st of month 2:30am ET
+      step: "corpus.publish"
+      mode: "monthly"

@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fantasy-football-corpus/schemas/team-state.schema.json",
+  "title": "Team state snapshot (per league)",
+  "type": "object",
+  "required": ["as_of", "league", "team", "data_freshness"],
+  "additionalProperties": false,
+  "properties": {
+    "as_of": { "type": "string", "format": "date-time" },
+    "league": {
+      "type": "object",
+      "required": ["name","platform","league_id","format","teams","scoring_summary","roster_summary","trade_deadline","notes"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "platform": { "type": "string" },
+        "league_id": { "type": "string" },
+        "format": { "type": "string" },
+        "teams": { "type": "integer", "minimum": 1 },
+        "scoring_summary": { "type": "string" },
+        "roster_summary": { "type": "string" },
+        "trade_deadline": { "type": ["string","null"] },
+        "notes": { "type": "string" }
+      }
+    },
+    "team": {
+      "type": "object",
+      "required": ["name","competitive_mode","target_contention_window","roster","taxi_squad","injured_reserve","future_picks","faab_remaining","active_trade_discussions","roster_constraints","current_priorities"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "competitive_mode": { "type": "string", "enum": ["contending","retooling","rebuilding","unknown"] },
+        "target_contention_window": { "type": ["string","null"] },
+        "roster": { "type": "array", "items": { "$ref": "#/$defs/rosterSlot" } },
+        "taxi_squad": { "type": "array", "items": { "$ref": "#/$defs/rosterSlot" } },
+        "injured_reserve": { "type": "array", "items": { "$ref": "#/$defs/rosterSlot" } },
+        "future_picks": { "type": "array", "items": { "$ref": "#/$defs/futurePick" } },
+        "faab_remaining": { "type": ["integer","null"], "minimum": 0 },
+        "active_trade_discussions": { "type": "array", "items": { "type": "string" } },
+        "roster_constraints": { "type": "array", "items": { "type": "string" } },
+        "current_priorities": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "data_freshness": {
+      "type": "object",
+      "required": ["roster_updated_at","league_updated_at","transactions_updated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "roster_updated_at": { "type": ["string","null"], "format": "date-time" },
+        "league_updated_at": { "type": ["string","null"], "format": "date-time" },
+        "transactions_updated_at": { "type": ["string","null"], "format": "date-time" }
+      }
+    }
+  },
+  "$defs": {
+    "rosterSlot": {
+      "type": "object",
+      "required": ["sleeper_player_id","full_name","position","nfl_team","slot"],
+      "additionalProperties": false,
+      "properties": {
+        "sleeper_player_id": { "type": "string" },
+        "full_name": { "type": ["string","null"] },
+        "position": { "type": ["string","null"] },
+        "nfl_team": { "type": ["string","null"] },
+        "slot": { "type": "string", "description": "Roster slot label or 'BN'/'TAXI'/'IR'" },
+        "trade_value": { "type": ["integer","null"] },
+        "age": { "type": ["integer","null"] },
+        "injury_status": { "type": ["string","null"] }
+      }
+    },
+    "futurePick": {
+      "type": "object",
+      "required": ["season","round","original_team","current_owner"],
+      "additionalProperties": false,
+      "properties": {
+        "season": { "type": "integer" },
+        "round": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "original_team": { "type": "string" },
+        "current_owner": { "type": "string" },
+        "acquired": { "type": "boolean" }
+      }
+    }
+  }
+}
