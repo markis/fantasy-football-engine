@@ -23,7 +23,7 @@ const (
 // renderEvidence renders evidence/ from decision-relevant news items.
 func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir string) (map[string]any, error) {
 	recDir := filepath.Join(targetDir, "evidence", "records")
-	if err := os.MkdirAll(recDir, 0o755); err != nil {
+	if err := os.MkdirAll(recDir, 0o750); err != nil {
 		return nil, err
 	}
 

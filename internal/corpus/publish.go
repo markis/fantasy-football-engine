@@ -59,7 +59,7 @@ func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*Pub
 	if err := os.RemoveAll(staging); err != nil {
 		return nil, fmt.Errorf("clear staging: %w", err)
 	}
-	if err := os.MkdirAll(staging, 0o755); err != nil {
+	if err := os.MkdirAll(staging, 0o750); err != nil {
 		return nil, fmt.Errorf("create staging: %w", err)
 	}
 
@@ -183,7 +183,7 @@ func (p *Publisher) sync(staging, corpus string) error {
 	stagingFiles := listSubstanceFiles(staging)
 	for rel, full := range stagingFiles {
 		dst := filepath.Join(corpus, rel)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 			return err
 		}
 		data, err := os.ReadFile(full)
@@ -199,7 +199,7 @@ func (p *Publisher) sync(staging, corpus string) error {
 		src := filepath.Join(staging, extra)
 		if _, err := os.Stat(src); err == nil {
 			dst := filepath.Join(corpus, extra)
-			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 				slog.Warn("failed to create destination directory", "path", filepath.Dir(dst), "err", err)
 				continue
 			}

@@ -202,7 +202,7 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 	}
 
 	// strategy/current-team-plan.md
-	if err := os.MkdirAll(filepath.Join(targetDir, "strategy"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(targetDir, "strategy"), 0o750); err != nil {
 		return nil, err
 	}
 	planLines := []string{
@@ -220,10 +220,10 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 func (p *Publisher) renderLeaguemates(ctx context.Context, targetDir string) (map[string]any, error) {
 	curDir := filepath.Join(targetDir, "current")
 	dsDir := filepath.Join(targetDir, "datasets")
-	if err := os.MkdirAll(curDir, 0o755); err != nil {
+	if err := os.MkdirAll(curDir, 0o750); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(dsDir, 0o755); err != nil {
+	if err := os.MkdirAll(dsDir, 0o750); err != nil {
 		return nil, err
 	}
 

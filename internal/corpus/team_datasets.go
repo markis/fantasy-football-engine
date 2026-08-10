@@ -62,7 +62,7 @@ func dfltSlots(s []map[string]any) []map[string]any {
 // renderTeam renders team/ (team-state, roster, picks, settings, transactions).
 func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[string]any, error) {
 	teamDir := filepath.Join(targetDir, "team")
-	if err := os.MkdirAll(teamDir, 0o755); err != nil {
+	if err := os.MkdirAll(teamDir, 0o750); err != nil {
 		return nil, err
 	}
 	leaguesDir := filepath.Join(teamDir, "leagues")
@@ -346,7 +346,7 @@ func slugify(name string) string {
 // renderDatasets renders datasets/ JSONL/JSON feeds.
 func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[string]any, error) {
 	dsDir := filepath.Join(targetDir, "datasets")
-	if err := os.MkdirAll(dsDir, 0o755); err != nil {
+	if err := os.MkdirAll(dsDir, 0o750); err != nil {
 		return nil, err
 	}
 
