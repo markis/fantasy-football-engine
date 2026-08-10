@@ -118,7 +118,7 @@ func (p *Publisher) buildLeagueState(ctx context.Context, leagueID string, lf *m
 
 	rosterOwner := buildRosterOwnerMap(rosters)
 	starterSlots := nonBenchSlots(leagueInfo)
-	roster, taxiSquad, injuredReserve := p.buildRosterSlots(ctx, myRoster, starterSlots)
+	buckets := p.buildRosterSlots(ctx, myRoster, starterSlots)
 	futurePicks := p.buildFuturePicks(ctx, leagueID, myRoster, rosterOwner)
 	faabRemaining := computeFaabRemaining(myRoster, leagueInfo)
 	teamName := resolveTeamName(lf, myRoster)
@@ -140,9 +140,9 @@ func (p *Publisher) buildLeagueState(ctx context.Context, leagueID string, lf *m
 			"name":                     teamName,
 			"competitive_mode":         "unknown", // would be read from TEAM_STATE.md
 			"target_contention_window": nil,
-			"roster":                   dfltSlots(roster),
-			"taxi_squad":               dfltSlots(taxiSquad),
-			"injured_reserve":          dfltSlots(injuredReserve),
+			"roster":                   dfltSlots(buckets.roster),
+			"taxi_squad":               dfltSlots(buckets.taxiSquad),
+			"injured_reserve":          dfltSlots(buckets.injuredReserve),
 			"future_picks":             dfltSlots(futurePicks),
 			"faab_remaining":           faabRemaining,
 			"active_trade_discussions": []string{},
@@ -226,13 +226,16 @@ func resolveTeamName(lf *models.LeagueFormat, myRoster map[string]any) string {
 	return teamName
 }
 
+// rosterBuckets partitions a roster into its active/taxi/IR slot records.
+type rosterBuckets struct {
+	roster         []map[string]any
+	taxiSquad      []map[string]any
+	injuredReserve []map[string]any
+}
+
 // buildRosterSlots partitions Markis's roster into active roster, taxi
 // squad, and injured reserve slot records.
-func (p *Publisher) buildRosterSlots(
-	ctx context.Context, myRoster map[string]any, starterSlots []string,
-) ([]map[string]any, []map[string]any, []map[string]any) {
-	var roster, taxiSquad, injuredReserve []map[string]any
-
+func (p *Publisher) buildRosterSlots(ctx context.Context, myRoster map[string]any, starterSlots []string) rosterBuckets {
 	starters := toStringSlice(myRoster["starters"])
 	starterSlot := make(map[string]string, len(starters))
 	for i, pid := range starters {
@@ -248,22 +251,24 @@ func (p *Publisher) buildRosterSlots(
 	playerRows := p.common.PlayerRows(ctx, players)
 	rkRows := p.common.RankingRows(ctx, players, "Dynasty Daddy", 14)
 
+	var buckets rosterBuckets
 	for _, sid := range players {
 		pr := playerRows[sid]
 		if pr == nil {
 			continue
 		}
-		slotRec, category := buildPlayerSlotRecord(sid, pr, rkRows[sid], starterSlot, taxiSet, reserveSet)
-		switch category {
+		assignment := resolvePlayerSlot(sid, starterSlot, taxiSet, reserveSet)
+		slotRec := buildPlayerSlotRecord(sid, pr, rkRows[sid], assignment.slot)
+		switch assignment.bucket {
 		case "taxi":
-			taxiSquad = append(taxiSquad, slotRec)
+			buckets.taxiSquad = append(buckets.taxiSquad, slotRec)
 		case "reserve":
-			injuredReserve = append(injuredReserve, slotRec)
+			buckets.injuredReserve = append(buckets.injuredReserve, slotRec)
 		default:
-			roster = append(roster, slotRec)
+			buckets.roster = append(buckets.roster, slotRec)
 		}
 	}
-	return roster, taxiSquad, injuredReserve
+	return buckets
 }
 
 // toStringSet converts a decoded-JSON slice value into a lookup set.
@@ -275,12 +280,32 @@ func toStringSet(v any) map[string]bool {
 	return set
 }
 
-// buildPlayerSlotRecord builds the JSON record for a single rostered
-// player, and reports which bucket ("taxi", "reserve", or "" for active
-// roster) it belongs in.
-func buildPlayerSlotRecord(
-	sid string, pr, rk map[string]any, starterSlot map[string]string, taxiSet, reserveSet map[string]bool,
-) (map[string]any, string) {
+// playerSlotAssignment is a player's resolved lineup slot label and which
+// roster bucket ("taxi", "reserve", or "" for active roster) it belongs in.
+type playerSlotAssignment struct {
+	slot   string
+	bucket string
+}
+
+// resolvePlayerSlot determines a player's roster slot label and bucket.
+func resolvePlayerSlot(sid string, starterSlot map[string]string, taxiSet, reserveSet map[string]bool) playerSlotAssignment {
+	slot := "BN"
+	if s, ok := starterSlot[sid]; ok {
+		slot = s
+	}
+	switch {
+	case taxiSet[sid]:
+		return playerSlotAssignment{slot: "TAXI", bucket: "taxi"}
+	case reserveSet[sid]:
+		return playerSlotAssignment{slot: "IR", bucket: "reserve"}
+	default:
+		return playerSlotAssignment{slot: slot}
+	}
+}
+
+// buildPlayerSlotRecord builds the JSON record for a single rostered player
+// already assigned to slot.
+func buildPlayerSlotRecord(sid string, pr, rk map[string]any, slot string) map[string]any {
 	fullName := getStr(pr, "full_name")
 	pos := getStr(pr, "position")
 	teamAbbr := getStr(pr, "team_abbr")
@@ -297,21 +322,7 @@ func buildPlayerSlotRecord(
 		}
 	}
 
-	slot := "BN"
-	if s, ok := starterSlot[sid]; ok {
-		slot = s
-	}
-	category := ""
-	switch {
-	case taxiSet[sid]:
-		slot = "TAXI"
-		category = "taxi"
-	case reserveSet[sid]:
-		slot = "IR"
-		category = "reserve"
-	}
-
-	slotRec := map[string]any{
+	return map[string]any{
 		colSleeperPlayerID: sid,
 		colFullName:        nilIfEmpty(fullName),
 		colPosition:        nilIfEmpty(pos),
@@ -321,7 +332,6 @@ func buildPlayerSlotRecord(
 		colAge:             age,
 		colInjuryStatus:    nilIfEmpty(injuryStatus),
 	}
-	return slotRec, category
 }
 
 // buildFuturePicks returns the draft picks currently owned by Markis's
