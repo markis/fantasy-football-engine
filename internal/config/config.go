@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -105,7 +106,7 @@ type JobConfig struct {
 
 // Load reads the YAML config file and resolves secrets from env vars / pass.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is from config flag, not user input
 	if err != nil {
 		return nil, fmt.Errorf("read config %s: %w", path, err)
 	}
@@ -200,7 +201,7 @@ func (c *Config) resolveSecrets() {
 		c.LLM.APIKey = os.Getenv("OLLAMA_API_KEY")
 	}
 	if c.LLM.APIKey == "" {
-		key, err := passShow(c.LLM.APIKeyPass)
+		key, err := passShow(context.Background(), c.LLM.APIKeyPass)
 		if err != nil {
 			slog.Warn("LLM API key not found", "pass_path", c.LLM.APIKeyPass, "err", err)
 		} else {
@@ -214,7 +215,7 @@ func (c *Config) resolveSecrets() {
 		c.Corpus.GitPAT = os.Getenv("FF_GITHUB_PAT")
 	}
 	if c.Corpus.GitPAT == "" {
-		key, err := passShow(c.Corpus.GitPATPass)
+		key, err := passShow(context.Background(), c.Corpus.GitPATPass)
 		if err != nil {
 			slog.Warn("Git PAT not found", "pass_path", c.Corpus.GitPATPass, "err", err)
 		} else {
@@ -232,11 +233,13 @@ func expandEnv(s string) string {
 }
 
 // passShow retrieves a secret from the pass password store.
-func passShow(path string) (string, error) {
+func passShow(ctx context.Context, path string) (string, error) {
 	if path == "" {
 		return "", errEmptyPassPath
 	}
-	cmd := exec.Command("pass", "show", path)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctxWithTimeout, "pass", "show", path) //nolint:gosec // path is secret identifier from config, not user input
 	cmd.Env = os.Environ()
 	out, err := cmd.Output()
 	if err != nil {
@@ -250,8 +253,8 @@ func passShow(path string) (string, error) {
 }
 
 // PassShow is the exported version for other packages (FantasyPros API key, cookies).
-func PassShow(path string) (string, error) {
-	return passShow(path)
+func PassShow(ctx context.Context, path string) (string, error) {
+	return passShow(ctx, path)
 }
 
 // LLMTimeout returns the LLM timeout as a duration.

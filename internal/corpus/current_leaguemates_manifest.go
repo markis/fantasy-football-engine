@@ -317,7 +317,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 	clPath := filepath.Join(targetDir, "datasets", "change-log.jsonl")
 	clPrev := filepath.Join(prevDir, "datasets", "change-log.jsonl")
 	if data, err := os.ReadFile(clPrev); err == nil {
-		if err := os.WriteFile(clPath, data, 0o600); err != nil {
+		if err := os.WriteFile(clPath, data, 0o600); err != nil { //nolint:gosec // paths are internal corpus paths, not user input
 			slog.Warn("failed to write change-log", "err", err)
 		}
 	} else {

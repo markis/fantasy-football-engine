@@ -35,6 +35,17 @@ type DedupResult struct {
 	Status       string `json:"status"`
 }
 
+// dedupItem is a news item pending dedup checks.
+type dedupItem struct {
+	id        uuid.UUID
+	sourceID  uuid.UUID
+	urlHash   *string
+	simhash   *int64
+	embedding *string
+	published *any
+	createdAt any
+}
+
 // CheckBatch runs dedup on items that haven't been checked yet.
 func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult, error) {
 	rows, err := d.pool.Query(ctx, `
@@ -48,18 +59,9 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 	}
 	defer rows.Close()
 
-	type item struct {
-		id        uuid.UUID
-		sourceID  uuid.UUID
-		urlHash   *string
-		simhash   *int64
-		embedding *string
-		published *any
-		createdAt any
-	}
-	var items []item
+	var items []dedupItem
 	for rows.Next() {
-		var it item
+		var it dedupItem
 		if err := rows.Scan(&it.id, &it.sourceID, &it.urlHash, &it.simhash,
 			&it.embedding, &it.published, &it.createdAt); err != nil {
 			return nil, err
@@ -89,55 +91,15 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 
 		// Near dedup (simhash)
 		if it.simhash != nil {
-			nearRows, err := d.pool.Query(ctx, `
-				SELECT id, simhash FROM news_item
-				WHERE source_id = $1 AND simhash IS NOT NULL AND id != $2
-				AND created_at < $3
-			`, it.sourceID, it.id, it.createdAt)
-			if err == nil {
-				found := false
-				for nearRows.Next() {
-					var candID uuid.UUID
-					var candSimhash int64
-					if err := nearRows.Scan(&candID, &candSimhash); err != nil {
-						continue
-					}
-					if HammingDistance(*it.simhash, candSimhash) <= simhashThreshold {
-						if _, err := d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.5 WHERE id = $1", it.id); err != nil {
-							slog.Warn("mark near dup", "err", err)
-						}
-						result.NearDups++
-						found = true
-						break
-					}
-				}
-				nearRows.Close()
-				if found {
-					continue
-				}
+			if d.checkNearDup(ctx, &it, result) {
+				continue
 			}
 		}
 
 		// Semantic dedup (embedding cosine)
 		if it.embedding != nil && *it.embedding != "" {
-			var semanticID uuid.UUID
-			var distance float64
-			err := d.pool.QueryRow(ctx, `
-				SELECT id, embedding <=> $1::vector AS distance
-				FROM news_item
-				WHERE source_id != $2 AND embedding IS NOT NULL AND id != $3
-				AND created_at < $4
-				ORDER BY distance LIMIT 1
-			`, *it.embedding, it.sourceID, it.id, it.createdAt).Scan(&semanticID, &distance)
-			if err == nil {
-				cosineSim := 1 - distance
-				if cosineSim >= cosineThreshold {
-					if _, err := d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.3 WHERE id = $1", it.id); err != nil {
-						slog.Warn("mark semantic dup", "err", err)
-					}
-					result.SemanticDups++
-					continue
-				}
+			if d.checkSemanticDup(ctx, &it, result) {
+				continue
 			}
 		}
 	}
@@ -146,4 +108,58 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 	slog.Info("dedup complete", "checked", result.Checked, "exact", result.ExactDups,
 		"near", result.NearDups, "semantic", result.SemanticDups)
 	return result, nil
+}
+
+// checkNearDup checks if an item is a near duplicate using simhash.
+func (d *DedupChecker) checkNearDup(ctx context.Context, it *dedupItem, result *DedupResult) bool {
+	nearRows, err := d.pool.Query(ctx, `
+		SELECT id, simhash FROM news_item
+		WHERE source_id = $1 AND simhash IS NOT NULL AND id != $2
+		AND created_at < $3
+	`, it.sourceID, it.id, it.createdAt)
+	if err != nil {
+		return false
+	}
+	defer nearRows.Close()
+
+	for nearRows.Next() {
+		var candID uuid.UUID
+		var candSimhash int64
+		if err := nearRows.Scan(&candID, &candSimhash); err != nil {
+			continue
+		}
+		if HammingDistance(*it.simhash, candSimhash) <= simhashThreshold {
+			if _, err := d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.5 WHERE id = $1", it.id); err != nil {
+				slog.Warn("mark near dup", "err", err)
+			}
+			result.NearDups++
+			return true
+		}
+	}
+	return false
+}
+
+// checkSemanticDup checks if an item is a semantic duplicate using embeddings.
+func (d *DedupChecker) checkSemanticDup(ctx context.Context, it *dedupItem, result *DedupResult) bool {
+	var semanticID uuid.UUID
+	var distance float64
+	err := d.pool.QueryRow(ctx, `
+		SELECT id, embedding <=> $1::vector AS distance
+		FROM news_item
+		WHERE source_id != $2 AND embedding IS NOT NULL AND id != $3
+		AND created_at < $4
+		ORDER BY distance LIMIT 1
+	`, *it.embedding, it.sourceID, it.id, it.createdAt).Scan(&semanticID, &distance)
+	if err != nil {
+		return false
+	}
+	cosineSim := 1 - distance
+	if cosineSim >= cosineThreshold {
+		if _, err := d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.3 WHERE id = $1", it.id); err != nil {
+			slog.Warn("mark semantic dup", "err", err)
+		}
+		result.SemanticDups++
+		return true
+	}
+	return false
 }

@@ -62,7 +62,7 @@ func compileSchemas() map[string]*jsonschema.Schema {
 
 // schemaForPath returns the compiled schema governing rel (if any) and
 // whether rel is a JSONL (one-record-per-line) file.
-func schemaForPath(rel string) (sch *jsonschema.Schema, isJSONL bool) {
+func schemaForPath(rel string) (*jsonschema.Schema, bool) {
 	rel = filepath.ToSlash(rel)
 	for _, rule := range schemaRules {
 		if rule.pathPattern.MatchString(rel) {

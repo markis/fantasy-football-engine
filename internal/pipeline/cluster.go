@@ -80,7 +80,9 @@ func (c *Clusterer) processItem(ctx context.Context, itemID uuid.UUID) (string, 
 		return "not_found", err
 	}
 
-	if embeddingText != nil && *embeddingText != "" {
+	if embeddingText == nil || *embeddingText == "" {
+		// No embedding, create new cluster
+	} else {
 		// Find matching cluster
 		var clusterID uuid.UUID
 		var repTitle *string

@@ -46,7 +46,7 @@ type FPRankingsResult struct {
 func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) {
 	result := &FPRankingsResult{Source: fpRankingsSource, Status: "ok"}
 
-	apiKey, err := config.PassShow(s.cfg.FantasyPros.APIKeyPass)
+	apiKey, err := config.PassShow(ctx, s.cfg.FantasyPros.APIKeyPass)
 	if err != nil {
 		return nil, fmt.Errorf("get FP API key: %w", err)
 	}

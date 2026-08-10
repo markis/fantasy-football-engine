@@ -114,11 +114,17 @@ func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*Pub
 	slog.Info("validation OK")
 
 	if evidenceSummary != nil {
-		result.EvidenceCurrent = evidenceSummary["current_count"].(int)      //nolint:errcheck // Type assertion guaranteed by renderEvidence
-		result.EvidenceSuperseded = evidenceSummary["superseded_count"].(int) //nolint:errcheck // Type assertion guaranteed by renderEvidence
+		if v, ok := evidenceSummary["current_count"].(int); ok {
+			result.EvidenceCurrent = v
+		}
+		if v, ok := evidenceSummary["superseded_count"].(int); ok {
+			result.EvidenceSuperseded = v
+		}
 	}
 	if datasetsSummary != nil {
-		result.Players = datasetsSummary["players"].(int) //nolint:errcheck // Type assertion guaranteed by renderDatasets
+		if v, ok := datasetsSummary["players"].(int); ok {
+			result.Players = v
+		}
 		result.Signals = datasetsSummary["signals"].(int) //nolint:errcheck // Type assertion guaranteed by renderDatasets
 		result.Valuations = datasetsSummary["valuations"].(int) //nolint:errcheck // Type assertion guaranteed by renderDatasets
 	}
@@ -190,7 +196,7 @@ func (p *Publisher) sync(staging, corpus string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(dst, data, 0o600); err != nil {
+		if err := os.WriteFile(dst, data, 0o600); err != nil { //nolint:gosec // paths are internal corpus paths, not user input
 			return err
 		}
 	}
@@ -208,7 +214,7 @@ func (p *Publisher) sync(staging, corpus string) error {
 				slog.Warn("failed to read extra file", "src", src, "err", err)
 				continue
 			}
-			if err := os.WriteFile(dst, data, 0o600); err != nil {
+			if err := os.WriteFile(dst, data, 0o600); err != nil { //nolint:gosec // paths are internal corpus paths, not user input
 				slog.Warn("failed to write extra file", "dst", dst, "err", err)
 			}
 		}
@@ -235,28 +241,32 @@ func listSubstanceFiles(root string) map[string]string {
 
 func walkDir(root, prefix string, files map[string]string, entries []os.DirEntry) {
 	for _, entry := range entries {
-		if entry.IsDir() {
-			if entry.Name() == ".git" || entry.Name() == ".staging" || entry.Name() == "schemas" {
-				continue
-			}
-			sub, err := os.ReadDir(filepath.Join(root, prefix, entry.Name()))
-			if err != nil {
-				continue
-			}
-			walkDir(root, filepath.Join(prefix, entry.Name()), files, sub)
-		} else {
-			name := entry.Name()
-			if name == ".gitignore" || name == "corpus-manifest.json" || name == ".publish.log" {
-				continue
-			}
-			rel := filepath.Join(prefix, name)
-			// Skip protected files
-			if isProtected(rel) {
-				continue
-			}
-			files[rel] = filepath.Join(root, rel)
+		if !entry.IsDir() {
+			processFile(root, prefix, files, entry)
+			continue
 		}
+		if entry.Name() == ".git" || entry.Name() == ".staging" || entry.Name() == "schemas" {
+			continue
+		}
+		sub, err := os.ReadDir(filepath.Join(root, prefix, entry.Name()))
+		if err != nil {
+			continue
+		}
+		walkDir(root, filepath.Join(prefix, entry.Name()), files, sub)
 	}
+}
+
+func processFile(root, prefix string, files map[string]string, entry os.DirEntry) {
+	name := entry.Name()
+	if name == ".gitignore" || name == "corpus-manifest.json" || name == ".publish.log" {
+		return
+	}
+	rel := filepath.Join(prefix, name)
+	// Skip protected files
+	if isProtected(rel) {
+		return
+	}
+	files[rel] = filepath.Join(root, rel)
 }
 
 func isProtected(rel string) bool {

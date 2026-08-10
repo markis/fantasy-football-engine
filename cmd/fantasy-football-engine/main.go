@@ -283,19 +283,19 @@ func registerSteps(
 	})
 
 	// Sync: FP rankings
-	sched.RegisterStep("sync.fp_rankings", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("sync.fp_rankings", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := fpRankingsSyncer.Sync(ctx)
 		return err
 	})
 
 	// Sync: leaguemates
-	sched.RegisterStep("sync.leaguemates", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("sync.leaguemates", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := leaguemateSyncer.Sync(ctx, 15, "")
 		return err
 	})
 
 	// Sync: leaguemate trades
-	sched.RegisterStep("sync.leaguemates_trades", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("sync.leaguemates_trades", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := tradesSyncer.Sync(ctx, 3)
 		return err
 	})
@@ -311,7 +311,7 @@ func registerSteps(
 	})
 
 	// Sync: assess teams
-	sched.RegisterStep("sync.assess_teams", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("sync.assess_teams", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := teamAssessor.Assess(ctx)
 		return err
 	})
@@ -346,7 +346,7 @@ func registerSteps(
 	})
 
 	// Combined step: assess_teams + publish weekly (cron #19)
-	sched.RegisterStep("sync.assess_teams_publish_weekly", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("sync.assess_teams_publish_weekly", func(ctx context.Context, _ config.JobConfig) error {
 		_, errAssess := teamAssessor.Assess(ctx)
 		_, errPublish := publisher.Publish(ctx, "weekly", false)
 		return errors.Join(errAssess, errPublish)

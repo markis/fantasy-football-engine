@@ -40,7 +40,7 @@ type FPInjuriesResult struct {
 func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) {
 	result := &FPInjuriesResult{Status: "ok"}
 
-	apiKey, err := config.PassShow(s.cfg.FantasyPros.APIKeyPass)
+	apiKey, err := config.PassShow(ctx, s.cfg.FantasyPros.APIKeyPass)
 	if err != nil {
 		return nil, fmt.Errorf("get FP API key: %w", err)
 	}

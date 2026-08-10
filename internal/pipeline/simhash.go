@@ -1,7 +1,7 @@
 package pipeline
 
 import (
-	"crypto/md5"
+	"crypto/md5" //nolint:gosec // MD5 used for locality-sensitive hashing, not cryptographic security
 	"encoding/binary"
 	"regexp"
 	"strings"
@@ -25,8 +25,8 @@ func SimhashCompute(text string) int64 {
 
 	v := make([]int, HashBits)
 	for _, token := range tokens {
-		h := md5.Sum([]byte(token))
-		hash := int64(binary.BigEndian.Uint64(h[:8]))
+		h := md5.Sum([]byte(token)) //nolint:gosec // MD5 used for locality-sensitive hashing, not cryptographic security
+		hash := int64(binary.BigEndian.Uint64(h[:8])) //nolint:gosec // Conversion is safe for fingerprinting
 		for i := range HashBits {
 			if hash&(1<<int64(i)) != 0 {
 				v[i]++
@@ -53,7 +53,7 @@ func SimhashCompute(text string) int64 {
 
 // HammingDistance returns the Hamming distance between two int64 fingerprints.
 func HammingDistance(a, b int64) int {
-	x := uint64(a) ^ uint64(b)
+	x := uint64(a) ^ uint64(b) //nolint:gosec // Conversion is safe for fingerprinting
 	count := 0
 	for x > 0 {
 		count++

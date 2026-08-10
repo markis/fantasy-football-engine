@@ -94,7 +94,7 @@ func ContentHash(text string) string {
 }
 
 func FileSHA256Bytes(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is internal content directory path, not user input
 	if err != nil {
 		return "", err
 	}
@@ -371,7 +371,7 @@ func AppendJSONL(path string, obj any) error {
 		return err
 	}
 	data = append(data, '\n')
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // path is content directory path, not user input
 	if err != nil {
 		return err
 	}

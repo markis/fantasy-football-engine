@@ -242,11 +242,9 @@ func contentHash(text string) string {
 
 func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sourceType string, item *gofeed.Item, rawDocID uuid.UUID) (bool, bool, error) {
 	link := item.Link
-	guid := ""
+	guid := link
 	if item.GUID != "" {
 		guid = item.GUID
-	} else {
-		guid = link
 	}
 	title := item.Title
 	author := ""
@@ -332,44 +330,11 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 		}
 	}
 
-	if existingID != nil {
-		// Update only if new content is longer
-		var existingTextLen int
-		if err := f.pool.QueryRow(ctx, "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1", *existingID).Scan(&existingTextLen); err != nil {
-			slog.Warn("query existing content length", "err", err)
-			existingTextLen = 0
-		}
-		newTextLen := len(contentText)
-
-		if newTextLen > existingTextLen {
-			_, err := f.pool.Exec(ctx, `
-				UPDATE news_item SET
-					url = $1, canonical_url = $2, canonical_url_hash = $3,
-					title = $4, author = $5, published_at = COALESCE($6, published_at),
-					content_html = $7, content_text = $8, content_markdown = $9,
-					summary_short = $10, content_hash = $11, simhash = $12,
-					raw_document_id = $13, body_fetch_status = $14, fetched_at = now()
-				WHERE id = $15
-			`, link, cURL, cURLHash, title, author, published,
-				contentHTML, contentText, contentHTML, summaryShort, cHash, sh, rawDocID, bodyStatus, *existingID)
-			if err != nil {
-				return false, false, err
-			}
-		} else {
-			_, err := f.pool.Exec(ctx, `
-				UPDATE news_item SET
-					url = $1, canonical_url = $2, canonical_url_hash = $3,
-					title = $4, author = $5, published_at = COALESCE($6, published_at),
-					summary_short = $7, content_hash = $8, simhash = $9,
-					raw_document_id = $10, body_fetch_status = $11, fetched_at = now()
-				WHERE id = $12
-			`, link, cURL, cURLHash, title, author, published,
-				summaryShort, cHash, sh, rawDocID, bodyStatus, *existingID)
-			if err != nil {
-				return false, false, err
-			}
-		}
-		return false, true, nil
+	if existingID == nil {
+		// Insert new item will be handled below
+	} else {
+		return f.updateExistingItem(ctx, existingID, &link, &cURL, &cURLHash, &title, &author, published,
+			&contentHTML, &contentText, &summaryShort, &cHash, &sh, rawDocID, bodyStatus)
 	}
 
 	// Insert new item
@@ -388,4 +353,50 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 		return false, false, err
 	}
 	return true, false, nil
+}
+
+// updateExistingItem updates an existing news item if new content is longer.
+func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UUID,
+	link, cURL, cURLHash, title, author *string, published any,
+	contentHTML, contentText, summaryShort, cHash *string, sh *int64, rawDocID uuid.UUID, bodyStatus string,
+) (bool, bool, error) {
+	// Query existing content length
+	var existingTextLen int
+	if err := f.pool.QueryRow(ctx, "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1", *existingID).Scan(&existingTextLen); err != nil {
+		slog.Warn("query existing content length", "err", err)
+		existingTextLen = 0
+	}
+	newTextLen := len(*contentText)
+
+	if newTextLen > existingTextLen {
+		// Update with content
+		_, err := f.pool.Exec(ctx, `
+			UPDATE news_item SET
+				url = $1, canonical_url = $2, canonical_url_hash = $3,
+				title = $4, author = $5, published_at = COALESCE($6, published_at),
+				content_html = $7, content_text = $8, content_markdown = $9,
+				summary_short = $10, content_hash = $11, simhash = $12,
+				raw_document_id = $13, body_fetch_status = $14, fetched_at = now()
+			WHERE id = $15
+		`, link, cURL, cURLHash, title, author, published,
+			contentHTML, contentText, contentHTML, summaryShort, cHash, sh, rawDocID, bodyStatus, *existingID)
+		if err != nil {
+			return false, false, err
+		}
+	} else {
+		// Update without content
+		_, err := f.pool.Exec(ctx, `
+			UPDATE news_item SET
+				url = $1, canonical_url = $2, canonical_url_hash = $3,
+				title = $4, author = $5, published_at = COALESCE($6, published_at),
+				summary_short = $7, content_hash = $8, simhash = $9,
+				raw_document_id = $10, body_fetch_status = $11, fetched_at = now()
+			WHERE id = $12
+		`, link, cURL, cURLHash, title, author, published,
+			summaryShort, cHash, sh, rawDocID, bodyStatus, *existingID)
+		if err != nil {
+			return false, false, err
+		}
+	}
+	return false, true, nil
 }

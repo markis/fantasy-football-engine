@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/markis/fantasy-football-engine/internal/query"
 )
@@ -373,8 +374,17 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/", s.handleHTTP)
 	mux.HandleFunc("/mcp", s.handleMCP)
 
+	server := &http.Server{
+		Addr:              s.addr,
+		Handler:           mux,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      10 * time.Second,
+		IdleTimeout:       30 * time.Second,
+		ReadHeaderTimeout: 2 * time.Second,
+	}
+
 	slog.Info("MCP server starting", "addr", s.addr)
-	return http.ListenAndServe(s.addr, mux)
+	return server.ListenAndServe()
 }
 
 // handleHTTP is a simple health check endpoint.
@@ -508,7 +518,7 @@ func writeJSONRPCResult(w http.ResponseWriter, id json.RawMessage, result any) {
 	w.Header().Set("Content-Type", contentTypeJSON)
 	resp := map[string]any{
 		"jsonrpc": jsonrpcVersion,
-		"id":      json.RawMessage(id),
+		"id":      id,
 		"result":  result,
 	}
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
@@ -523,7 +533,7 @@ func writeJSONRPCError(w http.ResponseWriter, id json.RawMessage, code int, mess
 	}
 	resp := map[string]any{
 		"jsonrpc": jsonrpcVersion,
-		"id":      json.RawMessage(id),
+		"id":      id,
 		"error": map[string]any{
 			"code":    code,
 			"message": message,

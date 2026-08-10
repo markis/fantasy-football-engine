@@ -37,7 +37,11 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 	current := make(map[string]map[string]any)
 	for _, item := range items {
 		rec := p.buildEvidenceRecord(ctx, item, ownership)
-		current[rec["id"].(string)] = rec //nolint:errcheck // buildEvidenceRecord guarantees "id" key exists and is string
+		id, ok := rec["id"].(string)
+		if !ok {
+			continue // Skip records without valid id
+		}
+		current[id] = rec
 	}
 
 	// Load previous records
@@ -156,7 +160,7 @@ func (p *Publisher) buildWatchSet(ctx context.Context) (watchIDs []string, nameI
 	playerRows := p.common.PlayerRows(ctx, ids)
 	nameIndex = BuildNameIndex(playerRows)
 	watchIDs = ids
-	return
+	return watchIDs, nameIndex, ownership
 }
 
 func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameIndex map[string][]string) []map[string]any {
@@ -297,8 +301,10 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 		titleStr = urlStr
 	}
 
-	topics := item["topics"].([]string) //nolint:errcheck // External data may not have field
-	topic := TopicFromTopics(topics)
+	var topic string
+	if topicsList, ok := item["topics"].([]string); ok {
+		topic = TopicFromTopics(topicsList)
+	}
 
 	var publishedAt any
 	if v, ok := item["published_at"].(*time.Time); ok && v != nil {
