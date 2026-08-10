@@ -95,78 +95,100 @@ func Validate(target string) []string {
 		if strings.HasPrefix(rel, ".git") || strings.HasPrefix(rel, ".staging") {
 			return nil
 		}
-		// Scan for secrets
-		data, err := os.ReadFile(path) //nolint:gosec // path comes from internal filepath.Walk, not user input
+		//nolint:gosec // path comes from internal filepath.Walk, not user input
+		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
 		}
 		content := string(data)
-		for _, pat := range secretPatterns {
-			if pat.MatchString(content) {
-				errors = append(errors, "secret pattern "+pat.String()+" found in "+rel)
-			}
-		}
-		// Validate JSON files
+		errors = append(errors, validateSecrets(rel, content)...)
 		if strings.HasSuffix(path, ".json") {
-			var v any
-			if err := json.Unmarshal(data, &v); err != nil {
-				errors = append(errors, rel+": invalid JSON: "+err.Error())
-			} else if sch, isJSONL := schemaForPath(rel); sch != nil && !isJSONL {
-				if err := sch.Validate(v); err != nil {
-					errors = append(errors, rel+": schema violation: "+err.Error())
-				}
-			}
+			errors = append(errors, validateJSONFile(rel, data)...)
 		}
-		// Validate JSONL files
 		if strings.HasSuffix(path, ".jsonl") {
-			sch, isJSONL := schemaForPath(rel)
-			if !isJSONL {
-				sch = nil
-			}
-			for i, line := range strings.Split(content, "\n") {
-				line = strings.TrimSpace(line)
-				if line == "" {
-					continue
-				}
-				var v any
-				if err := json.Unmarshal([]byte(line), &v); err != nil {
-					errors = append(errors, rel+":"+strconv.Itoa(i+1)+": invalid JSON: "+err.Error())
-					continue
-				}
-				if sch != nil {
-					if err := sch.Validate(v); err != nil {
-						errors = append(errors, rel+":"+strconv.Itoa(i+1)+": schema violation: "+err.Error())
-					}
-				}
-			}
+			errors = append(errors, validateJSONLFile(rel, content)...)
 		}
 		return nil
 	}); err != nil {
 		errors = append(errors, "walk target directory: "+err.Error())
 	}
 
-	// Validate manifest hashes
-	manifestPath := filepath.Join(target, "corpus-manifest.json")
-	//nolint:gosec // manifestPath is from internal config path, not user input
-	if data, err := os.ReadFile(manifestPath); err == nil {
-		errors = append(errors, validateManifest(data, target)...)
-	}
+	errors = append(errors, validateManifest(target)...)
 
 	return errors
 }
 
-func validateManifest(data []byte, target string) []string {
+// validateSecrets scans file content for known secret patterns.
+func validateSecrets(rel, content string) []string {
 	var errors []string
+	for _, pat := range secretPatterns {
+		if pat.MatchString(content) {
+			errors = append(errors, "secret pattern "+pat.String()+" found in "+rel)
+		}
+	}
+	return errors
+}
+
+// validateJSONFile checks that a .json file parses as valid JSON and, if a
+// schema governs it, validates it against that schema.
+func validateJSONFile(rel string, data []byte) []string {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return []string{rel + ": invalid JSON: " + err.Error()}
+	}
+	var errors []string
+	if sch, isJSONL := schemaForPath(rel); sch != nil && !isJSONL {
+		if err := sch.Validate(v); err != nil {
+			errors = append(errors, rel+": schema violation: "+err.Error())
+		}
+	}
+	return errors
+}
+
+// validateJSONLFile checks that each non-empty line of a .jsonl file parses
+// as valid JSON and, if a schema governs it, validates it against that schema.
+func validateJSONLFile(rel, content string) []string {
+	var errors []string
+	sch, isJSONL := schemaForPath(rel)
+	if !isJSONL {
+		sch = nil
+	}
+	for i, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var v any
+		if err := json.Unmarshal([]byte(line), &v); err != nil {
+			errors = append(errors, rel+":"+strconv.Itoa(i+1)+": invalid JSON: "+err.Error())
+			continue
+		}
+		if sch != nil {
+			if err := sch.Validate(v); err != nil {
+				errors = append(errors, rel+":"+strconv.Itoa(i+1)+": schema violation: "+err.Error())
+			}
+		}
+	}
+	return errors
+}
+
+// validateManifest checks that every file referenced by corpus-manifest.json exists.
+func validateManifest(target string) []string {
+	var errors []string
+	manifestPath := filepath.Join(target, "corpus-manifest.json")
+	//nolint:gosec // manifestPath is from internal config path, not user input
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return errors
+	}
 	var manifest map[string]any
 	if json.Unmarshal(data, &manifest) != nil {
 		return errors
 	}
-
 	files, ok := manifest["files"].([]any)
 	if !ok {
 		return errors
 	}
-
 	for _, f := range files {
 		fi, ok := f.(map[string]any)
 		if !ok {
@@ -183,7 +205,6 @@ func validateManifest(data []byte, target string) []string {
 			errors = append(errors, "manifest references missing file "+path)
 		}
 	}
-
 	return errors
 }
 

@@ -120,9 +120,23 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) setDefaults() {
+	c.setDefaultsServer()
+	c.setDefaultsEmbeddings()
+	c.setDefaultsLLM()
+	c.setDefaultsSleeper()
+	c.setDefaultsFantasyPros()
+	c.setDefaultsCorpus()
+	c.setDefaultsTelemetry()
+	c.setDefaultsScheduler()
+}
+
+func (c *Config) setDefaultsServer() {
 	if c.Server.MCPAddr == "" {
 		c.Server.MCPAddr = ":3100"
 	}
+}
+
+func (c *Config) setDefaultsEmbeddings() {
 	if c.Embeddings.Provider == "" {
 		c.Embeddings.Provider = "llama-server"
 	}
@@ -138,6 +152,9 @@ func (c *Config) setDefaults() {
 	if c.Embeddings.BatchSize == 0 {
 		c.Embeddings.BatchSize = 32
 	}
+}
+
+func (c *Config) setDefaultsLLM() {
 	if c.LLM.Provider == "" {
 		c.LLM.Provider = "ollama-cloud"
 	}
@@ -156,6 +173,9 @@ func (c *Config) setDefaults() {
 	if c.LLM.APIKeyPass == "" {
 		c.LLM.APIKeyPass = "news/ollama-cloud"
 	}
+}
+
+func (c *Config) setDefaultsSleeper() {
 	if c.Sleeper.BaseURL == "" {
 		c.Sleeper.BaseURL = "https://api.sleeper.app/v1"
 	}
@@ -165,12 +185,18 @@ func (c *Config) setDefaults() {
 	if len(c.Sleeper.Seasons) == 0 {
 		c.Sleeper.Seasons = []int{2026}
 	}
+}
+
+func (c *Config) setDefaultsFantasyPros() {
 	if c.FantasyPros.APIKeyPass == "" {
 		c.FantasyPros.APIKeyPass = "football/fantasypros-api"
 	}
 	if c.FantasyPros.CookiePass == "" {
 		c.FantasyPros.CookiePass = "football/fantasypros-cookies"
 	}
+}
+
+func (c *Config) setDefaultsCorpus() {
 	if c.Corpus.GitURL == "" {
 		c.Corpus.GitURL = "https://github.com/markis/fantasy-football-corpus"
 	}
@@ -183,9 +209,15 @@ func (c *Config) setDefaults() {
 	if c.Corpus.AuthorEmail == "" {
 		c.Corpus.AuthorEmail = "m@rkis.net"
 	}
+}
+
+func (c *Config) setDefaultsTelemetry() {
 	if c.Telemetry.ServiceName == "" {
 		c.Telemetry.ServiceName = "fantasy-football-engine"
 	}
+}
+
+func (c *Config) setDefaultsScheduler() {
 	if c.Scheduler.Timezone == "" {
 		c.Scheduler.Timezone = "America/New_York"
 	}

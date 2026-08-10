@@ -404,36 +404,42 @@ func ReadJSONL(path string) ([]map[string]any, error) {
 
 // --- Topic mapping ---
 
+// topicRules maps a topic result to the set of keywords that trigger it.
+// Order matters: the first rule with a matching keyword wins.
+var topicRules = []struct {
+	result   string
+	keywords []string
+}{
+	{colInjury, []string{colInjury}},
+	{"transaction", []string{"transaction"}},
+	{"depth-chart", []string{"depth chart"}},
+	{"usage", []string{"usage", "snap", "target", "touch"}},
+	{"production", []string{"performance", "production"}},
+	{"rookie", []string{"draft", "rookie"}},
+	{"schedule", []string{"schedule", "matchup"}},
+	{"market", []string{"market", "trade", "value"}},
+}
+
 func TopicFromTopics(topics []string) string {
 	tset := make(map[string]bool)
 	for _, t := range topics {
 		tset[strings.ToLower(t)] = true
 	}
-	if tset[colInjury] {
-		return colInjury
-	}
-	if tset["transaction"] {
-		return "transaction"
-	}
-	if tset["depth chart"] {
-		return "depth-chart"
-	}
-	if tset["usage"] || tset["snap"] || tset["target"] || tset["touch"] {
-		return "usage"
-	}
-	if tset["performance"] || tset["production"] {
-		return "production"
-	}
-	if tset["draft"] || tset["rookie"] {
-		return "rookie"
-	}
-	if tset["schedule"] || tset["matchup"] {
-		return "schedule"
-	}
-	if tset["market"] || tset["trade"] || tset["value"] {
-		return "market"
+	for _, rule := range topicRules {
+		if topicSetHasAny(tset, rule.keywords) {
+			return rule.result
+		}
 	}
 	return "other"
+}
+
+func topicSetHasAny(tset map[string]bool, keywords []string) bool {
+	for _, k := range keywords {
+		if tset[k] {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Helper ---
