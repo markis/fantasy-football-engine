@@ -125,7 +125,7 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 			continue
 		}
 		pos := fmt.Sprint(p["position_id"])
-		if pos == "<nil>" {
+		if pos == nilStr {
 			pos = ""
 		}
 		posRank := toInt(dynMap[pos])
@@ -141,7 +141,7 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 		}
 		matched++
 
-		_, err := s.pool.Exec(ctx, `
+		_, err := s.pool.Exec(ctx, ` //nolint:goconst // SQL string contains literal '<nil>'
 			INSERT INTO player_ranking (player_id, source, market, position, team,
 			                            overall_rank, position_rank, snapshot_date)
 			VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '<nil>'), $6, $7, CURRENT_DATE)

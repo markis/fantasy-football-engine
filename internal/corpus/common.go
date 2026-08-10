@@ -19,6 +19,7 @@ import (
 	"github.com/markis/fantasy-football-engine/internal/sleeper"
 )
 
+
 // Common provides shared helpers for the corpus publisher.
 type Common struct {
 	pool           *db.Pool
@@ -201,7 +202,7 @@ func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string
 	defer rows.Close()
 	cols := []string{
 		"sleeper_player_id", "full_name", "first_name", "last_name", "search_full_name",
-		"position", "team", "team_abbr", "age", "injury_status", "injury_body_part",
+		"position", "team", "team_abbr", colAge, "injury_status", "injury_body_part",
 		"injury_notes", "status", "active", "depth_chart_position", "depth_chart_order",
 		"last_synced_at",
 	}
@@ -449,7 +450,7 @@ func toStringSlice(v any) []string {
 	result := make([]string, 0, len(arr))
 	for _, item := range arr {
 		s := fmt.Sprint(item)
-		if s != "" && s != "<nil>" {
+		if s != "" && s != nilStr {
 			result = append(result, s)
 		}
 	}

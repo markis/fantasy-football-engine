@@ -14,6 +14,7 @@ import (
 	"github.com/markis/fantasy-football-engine/internal/models"
 )
 
+
 // renderCurrent renders current/ markdown briefs.
 func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[string]any, error) {
 	curDir := filepath.Join(targetDir, "current")
@@ -138,55 +139,11 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 		  AND (p.years_exp = 0 OR p.age <= 22)
 		ORDER BY r.overall_rank ASC NULLS LAST LIMIT 40
 	`)
-	if err == nil {
-		defer rows.Close()
-		byPos := make(map[string][]string)
-		for rows.Next() {
-			var fullName, position, teamAbbr *string
-			var age, yearsExp *int
-			var tradeValue, overallRank, positionRank *int
-			if err := rows.Scan(&fullName, &position, &teamAbbr, &age, &yearsExp,
-				&tradeValue, &overallRank, &positionRank); err != nil {
-				continue
-			}
-			pos := "?"
-			if position != nil {
-				pos = *position
-			}
-			name := ""
-			if fullName != nil {
-				name = *fullName
-			}
-			team := ""
-			if teamAbbr != nil {
-				team = *teamAbbr
-			}
-			ageStr := ""
-			if age != nil {
-				ageStr = strconv.Itoa(*age)
-			}
-			tvStr := ""
-			if tradeValue != nil {
-				tvStr = strconv.Itoa(*tradeValue)
-			}
-			orStr := ""
-			if overallRank != nil {
-				orStr = strconv.Itoa(*overallRank)
-			}
-			prStr := ""
-			if positionRank != nil {
-				prStr = strconv.Itoa(*positionRank)
-			}
-			byPos[pos] = append(byPos[pos], fmt.Sprintf("| %s | %s | %s | %s | %s | %s |", name, team, ageStr, tvStr, orStr, prStr))
-		}
-		for _, pos := range []string{"QB", "RB", "WR", "TE"} {
-			if rows, ok := byPos[pos]; ok && len(rows) > 0 {
-				lines = append(lines, "## "+pos, "",
-					"| Player | NFL | Age | Value | OVR | PosRank |", "|---|---|---|---|---|---|")
-				lines = append(lines, rows...)
-			}
-		}
+	if err != nil {
+		return nil, err
 	}
+	defer rows.Close()
+	p.appendRookieDraftLines(rows, &lines)
 	if err := WriteText(filepath.Join(curDir, "rookie-draft-board.md"), strings.Join(lines, "\n")); err != nil {
 		return nil, err
 	}
@@ -245,62 +202,7 @@ func (p *Publisher) renderLeaguemates(ctx context.Context, targetDir string) (ma
 	// Query leaguemate signals
 	var profiles int
 	if snap != nil {
-		rows, err := p.common.pool.Query(ctx, `
-			SELECT user_id, COALESCE(username, ''), COALESCE(display_name, ''),
-			       leagues_count, win_pct, contender_score, trade_count, trade_count_30d,
-			       net_firsts, dossier
-			FROM leaguemate_signal WHERE snapshot_date = $1
-			ORDER BY contender_score DESC NULLS LAST
-		`, *snap)
-		if err == nil {
-			defer rows.Close()
-			jpath := filepath.Join(dsDir, "leaguemate-profiles.jsonl")
-			if err := os.WriteFile(jpath, []byte(""), 0o600); err != nil {
-				slog.Warn("failed to create leaguemate profiles file", "err", err)
-			}
-			for rows.Next() {
-				var uid, uname, dname string
-				var leagues, contScore, tc, tc30, nf *int
-				var winPct *float32
-				var dossier *string
-				if err := rows.Scan(&uid, &uname, &dname, &leagues, &winPct, &contScore,
-					&tc, &tc30, &nf, &dossier); err != nil {
-					continue
-				}
-				name := uname
-				if name == "" {
-					name = dname
-				}
-				if name == "" {
-					name = uid
-				}
-				lines = append(lines, "## "+name, "")
-				dossierStr := ""
-				if dossier != nil {
-					dossierStr = strings.TrimSpace(*dossier)
-				}
-				if dossierStr == "" {
-					dossierStr = "_No dossier generated._"
-				}
-				lines = append(lines, dossierStr, "")
-				appendJSONLFile(jpath, map[string]any{
-					"id":              "leaguemate:" + uname,
-					"snapshot_date":   snap.Format("2006-01-02"),
-					"user_id":         uid,
-					"username":        uname,
-					"display_name":    dname,
-					"leagues_count":   leagues,
-					"win_pct":         winPct,
-					"contender_score": contScore,
-					"trade_count":     tc,
-					"trade_count_30d": tc30,
-					"net_firsts":      nf,
-					"dossier":         dossierStr,
-					"generated_at":    gen,
-				})
-				profiles++
-			}
-		}
+		profiles = p.renderLeaguemateProfiles(ctx, dsDir, snap, gen, &lines)
 	}
 
 	if err := WriteText(filepath.Join(curDir, "leaguemate-brief.md"), strings.Join(lines, "\n")); err != nil {
@@ -336,7 +238,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 			if data, err := os.ReadFile(filepath.Join(recDir, filename)); err == nil {
 				var rec map[string]any
 				if json.Unmarshal(data, &rec) == nil {
-					contentHash = getStr(rec, "content_hash")
+					contentHash = getStr(rec, colContentHash)
 				}
 			}
 			if contentHash == "" {
@@ -350,7 +252,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 				"entity_type":  "evidence",
 				"entity_id":    rid,
 				"paths":        []string{filepath.Join("evidence", "records", filename)},
-				"content_hash": contentHash,
+				colContentHash: contentHash,
 				"summary":      operation + " evidence record " + rid,
 			}
 			if err := AppendJSONL(clPath, entry); err == nil {
@@ -542,7 +444,7 @@ func walkFilesForManifest(root string) (map[string]string, error) {
 			return nil
 		}
 		base := filepath.Base(path)
-		if base == ".gitignore" || base == "corpus-manifest.json" || base == ".publish.log" {
+		if base == fileGitignore || base == "corpus-manifest.json" || base == ".publish.log" {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -574,4 +476,114 @@ func countJSONLFile(targetDir, rel string) int {
 		}
 	}
 	return count
+}
+
+// appendRookieDraftLines builds lines for rookie draft board by querying player rankings.
+func (p *Publisher) appendRookieDraftLines(rows interface{ Close(); Next() bool; Scan(...interface{}) error }, lines *[]string) {
+	defer rows.Close()
+	byPos := make(map[string][]string)
+	for rows.Next() {
+		var fullName, position, teamAbbr *string
+		var age, yearsExp *int
+		var tradeValue, overallRank, positionRank *int
+		if err := rows.Scan(&fullName, &position, &teamAbbr, &age, &yearsExp,
+			&tradeValue, &overallRank, &positionRank); err != nil {
+			continue
+		}
+		pos := derefStr(position, "?")
+		name := derefStr(fullName, "")
+		team := derefStr(teamAbbr, "")
+		ageStr := derefInt(age, "")
+		tvStr := derefInt(tradeValue, "")
+		orStr := derefInt(overallRank, "")
+		prStr := derefInt(positionRank, "")
+		byPos[pos] = append(byPos[pos], fmt.Sprintf("| %s | %s | %s | %s | %s | %s |", name, team, ageStr, tvStr, orStr, prStr))
+	}
+	for _, pos := range []string{"QB", "RB", "WR", "TE"} {
+		if posRows, ok := byPos[pos]; ok && len(posRows) > 0 {
+			*lines = append(*lines, "## "+pos, "",
+				"| Player | NFL | Age | Value | OVR | PosRank |", "|---|---|---|---|---|---|")
+			*lines = append(*lines, posRows...)
+		}
+	}
+}
+
+// derefStr dereferences a pointer to string or returns default.
+func derefStr(s *string, def string) string {
+	if s != nil {
+		return *s
+	}
+	return def
+}
+
+// derefInt dereferences a pointer to int and converts to string, or returns default.
+func derefInt(i *int, def string) string {
+	if i != nil {
+		return strconv.Itoa(*i)
+	}
+	return def
+}
+
+// renderLeaguemateProfiles queries and renders leaguemate signal profiles.
+func (p *Publisher) renderLeaguemateProfiles(ctx context.Context, dsDir string, snap *time.Time, gen string, lines *[]string) int {
+	rows, err := p.common.pool.Query(ctx, `
+		SELECT user_id, COALESCE(username, ''), COALESCE(display_name, ''),
+		       leagues_count, win_pct, contender_score, trade_count, trade_count_30d,
+		       net_firsts, dossier
+		FROM leaguemate_signal WHERE snapshot_date = $1
+		ORDER BY contender_score DESC NULLS LAST
+	`, *snap)
+	if err != nil {
+		slog.Warn("failed to query leaguemate signals", "err", err)
+		return 0
+	}
+	defer rows.Close()
+	jpath := filepath.Join(dsDir, "leaguemate-profiles.jsonl")
+	if err := os.WriteFile(jpath, []byte(""), 0o600); err != nil { //nolint:gosec // paths are internal corpus paths
+		slog.Warn("failed to create leaguemate profiles file", "err", err)
+	}
+	profiles := 0
+	for rows.Next() {
+		var uid, uname, dname string
+		var leagues, contScore, tc, tc30, nf *int
+		var winPct *float32
+		var dossier *string
+		if err := rows.Scan(&uid, &uname, &dname, &leagues, &winPct, &contScore,
+			&tc, &tc30, &nf, &dossier); err != nil {
+			continue
+		}
+		name := uname
+		if name == "" {
+			name = dname
+		}
+		if name == "" {
+			name = uid
+		}
+		*lines = append(*lines, "## "+name, "")
+		dossierStr := ""
+		if dossier != nil {
+			dossierStr = strings.TrimSpace(*dossier)
+		}
+		if dossierStr == "" {
+			dossierStr = "_No dossier generated._"
+		}
+		*lines = append(*lines, dossierStr, "")
+		appendJSONLFile(jpath, map[string]any{
+			"id":              "leaguemate:" + uname,
+			"snapshot_date":   snap.Format("2006-01-02"),
+			"user_id":         uid,
+			"username":        uname,
+			"display_name":    dname,
+			"leagues_count":   leagues,
+			"win_pct":         winPct,
+			"contender_score": contScore,
+			"trade_count":     tc,
+			"trade_count_30d": tc30,
+			"net_firsts":      nf,
+			"dossier":         dossierStr,
+			"generated_at":    gen,
+		})
+		profiles++
+	}
+	return profiles
 }

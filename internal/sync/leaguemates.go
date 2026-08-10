@@ -132,82 +132,12 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 			}
 
 			// Discover manager's other leagues (1-hop)
-			if ownerID != models.MarkisUserID {
-				otherLeagues, err := s.sleeper.GetUserLeagues(ctx, ownerID, season)
-				if err != nil {
-					slog.Warn("get other leagues", "user", ownerID, "err", err)
-					continue
-				}
-				count := 0
-				for _, ol := range otherLeagues {
-					olID := fmt.Sprint(ol["league_id"])
-					if seenLeagues[olID] || count >= maxLeagues {
-						continue
-					}
-					seenLeagues[olID] = true
-					count++
-					result.LeaguesSeen++
-
-					s.upsertLeague(ctx, ol, false, ownerID)
-
-					// Get rosters for discovered league
-					olRosters, err := s.sleeper.GetLeagueRosters(ctx, olID)
-					if err != nil {
-						slog.Warn("get rosters (discovered league)", "league", olID, "err", err)
-						continue
-					}
-					olUsers, err := s.sleeper.GetLeagueUsers(ctx, olID)
-					if err != nil {
-						slog.Warn("get users (discovered league)", "league", olID, "err", err)
-						continue
-					}
-					olUserMap := make(map[string]map[string]any)
-					for _, u := range olUsers {
-						uid := fmt.Sprint(u["user_id"])
-						olUserMap[uid] = u
-						s.upsertSleeperUser(ctx, uid, u, uid == models.MarkisUserID)
-					}
-
-					for _, olRoster := range olRosters {
-						olOwnerID := fmt.Sprint(olRoster["owner_id"])
-						if olOwnerID == "" || olOwnerID == "<nil>" {
-							continue
-						}
-						seenManagers[olOwnerID] = true
-						olRid := toInt(olRoster["roster_id"])
-						var rrid int
-						if olRid != nil {
-							rrid = *olRid
-						}
-						s.upsertLeagueManager(ctx, olID, olOwnerID, rrid, olUserMap[olOwnerID], false, olOwnerID == models.MarkisUserID)
-
-						olPlayers := toStringSlice(olRoster["players"])
-						olStarters := toStringSlice(olRoster["starters"])
-						olTaxi := toStringSlice(olRoster["taxi"])
-						olReserve := toStringSlice(olRoster["reserve"])
-						for _, pid := range olPlayers {
-							slot := "bench"
-							switch {
-							case contains(olStarters, pid):
-								slot = "starter"
-							case contains(olTaxi, pid):
-								slot = "taxi"
-							case contains(olReserve, pid):
-								slot = "reserve"
-							}
-							if _, err := s.pool.Exec(ctx, `
-								INSERT INTO leaguemate_roster_player (league_id, roster_id, sleeper_player_id, slot, snapshot_at)
-								VALUES ($1, $2, $3, $4, now())
-								ON CONFLICT (league_id, roster_id, sleeper_player_id) DO UPDATE SET slot = EXCLUDED.slot, snapshot_at = now()
-							`, olID, rrid, pid, slot); err != nil {
-								slog.Warn("failed to insert other league roster player", "league_id", olID, "roster_id", rrid, "err", err)
-							} else {
-								rosterRows++
-							}
-						}
-					}
-				}
+			if ownerID == models.MarkisUserID {
+				continue
 			}
+			rows := s.syncOtherManagerLeagues(ctx, ownerID, season, seenLeagues, seenManagers)
+			rosterRows += rows
+			result.LeaguesSeen += len(seenLeagues)
 		}
 	}
 
@@ -367,4 +297,84 @@ func nilIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+// syncOtherManagerLeagues syncs other leagues for a given manager.
+func (s *LeaguemateSyncer) syncOtherManagerLeagues(ctx context.Context, ownerID string, season string, seenLeagues map[string]bool, seenManagers map[string]bool) int {
+	otherLeagues, err := s.sleeper.GetUserLeagues(ctx, ownerID, season)
+	if err != nil {
+		slog.Warn("get other leagues", "user", ownerID, "err", err)
+		return 0
+	}
+	count := 0
+	maxLeagues := 3
+	rosterRows := 0
+	for _, ol := range otherLeagues {
+		olID := fmt.Sprint(ol["league_id"])
+		if seenLeagues[olID] || count >= maxLeagues {
+			continue
+		}
+		seenLeagues[olID] = true
+		count++
+
+		s.upsertLeague(ctx, ol, false, ownerID)
+
+		// Get rosters for discovered league
+		olRosters, err := s.sleeper.GetLeagueRosters(ctx, olID)
+		if err != nil {
+			slog.Warn("get rosters (discovered league)", "league", olID, "err", err)
+			continue
+		}
+		olUsers, err := s.sleeper.GetLeagueUsers(ctx, olID)
+		if err != nil {
+			slog.Warn("get users (discovered league)", "league", olID, "err", err)
+			continue
+		}
+		olUserMap := make(map[string]map[string]any)
+		for _, u := range olUsers {
+			uid := fmt.Sprint(u["user_id"])
+			olUserMap[uid] = u
+			s.upsertSleeperUser(ctx, uid, u, uid == models.MarkisUserID)
+		}
+
+		for _, olRoster := range olRosters {
+			olOwnerID := fmt.Sprint(olRoster["owner_id"])
+			if olOwnerID == "" || olOwnerID == "<nil>" {
+				continue
+			}
+			seenManagers[olOwnerID] = true
+			olRid := toInt(olRoster["roster_id"])
+			var rrid int
+			if olRid != nil {
+				rrid = *olRid
+			}
+			s.upsertLeagueManager(ctx, olID, olOwnerID, rrid, olUserMap[olOwnerID], false, olOwnerID == models.MarkisUserID)
+
+			olPlayers := toStringSlice(olRoster["players"])
+			olStarters := toStringSlice(olRoster["starters"])
+			olTaxi := toStringSlice(olRoster["taxi"])
+			olReserve := toStringSlice(olRoster["reserve"])
+			for _, pid := range olPlayers {
+				slot := "bench"
+				switch {
+				case contains(olStarters, pid):
+					slot = "starter"
+				case contains(olTaxi, pid):
+					slot = "taxi"
+				case contains(olReserve, pid):
+					slot = "reserve"
+				}
+				if _, err := s.pool.Exec(ctx, `
+					INSERT INTO leaguemate_roster_player (league_id, roster_id, sleeper_player_id, slot, snapshot_at)
+					VALUES ($1, $2, $3, $4, now())
+					ON CONFLICT (league_id, roster_id, sleeper_player_id) DO UPDATE SET slot = EXCLUDED.slot, snapshot_at = now()
+				`, olID, rrid, pid, slot); err != nil {
+					slog.Warn("failed to insert other league roster player", "league_id", olID, "roster_id", rrid, "err", err)
+				} else {
+					rosterRows++
+				}
+			}
+		}
+	}
+	return rosterRows
 }

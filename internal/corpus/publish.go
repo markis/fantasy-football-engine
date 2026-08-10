@@ -207,7 +207,7 @@ func (p *Publisher) sync(staging, corpus string) error {
 		}
 	}
 	// Copy extras
-	for _, extra := range []string{"evidence/index.md", "corpus-manifest.json", "datasets/change-log.jsonl"} {
+	for _, extra := range []string{"evidence/index.md", fileManifest, "datasets/change-log.jsonl"} {
 		src := filepath.Join(staging, extra)
 		if _, err := os.Stat(src); err == nil {
 			dst := filepath.Join(corpus, extra)
@@ -264,7 +264,7 @@ func walkDir(root, prefix string, files map[string]string, entries []os.DirEntry
 
 func processFile(root, prefix string, files map[string]string, entry os.DirEntry) {
 	name := entry.Name()
-	if name == ".gitignore" || name == "corpus-manifest.json" || name == ".publish.log" {
+	if name == fileGitignore || name == fileManifest || name == ".publish.log" {
 		return
 	}
 	rel := filepath.Join(prefix, name)

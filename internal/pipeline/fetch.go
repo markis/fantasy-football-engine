@@ -22,6 +22,10 @@ import (
 
 var errFeedHTTP = errors.New("feed HTTP error")
 
+const (
+	userAgent = "ZeroClawFantasyBot/0.1 (homelab)"
+)
+
 // RSSFetcher fetches and ingests RSS/Atom feeds into the database.
 type RSSFetcher struct {
 	pool *db.Pool
@@ -31,8 +35,6 @@ type RSSFetcher struct {
 func NewRSSFetcher(pool *db.Pool) *RSSFetcher {
 	return &RSSFetcher{pool: pool}
 }
-
-const userAgent = "ZeroClawFantasyBot/0.1 (homelab)"
 
 // FetchResult is the result of fetching one feed.
 type FetchResult struct {
@@ -75,7 +77,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, http.NoBody)
 	if err != nil {
-		result.Status = "error"
+		result.Status = statusError
 		return result, fmt.Errorf("create request: %w", err)
 	}
 	for k, v := range headers {
@@ -84,7 +86,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		result.Status = "error"
+		result.Status = statusError
 		return result, fmt.Errorf("http request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -98,7 +100,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		result.Status = "error"
+		result.Status = statusError
 		result.HTTPStatus = resp.StatusCode
 		return result, fmt.Errorf("%w (%d) for %s", errFeedHTTP, resp.StatusCode, feedURL)
 	}
@@ -107,7 +109,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 	// Read body
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
-		result.Status = "error"
+		result.Status = statusError
 		return result, fmt.Errorf("read body: %w", err)
 	}
 	body := string(bodyBytes)
@@ -123,7 +125,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 	parser := gofeed.NewParser()
 	feed, err := parser.ParseString(body)
 	if err != nil {
-		result.Status = "error"
+		result.Status = statusError
 		return result, fmt.Errorf("parse feed: %w", err)
 	}
 	result.ItemsFetched = len(feed.Items)
@@ -140,7 +142,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
 	`, sourceID, feedURL, resp.StatusCode, headersJSON, body, contentType).Scan(&rawDocID)
 	if err != nil {
-		result.Status = "error"
+		result.Status = statusError
 		return result, fmt.Errorf("insert raw_document: %w", err)
 	}
 
@@ -296,9 +298,9 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 	}
 
 	// Body fetch status: RSS-only pipeline
-	bodyStatus := "skipped"
+	bodyStatus := statusSkipped
 	if len(contentText) > 2000 {
-		bodyStatus = "fetched"
+		bodyStatus = statusFetched
 	} else if link != "" {
 		bodyStatus = "pending"
 	}

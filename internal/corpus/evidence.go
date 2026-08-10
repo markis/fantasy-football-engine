@@ -182,7 +182,7 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameInde
 	defer rows.Close()
 
 	cols := []string{
-		"id", "canonical_url", "url", "title", "summary_short", "content_hash",
+		"id", colCanonicalURL, "url", "title", "summary_short", "content_hash",
 		"entities", "topics", "author", "published_at", "fetched_at", "updated_at", "news_story",
 	}
 	var result []map[string]any
@@ -198,7 +198,7 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameInde
 		}
 		d := map[string]any{
 			"id":            id,
-			"canonical_url": canonicalURL,
+			colCanonicalURL: canonicalURL,
 			"url":           url,
 			"title":         title,
 			"summary_short": summaryShort,
@@ -217,10 +217,10 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameInde
 			continue
 		}
 		urlStr := fmt.Sprint(canonicalURL)
-		if urlStr == "<nil>" || urlStr == "" {
+		if urlStr == nilStr || urlStr == "" {
 			urlStr = fmt.Sprint(url)
 		}
-		if urlStr == "<nil>" || urlStr == "" {
+		if urlStr == nilStr || urlStr == "" {
 			continue
 		}
 		if seenURLs[urlStr] {
@@ -238,7 +238,7 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameInde
 
 func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any, ownership map[string][][2]string) map[string]any {
 	urlStr := fmt.Sprint(item["canonical_url"])
-	if urlStr == "<nil>" || urlStr == "" {
+	if urlStr == nilStr || urlStr == "" {
 		urlStr = fmt.Sprint(item["url"])
 	}
 	summary := ""
@@ -263,7 +263,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 	}
 
 	chStr := fmt.Sprint(item["content_hash"])
-	if chStr == "<nil>" || chStr == "" {
+	if chStr == nilStr || chStr == "" {
 		chStr = ContentHash(summary)
 	}
 
@@ -361,7 +361,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 
 	return map[string]any{
 		"id":            recID,
-		"canonical_url": urlStr,
+		colCanonicalURL: urlStr,
 		"title":         titleStr,
 		"player_ids":    playerIDs,
 		"team_ids":      teamIDs,
@@ -411,7 +411,7 @@ func (p *Publisher) factsForItem(ctx context.Context, itemID any) []map[string]a
 		claims = append(claims, map[string]any{
 			"id":         ClaimID(text),
 			"text":       text,
-			"confidence": confStr,
+			colConfidence: confStr,
 		})
 	}
 	return claims
@@ -461,7 +461,7 @@ func getStr(m map[string]any, key string) string {
 		return strconv.Itoa(*p)
 	}
 	s := fmt.Sprint(v)
-	if s == "<nil>" {
+	if s == nilStr {
 		return ""
 	}
 	return s

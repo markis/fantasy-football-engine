@@ -89,7 +89,7 @@ func Validate(target string) []string {
 		if err != nil {
 			return err
 		}
-		if rel == ".gitignore" {
+		if rel == fileGitignore {
 			return nil
 		}
 		if strings.HasPrefix(rel, ".git") || strings.HasPrefix(rel, ".staging") {

@@ -34,7 +34,9 @@ func NewFantasyCalcSyncer(pool *db.Pool) *FantasyCalcSyncer {
 	return &FantasyCalcSyncer{pool: pool, client: &http.Client{Timeout: 120 * time.Second}}
 }
 
-const fcBase = "https://api.fantasycalc.com/values/current"
+const (
+	fcBase = "https://api.fantasycalc.com/values/current"
+)
 
 // FantasyCalcResult is the result of syncing one format combo.
 type FantasyCalcResult struct {
@@ -116,7 +118,7 @@ func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCo
 	result.Fetched = len(data)
 
 	cols := []string{
-		"position", "team", "overall_rank", "position_rank",
+		colPosition, colTeam, "overall_rank", "position_rank",
 		"trade_value", "last_month_value", "redraft_value", "percent_owned",
 	}
 
@@ -127,7 +129,7 @@ func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCo
 		if ok && p != nil {
 			sid = fmt.Sprint(p["sleeperId"])
 		}
-		if sid == "" || sid == "<nil>" {
+		if sid == "" || sid == nilStr {
 			result.Skipped++
 			continue
 		}

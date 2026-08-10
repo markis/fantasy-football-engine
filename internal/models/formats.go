@@ -1,5 +1,10 @@
 package models
 
+const (
+	tepPPPlus = "te++"
+	typeType  = "dynasty"
+)
+
 // LeagueFormat describes a Sleeper league's scoring format and its
 // FantasyCalc market mapping.
 type LeagueFormat struct {
@@ -15,11 +20,11 @@ type LeagueFormat struct {
 // LeagueFormats is the authoritative mapping of Markis's Sleeper league IDs
 // to their scoring formats and FantasyCalc market IDs.
 var LeagueFormats = map[string]LeagueFormat{
-	"1343410990741479425": {Name: "Poor Life Choices", Teams: 18, NumQbs: 2, PPR: 1, TEP: "te++", Market: nil, Type: "redraft"},
-	"1312178509908545536": {Name: "Backyard Brawl", Teams: 12, NumQbs: 1, PPR: 1, TEP: "none", Market: intPtr(1), Type: "dynasty"},
-	"1312183009700499456": {Name: "Mama Says Foosball", Teams: 12, NumQbs: 2, PPR: 1, TEP: "te++", Market: intPtr(2), Type: "dynasty"},
-	"1312170789964898304": {Name: "Deja Vu Dynasty", Teams: 12, NumQbs: 2, PPR: 1, TEP: "te++", Market: intPtr(2), Type: "dynasty"},
-	"1312051514470055936": {Name: "Dave is the best", Teams: 10, NumQbs: 2, PPR: 0, TEP: "none", Market: intPtr(3), Type: "dynasty"},
+	"1343410990741479425": {Name: "Poor Life Choices", Teams: 18, NumQbs: 2, PPR: 1, TEP: tepPPPlus, Market: nil, Type: "redraft"},
+	"1312178509908545536": {Name: "Backyard Brawl", Teams: 12, NumQbs: 1, PPR: 1, TEP: "none", Market: intPtr(1), Type: typeType},
+	"1312183009700499456": {Name: "Mama Says Foosball", Teams: 12, NumQbs: 2, PPR: 1, TEP: tepPPPlus, Market: intPtr(2), Type: typeType},
+	"1312170789964898304": {Name: "Deja Vu Dynasty", Teams: 12, NumQbs: 2, PPR: 1, TEP: tepPPPlus, Market: intPtr(2), Type: typeType},
+	"1312051514470055936": {Name: "Dave is the best", Teams: 10, NumQbs: 2, PPR: 0, TEP: "none", Market: intPtr(3), Type: typeType},
 }
 
 // FormatCombo is a distinct dynasty format combo synced from FantasyCalc.
@@ -35,7 +40,7 @@ type FormatCombo struct {
 // FormatCombos are the distinct dynasty format combos to sync.
 var FormatCombos = []FormatCombo{
 	{Market: 1, Teams: 12, NumQbs: 1, PPR: 1, TEP: "none", Label: "12t-1QB-PPR-none"},
-	{Market: 2, Teams: 12, NumQbs: 2, PPR: 1, TEP: "te++", Label: "12t-SF-PPR-TEP1.0"},
+	{Market: 2, Teams: 12, NumQbs: 2, PPR: 1, TEP: tepPPPlus, Label: "12t-SF-PPR-TEP1.0"},
 	{Market: 3, Teams: 10, NumQbs: 2, PPR: 0, TEP: "none", Label: "10t-SF-HalfPPR-none"},
 }
 

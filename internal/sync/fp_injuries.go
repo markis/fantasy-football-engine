@@ -26,7 +26,9 @@ func NewFPInjuriesSyncer(pool *db.Pool, cfg *config.Config) *FPInjuriesSyncer {
 	return &FPInjuriesSyncer{pool: pool, cfg: cfg, client: &http.Client{Timeout: 20 * time.Second}}
 }
 
-const fpInjuriesURL = "https://api.fantasypros.com/public/v2/json/nfl/injuries"
+const (
+	fpInjuriesURL = "https://api.fantasypros.com/public/v2/json/nfl/injuries"
+)
 
 // FPInjuriesResult is the result of an injury sync.
 type FPInjuriesResult struct {
@@ -104,7 +106,7 @@ func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) 
 	for _, it := range items {
 		var pid any
 		yid := fmt.Sprint(it["yahoo_id"])
-		if yid != "" && yid != "<nil>" {
+		if yid != "" && yid != nilStr {
 			if v, ok := byYahoo[yid]; ok {
 				pid = v
 			}
@@ -122,19 +124,19 @@ func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) 
 
 		status := fmt.Sprint(it["status"])
 		injuryType := fmt.Sprint(it["injury_type"])
-		if injuryType == "<nil>" {
+		if injuryType == nilStr {
 			injuryType = fmt.Sprint(it["practice_report_injury_type"])
 		}
-		if injuryType == "<nil>" {
+		if injuryType == nilStr {
 			injuryType = ""
 		}
 		comment := fmt.Sprint(it["comment"])
-		if comment == "<nil>" {
+		if comment == nilStr {
 			comment = ""
 		}
 		practice := latestPractice(it)
 		practiceDesc := fmt.Sprint(it["practice_report_injury_type"])
-		if practiceDesc == "<nil>" {
+		if practiceDesc == nilStr {
 			practiceDesc = ""
 		}
 
@@ -163,7 +165,7 @@ func latestPractice(item map[string]any) string {
 	for _, k := range []string{"practice_3", "practice_2", "practice_1"} {
 		if v, ok := item[k]; ok && v != nil {
 			s := fmt.Sprint(v)
-			if s != "" && s != "<nil>" {
+			if s != "" && s != nilStr {
 				return s
 			}
 		}

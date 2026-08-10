@@ -16,6 +16,7 @@ import (
 	"github.com/markis/fantasy-football-engine/internal/models"
 )
 
+
 // anyToInt coerces a decoded-JSON value (float64, string, or int) to an int,
 // returning 0 if it can't be interpreted as a number.
 func anyToInt(v any) int {
@@ -162,7 +163,7 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 				"nfl_team":          nilIfEmpty(teamAbbr),
 				"slot":              slot,
 				"trade_value":       tradeValue,
-				"age":               age,
+				colAge:             age,
 				"injury_status":     nilIfEmpty(injuryStatus),
 			}
 
@@ -263,7 +264,7 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 				"roster_constraints":       []string{},
 				"current_priorities":       []string{},
 			},
-			"as_of": now,
+			colAsOf: now,
 			"data_freshness": map[string]any{
 				"roster_updated_at":       now,
 				"league_updated_at":       now,
@@ -412,7 +413,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 				"source_url":         nil,
 				"observed_at":        obs,
 				"published_at":       nil,
-				"confidence":         "high",
+				colConfidence:        "high",
 				"status":             "current",
 				"evidence_record_id": nil,
 			}
@@ -431,7 +432,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 		source string
 		market int
 	}{
-		{"Dynasty Daddy", 14}, {"FantasyCalc", 1}, {"FantasyCalc", 2}, {"FantasyCalc", 3}, {"KeepTradeCut", 0},
+		{"Dynasty Daddy", 14}, {srcFantasyCalc, 1}, {srcFantasyCalc, 2}, {srcFantasyCalc, 3}, {"KeepTradeCut", 0},
 	}
 	for _, src := range sources {
 		rk := p.common.RankingRows(ctx, watchIDs, src.source, src.market)
@@ -453,7 +454,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 					"value":              *v,
 					"observed_at":        obs,
 					"source_url":         nil,
-					"confidence":         "medium",
+					colConfidence:        "medium",
 					"evidence_record_id": nil,
 				}
 				appendJSONLFile(valPath, rec)
@@ -491,7 +492,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 		}
 		appendJSONLFile(newsPath, map[string]any{
 			"evidence_record_id": rec["id"],
-			"canonical_url":      rec["canonical_url"],
+			colCanonicalURL:      rec[colCanonicalURL],
 			"title":              rec["title"],
 			"published_at":       rec["published_at"],
 			"topic":              rec["topic"],

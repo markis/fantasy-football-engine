@@ -87,13 +87,13 @@ func (s *PlayerSyncer) Sync(ctx context.Context) (*PlayerSyncResult, error) {
 func projectPlayer(pid string, p map[string]any) []any {
 	cols := []string{
 		"first_name", "last_name", "full_name", "search_full_name",
-		"position", "fantasy_positions", "team", "team_abbr", "status", "active",
+		colPosition, "fantasy_positions", colTeam, "team_abbr", "status", "active",
 		"injury_status", "injury_body_part", "injury_notes", "injury_start_date",
 		"age", "years_exp", "birth_date", "height", "weight", "college", "number",
 		"depth_chart_position", "depth_chart_order",
 		"practice_participation", "practice_description",
-		"gsis_id", "espn_id", "rotowire_id", "rotoworld_id", "yahoo_id",
-		"sportradar_id", "stats_id", "news_updated",
+		"gsis_id", colEspnID, "rotowire_id", "rotoworld_id", "yahoo_id",
+		colSportradarID, "stats_id", "news_updated",
 	}
 
 	vals := make([]any, len(cols))
@@ -104,7 +104,7 @@ func projectPlayer(pid string, p map[string]any) []any {
 	}
 
 	// Convert numeric IDs to strings
-	for _, name := range []string{"espn_id", "rotowire_id", "rotoworld_id", "yahoo_id", "sportradar_id", "stats_id"} {
+	for _, name := range []string{colEspnID, colRotowireID, "rotoworld_id", "yahoo_id", colSportradarID, colStatsID} {
 		idx := colIndex[name]
 		if vals[idx] != nil {
 			vals[idx] = fmt.Sprint(vals[idx])

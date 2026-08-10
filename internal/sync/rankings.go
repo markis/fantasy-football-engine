@@ -25,7 +25,9 @@ func NewRankingsSyncer(pool *db.Pool) *RankingsSyncer {
 	return &RankingsSyncer{pool: pool, client: &http.Client{Timeout: 120 * time.Second}}
 }
 
-const ddURL = "https://dynasty-daddy.com/api/v1/player/all/today"
+const (
+	ddURL = "https://dynasty-daddy.com/api/v1/player/all/today"
+)
 
 // RankingsSyncResult is the result of a rankings sync.
 type RankingsSyncResult struct {
@@ -88,7 +90,7 @@ func (s *RankingsSyncer) Sync(ctx context.Context, market int, source string) (*
 
 	// Data columns to sync
 	dataCols := []string{
-		"name_id", "position", "team", "overall_rank", "position_rank",
+		"name_id", colPosition, colTeam, "overall_rank", "position_rank",
 		"sf_overall_rank", "sf_position_rank", "trade_value", "sf_trade_value",
 		"all_time_high", "all_time_low", "all_time_high_sf", "all_time_low_sf",
 		"all_time_best_rank", "all_time_worst_rank", "all_time_best_rank_sf", "all_time_worst_rank_sf",

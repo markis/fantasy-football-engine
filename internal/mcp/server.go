@@ -37,6 +37,10 @@ const (
 	jsonrpcVersion    = "2.0"
 	isErrorKey        = "isError"
 	contentKey        = "content"
+	paramPosition     = "position"
+	paramSuperflex    = "superflex"
+	paramLeagueID     = "league_id"
+	paramStep         = "step"
 )
 
 // Server is the MCP server that exposes tools over Streamable HTTP.
@@ -163,7 +167,7 @@ func (s *Server) registerTools() {
 			"type": "object",
 			"properties": map[string]any{
 				"query":    map[string]any{"type": "string"},
-				"position": map[string]any{"type": "string"},
+				paramPosition: map[string]any{schemaType: schemaTypeString},
 				"limit":    map[string]any{"type": "integer", "default": 25},
 			},
 			"required": []string{"query"},
@@ -172,7 +176,7 @@ func (s *Server) registerTools() {
 			q := getStr(args, "query")
 			limit := getInt(args, "limit", 25)
 			var pos *string
-			if p := getStr(args, "position"); p != "" {
+			if p := getStr(args, paramPosition); p != "" {
 				pos = &p
 			}
 			return s.query.SearchPlayers(ctx, q, pos, limit)
@@ -205,7 +209,7 @@ func (s *Server) registerTools() {
 				"limit":     map[string]any{"type": "integer", "default": 15},
 				"source":    map[string]any{"type": "string", "default": "FantasyCalc"},
 				"market":    map[string]any{"type": "integer", "default": 14},
-				"superflex": map[string]any{"type": "boolean", "default": false},
+				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
@@ -215,9 +219,9 @@ func (s *Server) registerTools() {
 				source = "FantasyCalc"
 			}
 			market := getInt(args, "market", 14)
-			superflex := getBool(args, "superflex")
+			superflex := getBool(args, paramSuperflex)
 			var pos *string
-			if p := getStr(args, "position"); p != "" {
+			if p := getStr(args, paramPosition); p != "" {
 				pos = &p
 			}
 			return s.query.GetRankings(ctx, pos, limit, source, market, superflex)
@@ -247,19 +251,19 @@ func (s *Server) registerTools() {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"league_id": map[string]any{"type": "string"},
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
 				"position":  map[string]any{"type": "string"},
 				"limit":     map[string]any{"type": "integer", "default": 15},
-				"superflex": map[string]any{"type": "boolean", "default": false},
+				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
-			"required": []string{"league_id"},
+			schemaRequired: []string{paramLeagueID},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
-			leagueID := getStr(args, "league_id")
+			leagueID := getStr(args, paramLeagueID)
 			limit := getInt(args, "limit", 15)
-			superflex := getBool(args, "superflex")
+			superflex := getBool(args, paramSuperflex)
 			var pos *string
-			if p := getStr(args, "position"); p != "" {
+			if p := getStr(args, paramPosition); p != "" {
 				pos = &p
 			}
 			return s.query.GetFreeAgents(ctx, leagueID, pos, limit, superflex)
@@ -283,19 +287,19 @@ func (s *Server) registerTools() {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"league_id": map[string]any{"type": "string"},
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
 				"user_id":   map[string]any{"type": "string", "default": "558115100726579200"},
-				"superflex": map[string]any{"type": "boolean", "default": false},
+				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
-			"required": []string{"league_id"},
+			schemaRequired: []string{paramLeagueID},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
-			leagueID := getStr(args, "league_id")
+			leagueID := getStr(args, paramLeagueID)
 			userID := getStr(args, "user_id")
 			if userID == "" {
 				userID = "558115100726579200"
 			}
-			superflex := getBool(args, "superflex")
+			superflex := getBool(args, paramSuperflex)
 			return s.query.EvaluateRoster(ctx, leagueID, userID, superflex)
 		},
 	})
@@ -308,16 +312,16 @@ func (s *Server) registerTools() {
 			"properties": map[string]any{
 				"give":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 				"get":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				"league_id": map[string]any{"type": "string"},
-				"superflex": map[string]any{"type": "boolean", "default": false},
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
+				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 			"required": []string{"give", "get"},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			give := toStrSlice(args["give"])
 			get := toStrSlice(args["get"])
-			leagueID := getStr(args, "league_id")
-			superflex := getBool(args, "superflex")
+			leagueID := getStr(args, paramLeagueID)
+			superflex := getBool(args, paramSuperflex)
 			return s.query.EvaluateTrade(ctx, give, get, leagueID, superflex)
 		},
 	})
@@ -345,19 +349,19 @@ func (s *Server) registerTools() {
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"step": map[string]any{"type": "string", "description": "Pipeline step name"},
+				paramStep: map[string]any{schemaType: schemaTypeString, schemaDescription: "Pipeline step name"},
 			},
-			"required": []string{"step"},
+			schemaRequired: []string{paramStep},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			if s.trigger == nil {
 				return nil, errPipelineTriggerNotEnabled
 			}
-			step := getStr(args, "step")
+			step := getStr(args, paramStep)
 			if err := s.trigger(ctx, step); err != nil {
 				return nil, err
 			}
-			return map[string]any{"status": "ok", "step": step}, nil
+			return map[string]any{toolStatus: statusOK, paramStep: step}, nil
 		},
 	})
 }

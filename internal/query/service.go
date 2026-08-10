@@ -15,6 +15,16 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
+const (
+	colPlayerID     = "player_id"
+	colFullName     = "full_name"
+	colPosition     = "position"
+	colTeam         = "team"
+	colTitle        = "title"
+	srcFantasyCalc  = "FantasyCalc"
+	statusFound     = "found"
+)
+
 var errRosterNotFound = errors.New("roster not found")
 
 // Service provides query implementations backing the MCP tools.
@@ -76,7 +86,7 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 		}
 		item := map[string]any{
 			"id":         id.String(),
-			"title":      ptrStr(title),
+			colTitle:     ptrStr(title),
 			"url":        ptrStr(url),
 			"similarity": similarity,
 			"source":     ptrStr(sourceName),
@@ -268,10 +278,10 @@ func (s *Service) SearchPlayers(ctx context.Context, query string, position *str
 			continue
 		}
 		item := map[string]any{
-			"player_id": sleeperID,
-			"full_name": ptrStr(fullName),
-			"position":  ptrStr(pos),
-			"team":      ptrStr(teamAbbr),
+			colPlayerID: sleeperID,
+			colFullName: ptrStr(fullName),
+			colPosition: ptrStr(pos),
+			colTeam:     ptrStr(teamAbbr),
 			"active":    active,
 		}
 		if age != nil {
@@ -324,7 +334,7 @@ func (s *Service) GetRankings(ctx context.Context, position *string, limit int, 
 		limit = 15
 	}
 	if source == "" {
-		source = "FantasyCalc"
+		source = srcFantasyCalc
 	}
 	if market == 0 {
 		market = 14 // Dynasty Daddy default
@@ -333,7 +343,7 @@ func (s *Service) GetRankings(ctx context.Context, position *string, limit int, 
 	valueCol := "r.trade_value"
 	overallCol := "r.overall_rank"
 	posRankCol := "r.position_rank"
-	if superflex && source != "FantasyCalc" {
+	if superflex && source != srcFantasyCalc {
 		valueCol = "r.sf_trade_value"
 		overallCol = "r.sf_overall_rank"
 		posRankCol = "r.sf_position_rank"
@@ -367,10 +377,10 @@ func (s *Service) GetRankings(ctx context.Context, position *string, limit int, 
 			continue
 		}
 		item := map[string]any{
-			"player_id": sleeperID,
-			"full_name": ptrStr(fullName),
-			"position":  ptrStr(pos),
-			"team":      ptrStr(teamAbbr),
+			colPlayerID: sleeperID,
+			colFullName: ptrStr(fullName),
+			colPosition: ptrStr(pos),
+			colTeam:     ptrStr(teamAbbr),
 		}
 		if tradeValue != nil {
 			item["trade_value"] = *tradeValue
@@ -499,10 +509,10 @@ func (s *Service) GetFreeAgents(ctx context.Context, leagueID string, position *
 			continue
 		}
 		item := map[string]any{
-			"player_id": sleeperID,
-			"full_name": ptrStr(fullName),
-			"position":  ptrStr(pos),
-			"team":      ptrStr(teamAbbr),
+			colPlayerID: sleeperID,
+			colFullName: ptrStr(fullName),
+			colPosition: ptrStr(pos),
+			colTeam:     ptrStr(teamAbbr),
 		}
 		if tradeValue != nil {
 			item["trade_value"] = *tradeValue
@@ -522,7 +532,7 @@ func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []strin
 	source := "Dynasty Daddy"
 	market := 14
 	if hasLF && lf.Market != nil {
-		source = "FantasyCalc"
+		source = srcFantasyCalc
 		market = *lf.Market
 	}
 
@@ -549,7 +559,7 @@ func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []strin
 				ORDER BY %s DESC NULLS LAST LIMIT 1
 			`, valueCol, valueCol), source, market, q).Scan(&sleeperID, &fullName, &tradeValue)
 			if err != nil {
-				items = append(items, map[string]any{"name": name, "found": false})
+				items = append(items, map[string]any{"name": name, statusFound: false})
 				continue
 			}
 			val := 0
@@ -561,7 +571,7 @@ func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []strin
 				"player_id":   sleeperID,
 				"full_name":   ptrStr(fullName),
 				"trade_value": val,
-				"found":       true,
+				statusFound:  true,
 			})
 		}
 		return items, total
@@ -613,7 +623,7 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 	source := "Dynasty Daddy"
 	market := 14
 	if hasLF && lf.Market != nil {
-		source = "FantasyCalc"
+		source = srcFantasyCalc
 		market = *lf.Market
 	}
 
@@ -654,7 +664,7 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 	for _, sid := range players {
 		r, ok := found[sid]
 		if !ok {
-			rosterItems = append(rosterItems, map[string]any{"player_id": sid, "found": false})
+			rosterItems = append(rosterItems, map[string]any{colPlayerID: sid, statusFound: false})
 			continue
 		}
 		val := 0

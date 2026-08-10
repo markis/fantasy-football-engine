@@ -30,13 +30,12 @@ const (
 	maxBodyAttempts      = 3
 	staleFetchingMinutes = 10
 	minBodyChars         = 200
+	bodyUserAgent        = "Mozilla/5.0 (X11; Linux x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 )
 
 var botBlockedHosts = map[string]bool{
 	"www.espn.com": true,
 }
-
-const bodyUserAgent = "Mozilla/5.0 (X11; Linux x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 
 // BodyFetchResult is the result of a body fetch batch.
 type BodyFetchResult struct {
@@ -117,7 +116,7 @@ func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResu
 		}
 
 		status := b.processItem(ctx, item)
-		if status == "skipped" {
+		if status == statusSkipped {
 			if _, err := b.pool.Exec(ctx,
 				"UPDATE news_item SET body_fetch_status = 'skipped', body_fetched_at = now() WHERE id = $1",
 				item.id); err != nil {
@@ -136,39 +135,39 @@ func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResu
 func (b *BodyFetcher) processItem(ctx context.Context, item *pendingItem) string {
 	parsed, err := url.Parse(item.url)
 	if err != nil {
-		return "skipped"
+		return statusSkipped
 	}
 	if botBlockedHosts[parsed.Host] {
-		return "skipped"
+		return statusSkipped
 	}
 
 	httpClient := &http.Client{Timeout: 20 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, item.url, http.NoBody)
 	if err != nil {
-		return "skipped"
+		return statusSkipped
 	}
 	req.Header.Set("User-Agent", bodyUserAgent)
 	req.Header.Set("Accept", "text/html,application/xhtml+xml")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "skipped"
+		return statusSkipped
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "skipped"
+		return statusSkipped
 	}
 
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil || len(bodyBytes) < 500 {
-		return "skipped"
+		return statusSkipped
 	}
 
 	htmlStr := string(bodyBytes)
 	contentText := htmlx.ExtractText(htmlStr)
 	if len(contentText) < minBodyChars {
-		return "skipped"
+		return statusSkipped
 	}
 
 	// Only overwrite content if the newly fetched body is longer than what
@@ -180,9 +179,9 @@ func (b *BodyFetcher) processItem(ctx context.Context, item *pendingItem) string
 			"UPDATE news_item SET body_fetch_status = 'fetched', body_fetched_at = now() WHERE id = $1",
 			item.id)
 		if execErr != nil {
-			return "skipped"
+			return statusSkipped
 		}
-		return "fetched"
+		return statusFetched
 	}
 
 	h := sha256.Sum256([]byte(contentText))
@@ -197,7 +196,7 @@ func (b *BodyFetcher) processItem(ctx context.Context, item *pendingItem) string
 		WHERE id = $4
 	`, contentText, contentHTML, cHash, item.id)
 	if err != nil {
-		return "skipped"
+		return statusSkipped
 	}
-	return "fetched"
+	return statusFetched
 }
