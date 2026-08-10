@@ -485,7 +485,7 @@ func writePlayersJSONL(dsDir string, watchIDs []string, pr map[string]map[string
 			p = map[string]any{}
 		}
 		own := ownership[sid]
-		var leagues []map[string]string
+		leagues := make([]map[string]string, 0, len(own))
 		for _, pair := range own {
 			leagues = append(leagues, map[string]string{"league": pair[0], "role": pair[1]})
 		}
@@ -672,11 +672,11 @@ func writeEntitiesJSON(dsDir string, pr map[string]map[string]any, watchIDs []st
 			teams[t] = true
 		}
 	}
-	var teamList []string
+	teamList := make([]string, 0, len(teams))
 	for t := range teams {
 		teamList = append(teamList, t)
 	}
-	var leagueList []map[string]any
+	leagueList := make([]map[string]any, 0, len(models.LeagueFormats))
 	for lid, lf := range models.LeagueFormats {
 		leagueList = append(leagueList, map[string]any{
 			"league_id": lid, "name": lf.Name, "format": lf.Type, "teams": lf.Teams,

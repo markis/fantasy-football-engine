@@ -311,7 +311,10 @@ func carryForwardChangeLog(clPath, clPrev string) {
 
 // appendEvidenceChangeLog appends change-log entries for evidence added/superseded this run,
 // returning the last change ID written and the total number of changes.
-func appendEvidenceChangeLog(clPath, recDir, ts string, evidenceSummary map[string]any) (lastChangeID string, changesCount int) {
+//
+//nolint:gocritic // named returns rejected by nonamedreturns; second value is a plain computed count
+func appendEvidenceChangeLog(clPath, recDir, ts string, evidenceSummary map[string]any) (string, int) {
+	var lastChangeID string
 	appendEvidenceChanges := func(ids []string, operation string) {
 		for _, rid := range ids {
 			filename := strings.Replace(rid, "sha256:", "", 1) + ".json"

@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"github.com/markis/fantasy-football-engine/internal/llm"
 	"github.com/pgvector/pgvector-go"
 )
+
+var errNoFactBody = errors.New("no fact body available")
 
 // FactExtractor extracts atomic fantasy football facts from news items.
 type FactExtractor struct {
@@ -159,7 +162,7 @@ func (f *FactExtractor) loadFactSource(ctx context.Context, itemID uuid.UUID) (*
 		body = ptrStr(title)
 	}
 	if strings.TrimSpace(body) == "" {
-		return nil, nil
+		return nil, errNoFactBody
 	}
 	if len(body) > maxBodyChars {
 		body = body[:maxBodyChars]
@@ -187,7 +190,7 @@ func filterValidFacts(facts []llmFact) []validFact {
 
 // resolveOccurredAt picks the fact's occurred_at timestamp: article
 // published_at, else created_at, else the LLM-provided value, else now.
-func resolveOccurredAt(fact llmFact, publishedAt, createdAt *time.Time) time.Time {
+func resolveOccurredAt(fact *llmFact, publishedAt, createdAt *time.Time) time.Time {
 	switch {
 	case publishedAt != nil:
 		return *publishedAt
@@ -215,7 +218,9 @@ func normalizeConfidence(confidence string) *string {
 
 // insertFacts stores each valid fact (with its embedding) and returns the
 // count of facts actually inserted.
-func (f *FactExtractor) insertFacts(ctx context.Context, itemID uuid.UUID, valid []validFact, vecs [][]float32, publishedAt, createdAt *time.Time) int {
+func (f *FactExtractor) insertFacts(
+	ctx context.Context, itemID uuid.UUID, valid []validFact, vecs [][]float32, publishedAt, createdAt *time.Time,
+) int {
 	inserted := 0
 	for i, vf := range valid {
 		if i >= len(vecs) {
@@ -223,7 +228,7 @@ func (f *FactExtractor) insertFacts(ctx context.Context, itemID uuid.UUID, valid
 		}
 		fact, text := vf.fact, vf.text
 
-		occurredAt := resolveOccurredAt(fact, publishedAt, createdAt)
+		occurredAt := resolveOccurredAt(&fact, publishedAt, createdAt)
 
 		entities := fact.Entities
 		if entities == nil {
@@ -255,10 +260,10 @@ func (f *FactExtractor) insertFacts(ctx context.Context, itemID uuid.UUID, valid
 func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, error) {
 	src, err := f.loadFactSource(ctx, itemID)
 	if err != nil {
+		if errors.Is(err, errNoFactBody) {
+			return 0, nil
+		}
 		return 0, err
-	}
-	if src == nil {
-		return 0, nil
 	}
 
 	prompt := fmt.Sprintf(factsPrompt, maxFactsPerItem, src.title, src.body)
