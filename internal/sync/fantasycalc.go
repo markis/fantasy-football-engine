@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,29 +69,45 @@ func (s *FantasyCalcSyncer) SyncAll(ctx context.Context) ([]FantasyCalcResult, e
 }
 
 func (s *FantasyCalcSyncer) playerIDsBySleeperID(ctx context.Context) (map[string]uuid.UUID, error) {
-	sid2pid := make(map[string]uuid.UUID)
-	rows, err := s.pool.Query(ctx, "SELECT id, sleeper_player_id FROM player")
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id uuid.UUID
-		var sid string
-		if err := rows.Scan(&id, &sid); err != nil {
-			continue
-		}
-		if sid != "" {
-			sid2pid[sid] = id
-		}
-	}
-	return sid2pid, nil
+	return sid2pidMap(ctx, s.pool)
 }
 
-func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCombo, sid2pid map[string]uuid.UUID) (*FantasyCalcResult, error) {
+func (s *FantasyCalcSyncer) syncCombo(
+	ctx context.Context, combo models.FormatCombo, sid2pid map[string]uuid.UUID,
+) (*FantasyCalcResult, error) {
 	source := "FantasyCalc"
 	result := &FantasyCalcResult{Market: combo.Market, Label: combo.Label}
 
+	data, err := s.fetchFantasyCalcData(ctx, combo)
+	if err != nil {
+		return nil, err
+	}
+	result.Fetched = len(data)
+
+	cols := []string{
+		colPosition, colTeam, "overall_rank", "position_rank",
+		"trade_value", "last_month_value", "redraft_value", "percent_owned",
+	}
+
+	var freshIDs []uuid.UUID
+	for _, rec := range data {
+		pid, matched := s.processFantasyCalcRecord(ctx, rec, combo, sid2pid, source, cols, result)
+		if matched {
+			freshIDs = append(freshIDs, pid)
+		}
+	}
+
+	if removed, err := deleteStaleRankings(ctx, s.pool, source, combo.Market, freshIDs); err == nil {
+		result.RemovedStale = removed
+	}
+
+	slog.Info("FantasyCalc sync complete", "market", combo.Market, "matched", result.Matched)
+	return result, nil
+}
+
+// fetchFantasyCalcData fetches and decodes the raw FantasyCalc values payload
+// for a single format combo.
+func (s *FantasyCalcSyncer) fetchFantasyCalcData(ctx context.Context, combo models.FormatCombo) ([]map[string]any, error) {
 	params := fmt.Sprintf("?isDynasty=true&numQbs=%d&numTeams=%d&ppr=%d&tep=%s&includeAdp=false&includeRosterPercent=false",
 		combo.NumQbs, combo.Teams, combo.PPR, combo.TEP)
 	url := fcBase + params
@@ -115,114 +130,82 @@ func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCo
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("decode FantasyCalc: %w", err)
 	}
-	result.Fetched = len(data)
+	return data, nil
+}
 
-	cols := []string{
-		colPosition, colTeam, "overall_rank", "position_rank",
-		"trade_value", "last_month_value", "redraft_value", "percent_owned",
+// processFantasyCalcRecord matches and upserts a single FantasyCalc record,
+// returning the matched player id and whether it should count as fresh.
+func (s *FantasyCalcSyncer) processFantasyCalcRecord(
+	ctx context.Context, rec map[string]any, combo models.FormatCombo,
+	sid2pid map[string]uuid.UUID, source string, cols []string, result *FantasyCalcResult,
+) (uuid.UUID, bool) {
+	p, ok := rec["player"].(map[string]any)
+	sid := ""
+	if ok && p != nil {
+		sid = fmt.Sprint(p["sleeperId"])
+	}
+	if sid == "" || sid == nilStr {
+		result.Skipped++
+		return uuid.UUID{}, false
+	}
+	pid, ok := sid2pid[sid]
+	if !ok {
+		result.Skipped++
+		return uuid.UUID{}, false
+	}
+	result.Matched++
+
+	value := toInt(rec["value"])
+	trend30 := toInt(rec["trend30Day"])
+	var lastMonth *int
+	if value != nil {
+		lm := *value
+		if trend30 != nil {
+			lm -= *trend30
+		}
+		lastMonth = &lm
 	}
 
-	var freshIDs []uuid.UUID
-	for _, rec := range data {
-		p, ok := rec["player"].(map[string]any)
-		sid := ""
-		if ok && p != nil {
-			sid = fmt.Sprint(p["sleeperId"])
-		}
-		if sid == "" || sid == nilStr {
-			result.Skipped++
-			continue
-		}
-		pid, ok := sid2pid[sid]
-		if !ok {
-			result.Skipped++
-			continue
-		}
-		result.Matched++
-		freshIDs = append(freshIDs, pid)
-
-		value := toInt(rec["value"])
-		trend30 := toInt(rec["trend30Day"])
-		var lastMonth *int
-		if value != nil {
-			lm := *value
-			if trend30 != nil {
-				lm -= *trend30
-			}
-			lastMonth = &lm
-		}
-
-		var pct *string
-		if p != nil {
-			if rp, ok := p["maybeRosterPercent"].(float64); ok {
-				pctStr := fmt.Sprintf("%.2f", rp*100)
-				pct = &pctStr
-			}
-		}
-
-		params := []any{pid, source, combo.Market}
-		vals := []any{
-			getStrFromMap(p, "position"), getStrFromMap(p, "maybeTeam"),
-			toInt(rec["overallRank"]), toInt(rec["positionRank"]),
-			value, lastMonth, toInt(rec["redraftValue"]), pct,
-		}
-		params = append(params, vals...)
-
-		colNames := ""
-		placeholders := ""
-		updates := ""
-		var colNamesSb161 strings.Builder
-		var placeholdersSb161 strings.Builder
-		var updatesSb161 strings.Builder
-		for i, col := range cols {
-			if i > 0 {
-				colNamesSb161.WriteString(", ")
-				placeholdersSb161.WriteString(", ")
-				updatesSb161.WriteString(", ")
-			}
-			colNamesSb161.WriteString(col)
-			placeholdersSb161.WriteString("$" + strconv.Itoa(i+4))
-			updatesSb161.WriteString(col + " = EXCLUDED." + col)
-		}
-		colNames += colNamesSb161.String()
-		placeholders += placeholdersSb161.String()
-		updates += updatesSb161.String()
-
-		sql := fmt.Sprintf(`
-			INSERT INTO player_ranking (player_id, source, market, %s, snapshot_date)
-			VALUES ($1, $2, $3, %s, CURRENT_DATE)
-			ON CONFLICT (player_id, source, market) DO UPDATE SET
-				%s, snapshot_date = CURRENT_DATE, updated_at = now()
-		`, colNames, placeholders, updates)
-
-		if _, err := s.pool.Exec(ctx, sql, params...); err != nil {
-			slog.Warn("FC ranking upsert", "err", err)
-		}
-
-		// History snapshot
-		if _, err := s.pool.Exec(ctx, `
-			INSERT INTO player_ranking_history (player_id, source, market, snapshot_date, trade_value, overall_rank, position_rank, redraft_value)
-			VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, $6, $7)
-			ON CONFLICT (player_id, source, market, snapshot_date) DO UPDATE SET
-				trade_value = EXCLUDED.trade_value, overall_rank = EXCLUDED.overall_rank,
-				position_rank = EXCLUDED.position_rank, redraft_value = EXCLUDED.redraft_value, created_at = now()
-		`, pid, source, combo.Market, value, toInt(rec["overallRank"]), toInt(rec["positionRank"]), toInt(rec["redraftValue"])); err != nil {
-			slog.Warn("insert ranking history", "err", err)
+	var pct *string
+	if p != nil {
+		if rp, ok := p["maybeRosterPercent"].(float64); ok {
+			pctStr := fmt.Sprintf("%.2f", rp*100)
+			pct = &pctStr
 		}
 	}
 
-	// Remove stale
-	if len(freshIDs) > 0 {
-		ct, err := s.pool.Exec(ctx,
-			"DELETE FROM player_ranking WHERE source=$1 AND market=$2 AND NOT (player_id = ANY($3))",
-			source, combo.Market, freshIDs)
-		if err == nil {
-			result.RemovedStale = int(ct.RowsAffected())
-		}
+	params := []any{
+		pid, source, combo.Market,
+		getStrFromMap(p, "position"), getStrFromMap(p, "maybeTeam"),
+		toInt(rec["overallRank"]), toInt(rec["positionRank"]),
+		value, lastMonth, toInt(rec["redraftValue"]), pct,
 	}
 
-	slog.Info("FantasyCalc sync complete", "market", combo.Market, "matched", result.Matched)
-	return result, nil
+	up := buildUpsertParts(cols, 4)
+
+	sql := fmt.Sprintf(`
+		INSERT INTO player_ranking (player_id, source, market, %s, snapshot_date)
+		VALUES ($1, $2, $3, %s, CURRENT_DATE)
+		ON CONFLICT (player_id, source, market) DO UPDATE SET
+			%s, snapshot_date = CURRENT_DATE, updated_at = now()
+	`, up.colNames, up.placeholders, up.updates)
+
+	if _, err := s.pool.Exec(ctx, sql, params...); err != nil {
+		slog.Warn("FC ranking upsert", "err", err)
+	}
+
+	// History snapshot
+	if _, err := s.pool.Exec(ctx, `
+		INSERT INTO player_ranking_history (player_id, source, market, snapshot_date, trade_value, overall_rank, position_rank, redraft_value)
+		VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, $6, $7)
+		ON CONFLICT (player_id, source, market, snapshot_date) DO UPDATE SET
+			trade_value = EXCLUDED.trade_value, overall_rank = EXCLUDED.overall_rank,
+			position_rank = EXCLUDED.position_rank, redraft_value = EXCLUDED.redraft_value, created_at = now()
+	`, pid, source, combo.Market, value, toInt(rec["overallRank"]), toInt(rec["positionRank"]), toInt(rec["redraftValue"])); err != nil {
+		slog.Warn("insert ranking history", "err", err)
+	}
+
+	return pid, true
 }
 
 func toInt(v any) *int {

@@ -2,9 +2,7 @@ package sync
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -46,43 +44,60 @@ type FPRankingsResult struct {
 func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) {
 	result := &FPRankingsResult{Source: fpRankingsSource, Status: "ok"}
 
-	apiKey, err := config.PassShow(ctx, s.cfg.FantasyPros.APIKeyPass)
-	if err != nil {
-		return nil, fmt.Errorf("get FP API key: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpRankingsURL, http.NoBody)
+	players, err := s.fetchFPRankingsData(ctx)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Api-Key", apiKey)
-	req.Header.Set("Accept", "application/json")
-	q := req.URL.Query()
-	q.Add("limit", "500")
-	req.URL.RawQuery = q.Encode()
 
-	resp, err := s.client.Do(req)
+	byNameTeam, err := s.playerIDsByNameTeam(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("FP rankings request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			body = []byte("(unable to read error response body)")
-		}
-		return nil, fmt.Errorf("%w (%d): %s", errFPRankingsHTTP, resp.StatusCode, string(body))
+		return nil, err
 	}
 
+	var matched, skipped int
+	var freshIDs []uuid.UUID
+	for _, p := range players {
+		out := s.processFPRankingRecord(ctx, p, byNameTeam)
+		if out.matched {
+			matched++
+		}
+		if out.skipped {
+			skipped++
+		}
+		if out.fresh {
+			freshIDs = append(freshIDs, out.pid)
+		}
+	}
+
+	// Delete stale rows for this source/market, but only once we know we
+	// have fresh data to replace them — never wipe on an empty/failed sync.
+	if _, err := deleteStaleRankings(ctx, s.pool, fpRankingsSource, fpRankingsMarket, freshIDs); err != nil {
+		slog.Warn("failed to delete stale rankings", "err", err)
+	}
+
+	result.Matched = matched
+	result.Unmatched = skipped
+	result.PlayersWithDyn = matched + skipped
+	slog.Info("FP rankings sync complete", "matched", matched, "unmatched", skipped)
+	return result, nil
+}
+
+// fetchFPRankingsData fetches and decodes the raw FantasyPros ECR players
+// payload.
+func (s *FPRankingsSyncer) fetchFPRankingsData(ctx context.Context) ([]map[string]any, error) {
 	var apiResp struct {
 		Players []map[string]any `json:"players"`
 	}
-	if decodeErr := json.NewDecoder(resp.Body).Decode(&apiResp); decodeErr != nil {
-		return nil, fmt.Errorf("decode FP rankings: %w", decodeErr)
+	if err := fetchFPJSON(ctx, s.client, s.cfg, fpRankingsURL, errFPRankingsHTTP,
+		"FP rankings request", "decode FP rankings", &apiResp); err != nil {
+		return nil, err
 	}
-	players := apiResp.Players
+	return apiResp.Players, nil
+}
 
-	// Match by (lower(name), team)
+// playerIDsByNameTeam builds a (lower(name)|team) -> player.id lookup used to
+// match FantasyPros records against the local player table.
+func (s *FPRankingsSyncer) playerIDsByNameTeam(ctx context.Context) (map[string]uuid.UUID, error) {
 	rows, err := s.pool.Query(ctx,
 		"SELECT id, lower(full_name), team FROM player WHERE active = true")
 	if err != nil {
@@ -101,77 +116,70 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 			byNameTeam[*fullName+"|"+*team] = id
 		}
 	}
+	return byNameTeam, nil
+}
 
-	var matched, skipped int
-	var freshIDs []uuid.UUID
-	for _, p := range players {
-		rankMap, ok := p["rank"].(map[string]any)
-		if !ok {
-			skipped++
-			continue
-		}
-		ecrMap, ok := getNested(rankMap, "ECR")
-		if !ok {
-			skipped++
-			continue
-		}
-		dynMap, ok := ecrMap["DYN"].(map[string]any)
-		_ = ok
-		if dynMap == nil {
-			continue
-		}
-		overall := toInt(dynMap["ALL"])
-		if overall == nil {
-			continue
-		}
-		pos := fmt.Sprint(p["position_id"])
-		if pos == nilStr {
-			pos = ""
-		}
-		posRank := toInt(dynMap[pos])
-		if posRank == nil {
-			posRank = toInt(dynMap["ALL"])
-		}
+// fpRankOutcome captures the per-record result of processFPRankingRecord.
+// It mirrors the original inline loop's counting semantics exactly: some
+// early-exit paths (missing DYN map, missing overall rank) count neither as
+// matched nor skipped.
+type fpRankOutcome struct {
+	pid     uuid.UUID
+	matched bool
+	skipped bool
+	fresh   bool
+}
 
-		nameKey := strings.ToLower(fmt.Sprint(p["player_name"])) + "|" + fmt.Sprint(p["team_id"])
-		pid, ok := byNameTeam[nameKey]
-		if !ok {
-			skipped++
-			continue
-		}
-		matched++
-
-		_, err := s.pool.Exec(ctx, ` //nolint:goconst // SQL string contains literal '<nil>'
-			INSERT INTO player_ranking (player_id, source, market, position, team,
-			                            overall_rank, position_rank, snapshot_date)
-			VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '<nil>'), $6, $7, CURRENT_DATE)
-			ON CONFLICT (player_id, source, market) DO UPDATE SET
-				position = EXCLUDED.position, team = EXCLUDED.team,
-				overall_rank = EXCLUDED.overall_rank, position_rank = EXCLUDED.position_rank,
-				snapshot_date = CURRENT_DATE, updated_at = now()
-		`, pid, fpRankingsSource, fpRankingsMarket, pos, fmt.Sprint(p["team_id"]), *overall, posRank)
-		if err != nil {
-			slog.Warn("FP ranking upsert", "err", err)
-			continue
-		}
-		freshIDs = append(freshIDs, pid)
+// processFPRankingRecord matches and upserts a single FantasyPros ECR
+// record.
+func (s *FPRankingsSyncer) processFPRankingRecord(ctx context.Context, p map[string]any, byNameTeam map[string]uuid.UUID) fpRankOutcome {
+	rankMap, ok := p["rank"].(map[string]any)
+	if !ok {
+		return fpRankOutcome{skipped: true}
+	}
+	ecrMap, ok := getNested(rankMap, "ECR")
+	if !ok {
+		return fpRankOutcome{skipped: true}
+	}
+	dynMap, dynOk := ecrMap["DYN"].(map[string]any)
+	_ = dynOk
+	if dynMap == nil {
+		return fpRankOutcome{}
+	}
+	overall := toInt(dynMap["ALL"])
+	if overall == nil {
+		return fpRankOutcome{}
+	}
+	pos := fmt.Sprint(p["position_id"])
+	if pos == nilStr {
+		pos = ""
+	}
+	posRank := toInt(dynMap[pos])
+	if posRank == nil {
+		posRank = toInt(dynMap["ALL"])
 	}
 
-	// Delete stale rows for this source/market, but only once we know we
-	// have fresh data to replace them — never wipe on an empty/failed sync.
-	if len(freshIDs) > 0 {
-		if _, err := s.pool.Exec(ctx,
-			"DELETE FROM player_ranking WHERE source = $1 AND market = $2 AND NOT (player_id = ANY($3))",
-			fpRankingsSource, fpRankingsMarket, freshIDs); err != nil {
-			slog.Warn("failed to delete stale rankings", "err", err)
-		}
+	nameKey := strings.ToLower(fmt.Sprint(p["player_name"])) + "|" + fmt.Sprint(p["team_id"])
+	pid, ok := byNameTeam[nameKey]
+	if !ok {
+		return fpRankOutcome{skipped: true}
 	}
 
-	result.Matched = matched
-	result.Unmatched = skipped
-	result.PlayersWithDyn = matched + skipped
-	slog.Info("FP rankings sync complete", "matched", matched, "unmatched", skipped)
-	return result, nil
+	_, err := s.pool.Exec(ctx, ` //nolint:goconst // SQL string contains literal '<nil>'
+		INSERT INTO player_ranking (player_id, source, market, position, team,
+		                            overall_rank, position_rank, snapshot_date)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '<nil>'), $6, $7, CURRENT_DATE)
+		ON CONFLICT (player_id, source, market) DO UPDATE SET
+			position = EXCLUDED.position, team = EXCLUDED.team,
+			overall_rank = EXCLUDED.overall_rank, position_rank = EXCLUDED.position_rank,
+			snapshot_date = CURRENT_DATE, updated_at = now()
+	`, pid, fpRankingsSource, fpRankingsMarket, pos, fmt.Sprint(p["team_id"]), *overall, posRank)
+	if err != nil {
+		slog.Warn("FP ranking upsert", "err", err)
+		return fpRankOutcome{pid: pid, matched: true}
+	}
+
+	return fpRankOutcome{pid: pid, matched: true, fresh: true}
 }
 
 func getNested(m map[string]any, key string) (map[string]any, bool) {

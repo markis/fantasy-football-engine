@@ -2,9 +2,7 @@ package sync
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -42,115 +40,24 @@ type FPInjuriesResult struct {
 func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) {
 	result := &FPInjuriesResult{Status: "ok"}
 
-	apiKey, err := config.PassShow(ctx, s.cfg.FantasyPros.APIKeyPass)
-	if err != nil {
-		return nil, fmt.Errorf("get FP API key: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpInjuriesURL, http.NoBody)
+	items, err := s.fetchFPInjuriesData(ctx)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("X-Api-Key", apiKey)
-	req.Header.Set("Accept", "application/json")
-	q := req.URL.Query()
-	q.Add("limit", "500")
-	req.URL.RawQuery = q.Encode()
-
-	resp, err := s.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("FP injuries request: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
-		if readErr != nil {
-			body = []byte("(unable to read error response body)")
-		}
-		return nil, fmt.Errorf("%w (%d): %s", errFPInjuriesHTTP, resp.StatusCode, string(body))
-	}
-
-	var apiResp struct {
-		Injuries []map[string]any `json:"injuries"`
-	}
-	if decodeErr := json.NewDecoder(resp.Body).Decode(&apiResp); decodeErr != nil {
-		return nil, fmt.Errorf("decode FP injuries: %w", decodeErr)
-	}
-	items := apiResp.Injuries
 	result.InjuriesFetched = len(items)
 
-	// Build player lookup maps
-	rows, err := s.pool.Query(ctx,
-		"SELECT id, sleeper_player_id, yahoo_id, lower(full_name), team FROM player WHERE active = true")
+	lookups, err := s.playerLookupMaps(ctx)
 	if err != nil {
 		return nil, err
-	}
-	defer rows.Close()
-
-	byYahoo := make(map[string]any)
-	byNameTeam := make(map[string]any)
-	for rows.Next() {
-		var id any
-		var sleeperID, yahooID, fullName, team *string
-		if err := rows.Scan(&id, &sleeperID, &yahooID, &fullName, &team); err != nil {
-			continue
-		}
-		if yahooID != nil && *yahooID != "" {
-			byYahoo[*yahooID] = id
-		}
-		if fullName != nil && team != nil {
-			byNameTeam[*fullName+"|"+*team] = id
-		}
 	}
 
 	for _, it := range items {
-		var pid any
-		yid := fmt.Sprint(it["yahoo_id"])
-		if yid != "" && yid != nilStr {
-			if v, ok := byYahoo[yid]; ok {
-				pid = v
-			}
-		}
-		if pid == nil {
-			nameKey := strings.ToLower(fmt.Sprint(it["name"])) + "|" + fmt.Sprint(it["team_id"])
-			if v, ok := byNameTeam[nameKey]; ok {
-				pid = v
-			}
-		}
-		if pid == nil {
+		pid, ok := matchInjuryPlayer(it, lookups.byYahoo, lookups.byNameTeam)
+		if !ok {
 			result.Unmatched++
 			continue
 		}
-
-		status := fmt.Sprint(it["status"])
-		injuryType := fmt.Sprint(it["injury_type"])
-		if injuryType == nilStr {
-			injuryType = fmt.Sprint(it["practice_report_injury_type"])
-		}
-		if injuryType == nilStr {
-			injuryType = ""
-		}
-		comment := fmt.Sprint(it["comment"])
-		if comment == nilStr {
-			comment = ""
-		}
-		practice := latestPractice(it)
-		practiceDesc := fmt.Sprint(it["practice_report_injury_type"])
-		if practiceDesc == nilStr {
-			practiceDesc = ""
-		}
-
-		_, err := s.pool.Exec(ctx, `
-			UPDATE player SET
-				injury_status = NULLIF($1, ''),
-				injury_body_part = NULLIF($2, ''),
-				injury_notes = NULLIF($3, ''),
-				practice_participation = NULLIF($4, ''),
-				practice_description = NULLIF($5, ''),
-				updated_at = now()
-			WHERE id = $6
-		`, status, injuryType, comment, practice, practiceDesc, pid)
-		if err != nil {
+		if err := s.updatePlayerInjury(ctx, it, pid); err != nil {
 			slog.Warn("update injury", "err", err)
 			continue
 		}
@@ -159,6 +66,105 @@ func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) 
 
 	slog.Info("FP injuries sync complete", "fetched", result.InjuriesFetched, "updated", result.PlayersUpdated)
 	return result, nil
+}
+
+// fetchFPInjuriesData fetches and decodes the raw FantasyPros injuries
+// payload.
+func (s *FPInjuriesSyncer) fetchFPInjuriesData(ctx context.Context) ([]map[string]any, error) {
+	var apiResp struct {
+		Injuries []map[string]any `json:"injuries"`
+	}
+	if err := fetchFPJSON(ctx, s.client, s.cfg, fpInjuriesURL, errFPInjuriesHTTP,
+		"FP injuries request", "decode FP injuries", &apiResp); err != nil {
+		return nil, err
+	}
+	return apiResp.Injuries, nil
+}
+
+// injuryPlayerLookups holds the lookups built by playerLookupMaps.
+type injuryPlayerLookups struct {
+	byYahoo    map[string]any
+	byNameTeam map[string]any
+}
+
+// playerLookupMaps builds the yahoo-id and (lower(name)|team) lookups used to
+// match FantasyPros injury records against the local player table.
+func (s *FPInjuriesSyncer) playerLookupMaps(ctx context.Context) (injuryPlayerLookups, error) {
+	rows, err := s.pool.Query(ctx,
+		"SELECT id, sleeper_player_id, yahoo_id, lower(full_name), team FROM player WHERE active = true")
+	if err != nil {
+		return injuryPlayerLookups{}, err
+	}
+	defer rows.Close()
+
+	lookups := injuryPlayerLookups{
+		byYahoo:    make(map[string]any),
+		byNameTeam: make(map[string]any),
+	}
+	for rows.Next() {
+		var id any
+		var sleeperID, yahooID, fullName, team *string
+		if err := rows.Scan(&id, &sleeperID, &yahooID, &fullName, &team); err != nil {
+			continue
+		}
+		if yahooID != nil && *yahooID != "" {
+			lookups.byYahoo[*yahooID] = id
+		}
+		if fullName != nil && team != nil {
+			lookups.byNameTeam[*fullName+"|"+*team] = id
+		}
+	}
+	return lookups, nil
+}
+
+// matchInjuryPlayer resolves an injury record to a player id, preferring a
+// yahoo-id match and falling back to a (lower(name)|team) match.
+func matchInjuryPlayer(it, byYahoo, byNameTeam map[string]any) (any, bool) {
+	yid := fmt.Sprint(it["yahoo_id"])
+	if yid != "" && yid != nilStr {
+		if v, ok := byYahoo[yid]; ok {
+			return v, true
+		}
+	}
+	nameKey := strings.ToLower(fmt.Sprint(it["name"])) + "|" + fmt.Sprint(it["team_id"])
+	if v, ok := byNameTeam[nameKey]; ok {
+		return v, true
+	}
+	return nil, false
+}
+
+// updatePlayerInjury writes a single injury record's status fields onto the
+// matched player row.
+func (s *FPInjuriesSyncer) updatePlayerInjury(ctx context.Context, it map[string]any, pid any) error {
+	status := fmt.Sprint(it["status"])
+	injuryType := fmt.Sprint(it["injury_type"])
+	if injuryType == nilStr {
+		injuryType = fmt.Sprint(it["practice_report_injury_type"])
+	}
+	if injuryType == nilStr {
+		injuryType = ""
+	}
+	comment := fmt.Sprint(it["comment"])
+	if comment == nilStr {
+		comment = ""
+	}
+	practice := latestPractice(it)
+	practiceDesc := fmt.Sprint(it["practice_report_injury_type"])
+	if practiceDesc == nilStr {
+		practiceDesc = ""
+	}
+
+	_, err := s.pool.Exec(ctx, `
+		UPDATE player SET
+			injury_status = NULLIF($1, ''),
+			injury_body_part = NULLIF($2, ''),
+			injury_notes = NULLIF($3, ''),
+			practice_participation = NULLIF($4, ''),
+			practice_description = NULLIF($5, ''),
+			updated_at = now()
+		WHERE id = $6
+	`, status, injuryType, comment, practice, practiceDesc, pid)
+	return err
 }
 
 func latestPractice(item map[string]any) string {
