@@ -175,10 +175,10 @@ func (b *BodyFetcher) processItem(ctx context.Context, item pendingItem) string 
 	// is left stuck at 'fetching' (set by FetchBatch before this call) until
 	// the staleness reset kicks it back to 'pending' and it's retried again.
 	if len(contentText) <= len(item.content) {
-		_, err := b.pool.Exec(ctx,
+		_, execErr := b.pool.Exec(ctx,
 			"UPDATE news_item SET body_fetch_status = 'fetched', body_fetched_at = now() WHERE id = $1",
 			item.id)
-		if err != nil {
+		if execErr != nil {
 			return "skipped"
 		}
 		return "fetched"

@@ -52,8 +52,8 @@ func main() {
 	defer pool.Close()
 
 	// Run migrations (in-place upgrade: marks existing migrations as applied)
-	if err := pool.RunMigrations(ctx); err != nil {
-		slog.Error("migrations", "err", err)
+	if migrErr := pool.RunMigrations(ctx); migrErr != nil {
+		slog.Error("migrations", "err", migrErr)
 		os.Exit(1)
 	}
 

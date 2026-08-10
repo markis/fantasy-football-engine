@@ -207,7 +207,7 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 		// FAAB. The league's total waiver budget (default 100 per Sleeper's
 		// own default) must come from the league settings, not be assumed —
 		// leagues can configure any total.
-		settings, _ := myRoster["settings"].(map[string]any)
+		settings, _ := myRoster["settings"].(map[string]any) //nolint:errcheck // Type assertion returns empty map if fails
 		faab := 0
 		if v, ok := settings["waiver_budget_used"]; ok {
 			if n, ok := v.(float64); ok {
@@ -273,7 +273,9 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 
 		// Write per-league
 		slug := slugify(lf.Name)
-		WriteJSON(filepath.Join(leaguesDir, slug, "team-state.json"), leagueState)
+		if err := WriteJSON(filepath.Join(leaguesDir, slug, "team-state.json"), leagueState); err != nil {
+			return nil, err
+		}
 
 		leagues = append(leagues, leagueState)
 	}
@@ -284,34 +286,43 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 		"as_of":        now,
 		"generated_at": now,
 	}
-	WriteJSON(filepath.Join(teamDir, "team-state.json"), multi)
+	if err := WriteJSON(filepath.Join(teamDir, "team-state.json"), multi); err != nil {
+		return nil, err
+	}
 
 	// Roster markdown
 	var mdLines []string
 	mdLines = append(mdLines, "# Roster", "", fmt.Sprintf("_Generated %s._", now), "")
 	for _, lg := range leagues {
-		l := lg["league"].(map[string]any)
-		t := lg["team"].(map[string]any)
+		l, _ := lg["league"].(map[string]any)     //nolint:errcheck // Map guaranteed by buildLeagueState
+		t, _ := lg["team"].(map[string]any)       //nolint:errcheck // Map guaranteed by buildLeagueState
 		mdLines = append(mdLines, fmt.Sprintf("## %s", l["name"]), "")
-		for _, r := range t["roster"].([]map[string]any) {
+		roster, _ := t["roster"].([]map[string]any)  //nolint:errcheck // Roster guaranteed by buildLeagueState
+		for _, r := range roster {
 			mdLines = append(mdLines, fmt.Sprintf("- %s (%s, %s) — value: %v",
 				r["full_name"], r["position"], r["nfl_team"], r["trade_value"]))
 		}
 		mdLines = append(mdLines, "")
 	}
-	WriteText(filepath.Join(teamDir, "roster.md"), strings.Join(mdLines, "\n"))
+	if err := WriteText(filepath.Join(teamDir, "roster.md"), strings.Join(mdLines, "\n")); err != nil {
+		return nil, err
+	}
 
 	// Future picks
-	WriteJSON(filepath.Join(teamDir, "future-picks.json"), map[string]any{
+	if err := WriteJSON(filepath.Join(teamDir, "future-picks.json"), map[string]any{
 		"picks":        []any{},
 		"generated_at": now,
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// League settings
-	WriteJSON(filepath.Join(teamDir, "league-settings.json"), map[string]any{
+	if err := WriteJSON(filepath.Join(teamDir, "league-settings.json"), map[string]any{
 		"leagues":      models.LeagueFormats,
 		"generated_at": now,
-	})
+	}); err != nil {
+		return nil, err
+	}
 
 	// Transaction history (empty for now)
 	if err := os.WriteFile(filepath.Join(teamDir, "transaction-history.jsonl"), []byte(""), 0o600); err != nil {
@@ -412,7 +423,9 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 	// valuations.jsonl
 	valPath := filepath.Join(dsDir, "valuations.jsonl")
-	os.WriteFile(valPath, []byte(""), 0o644)
+	if err := os.WriteFile(valPath, []byte(""), 0o644); err != nil {
+		return nil, fmt.Errorf("writeFile valuations: %w", err)
+	}
 	valCount := 0
 	sources := []struct {
 		source string
@@ -490,7 +503,9 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 	}
 
 	// league-transactions.jsonl (empty for now)
-	os.WriteFile(filepath.Join(dsDir, "league-transactions.jsonl"), []byte(""), 0o644)
+	if err := os.WriteFile(filepath.Join(dsDir, "league-transactions.jsonl"), []byte(""), 0o644); err != nil {
+		return nil, fmt.Errorf("writeFile league-transactions: %w", err)
+	}
 
 	// entities.json
 	teams := make(map[string]bool)
@@ -517,7 +532,9 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 		"players_count": len(watchIDs),
 		"players":       []any{},
 	}
-	WriteJSON(filepath.Join(dsDir, "entities.json"), entities)
+	if err := WriteJSON(filepath.Join(dsDir, "entities.json"), entities); err != nil {
+		return nil, err
+	}
 
 	return map[string]any{
 		"players":      len(watchIDs),

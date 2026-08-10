@@ -72,9 +72,9 @@ func (f *FPNewsFetcher) Fetch(ctx context.Context) (*FPNewsResult, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("%w (%d): read body failed: %w", errFPNewsHTTP, resp.StatusCode, err)
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return nil, fmt.Errorf("%w (%d): read body failed: %w", errFPNewsHTTP, resp.StatusCode, readErr)
 		}
 		return nil, fmt.Errorf("%w (%d): %s", errFPNewsHTTP, resp.StatusCode, string(body))
 	}
@@ -83,8 +83,8 @@ func (f *FPNewsFetcher) Fetch(ctx context.Context) (*FPNewsResult, error) {
 		Injuries []map[string]any `json:"injuries"`
 		News     []map[string]any `json:"news"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, fmt.Errorf("decode FP news: %w", err)
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&apiResp); decodeErr != nil {
+		return nil, fmt.Errorf("decode FP news: %w", decodeErr)
 	}
 
 	// Ensure source exists

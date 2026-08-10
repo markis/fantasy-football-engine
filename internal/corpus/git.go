@@ -27,8 +27,8 @@ func (p *Publisher) gitCommitAndPush(ctx context.Context, result *PublishResult)
 	}
 
 	// Add all changes
-	if err := worktree.AddWithOptions(&git.AddOptions{All: true}); err != nil {
-		return fmt.Errorf("git add: %w", err)
+	if addErr := worktree.AddWithOptions(&git.AddOptions{All: true}); addErr != nil {
+		return fmt.Errorf("git add: %w", addErr)
 	}
 
 	status, err := worktree.Status()

@@ -50,8 +50,8 @@ func (s *PlayerSyncer) Sync(ctx context.Context) (*PlayerSyncResult, error) {
 		count++
 	}
 
-	if err := batch.flush(ctx); err != nil {
-		return nil, fmt.Errorf("flush player batch: %w", err)
+	if flushErr := batch.flush(ctx); flushErr != nil {
+		return nil, fmt.Errorf("flush player batch: %w", flushErr)
 	}
 
 	// Count by position
@@ -86,7 +86,7 @@ func (s *PlayerSyncer) Sync(ctx context.Context) (*PlayerSyncResult, error) {
 	return result, nil
 }
 
-func projectPlayer(pid string, p map[string]interface{}) []interface{} {
+func projectPlayer(pid string, p map[string]any) []any {
 	cols := []string{
 		"first_name", "last_name", "full_name", "search_full_name",
 		"position", "fantasy_positions", "team", "team_abbr", "status", "active",
@@ -98,7 +98,7 @@ func projectPlayer(pid string, p map[string]interface{}) []interface{} {
 		"sportradar_id", "stats_id", "news_updated",
 	}
 
-	vals := make([]interface{}, len(cols))
+	vals := make([]any, len(cols))
 	colIndex := make(map[string]int, len(cols))
 	for i, col := range cols {
 		vals[i] = p[col]
@@ -131,7 +131,7 @@ func projectPlayer(pid string, p map[string]interface{}) []interface{} {
 	fantasyPositionsIdx := colIndex["fantasy_positions"]
 	if vals[fantasyPositionsIdx] != nil {
 		switch v := vals[fantasyPositionsIdx].(type) {
-		case []interface{}:
+		case []any:
 			arr := make([]string, 0, len(v))
 			for _, item := range v {
 				arr = append(arr, fmt.Sprint(item))
@@ -158,7 +158,7 @@ func projectPlayer(pid string, p map[string]interface{}) []interface{} {
 	}
 
 	// Prepend sleeper_player_id
-	all := make([]interface{}, 0, len(vals)+1)
+	all := make([]any, 0, len(vals)+1)
 	all = append(all, pid)
 	all = append(all, vals...)
 
@@ -169,10 +169,10 @@ func projectPlayer(pid string, p map[string]interface{}) []interface{} {
 // pgxBatch accumulates player rows and executes them in batches.
 type pgxBatch struct {
 	pool *db.Pool
-	rows [][]interface{}
+	rows [][]any
 }
 
-func (b *pgxBatch) add(row []interface{}) {
+func (b *pgxBatch) add(row []any) {
 	b.rows = append(b.rows, row)
 }
 
@@ -230,10 +230,7 @@ func (b *pgxBatch) flush(ctx context.Context) error {
 	// Execute batch
 	batchSize := 500
 	for i := 0; i < len(b.rows); i += batchSize {
-		end := i + batchSize
-		if end > len(b.rows) {
-			end = len(b.rows)
-		}
+		end := min(i+batchSize, len(b.rows))
 		for _, row := range b.rows[i:end] {
 			if _, err := b.pool.Exec(ctx, sql, row...); err != nil {
 				slog.Warn("player upsert error", "err", err)

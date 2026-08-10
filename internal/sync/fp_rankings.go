@@ -51,7 +51,7 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 		return nil, fmt.Errorf("get FP API key: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpRankingsURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpRankingsURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -67,8 +67,8 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
 			body = []byte("(unable to read error response body)")
 		}
 		return nil, fmt.Errorf("%w (%d): %s", errFPRankingsHTTP, resp.StatusCode, string(body))
@@ -77,8 +77,8 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 	var apiResp struct {
 		Players []map[string]any `json:"players"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
-		return nil, fmt.Errorf("decode FP rankings: %w", err)
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&apiResp); decodeErr != nil {
+		return nil, fmt.Errorf("decode FP rankings: %w", decodeErr)
 	}
 	players := apiResp.Players
 

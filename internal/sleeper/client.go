@@ -74,17 +74,17 @@ func (c *Client) get(ctx context.Context, path string, target any) error {
 	}
 	defer resp.Body.Close()
 
-	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
-		return fmt.Errorf("decode sleeper response %s: %w", path, err)
+	if decodeErr := json.NewDecoder(resp.Body).Decode(target); decodeErr != nil {
+		return fmt.Errorf("decode sleeper response %s: %w", path, decodeErr)
 	}
 	// Cache the result (re-marshal for storage)
-	raw, err := json.Marshal(target)
-	if err != nil {
-		return fmt.Errorf("marshal for cache %s: %w", path, err)
+	raw, marshalErr := json.Marshal(target)
+	if marshalErr != nil {
+		return fmt.Errorf("marshal for cache %s: %w", path, marshalErr)
 	}
 	var stored any
-	if err := json.Unmarshal(raw, &stored); err != nil {
-		return fmt.Errorf("unmarshal for cache %s: %w", path, err)
+	if unmarshalErr := json.Unmarshal(raw, &stored); unmarshalErr != nil {
+		return fmt.Errorf("unmarshal for cache %s: %w", path, unmarshalErr)
 	}
 	c.mu.Lock()
 	c.cache[path] = cacheEntry{data: stored, expires: time.Now().Add(5 * time.Minute)}
@@ -114,7 +114,7 @@ func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error)
 	url := c.baseURL + "/" + path
 	var lastErr error
 	for attempt := range 3 {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 		if err != nil {
 			return nil, fmt.Errorf("create request: %w", err)
 		}
@@ -297,7 +297,7 @@ func nflSeasonFromDate(t time.Time) string {
 // Used by the corpus publisher which needs flexible access.
 func (c *Client) GetRaw(ctx context.Context, path string) (any, error) {
 	url := c.baseURL + "/" + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -328,10 +328,7 @@ func (c *Client) CurrentWeek(ctx context.Context) int {
 	}
 	if state.SeasonType == "regular" || state.SeasonType == "post" || state.SeasonType == "pre" {
 		w := max(state.Week, 0)
-		if w > 18 {
-			w = 18
-		}
-		return w
+		return min(w, 18)
 	}
 	return 0
 }

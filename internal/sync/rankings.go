@@ -48,7 +48,7 @@ func (s *RankingsSyncer) Sync(ctx context.Context, market int, source string) (*
 
 	url := fmt.Sprintf("%s?market=%d", ddURL, market)
 	slog.Info("fetching rankings", "url", url)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -61,9 +61,9 @@ func (s *RankingsSyncer) Sync(ctx context.Context, market int, source string) (*
 		return nil, fmt.Errorf("%w (%d)", errRankingsHTTP, resp.StatusCode)
 	}
 
-	var data []map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return nil, fmt.Errorf("decode rankings: %w", err)
+	var data []map[string]any
+	if decodeErr := json.NewDecoder(resp.Body).Decode(&data); decodeErr != nil {
+		return nil, fmt.Errorf("decode rankings: %w", decodeErr)
 	}
 	result.Fetched = len(data)
 	slog.Info("rankings fetched", "count", len(data), "source", source, "market", market)
@@ -117,7 +117,7 @@ func (s *RankingsSyncer) Sync(ctx context.Context, market int, source string) (*
 		freshIDs = append(freshIDs, pid)
 
 		// Build params
-		params := make([]interface{}, 0, len(dataCols)+4)
+		params := make([]any, 0, len(dataCols)+4)
 		params = append(params, pid, source, market)
 		for _, col := range dataCols {
 			params = append(params, p[col])
@@ -172,7 +172,7 @@ func (s *RankingsSyncer) Sync(ctx context.Context, market int, source string) (*
 	return result, nil
 }
 
-func getRankingStr(m map[string]interface{}, key string) string {
+func getRankingStr(m map[string]any, key string) string {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return ""

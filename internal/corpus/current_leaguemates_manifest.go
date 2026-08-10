@@ -15,9 +15,9 @@ import (
 )
 
 // renderCurrent renders current/ markdown briefs.
-func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[string]interface{}, error) {
+func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[string]any, error) {
 	curDir := filepath.Join(targetDir, "current")
-	if err := os.MkdirAll(curDir, 0o755); err != nil {
+	if err := os.MkdirAll(curDir, 0o750); err != nil {
 		return nil, err
 	}
 
@@ -26,9 +26,10 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 
 	// Load team-state
 	tsPath := filepath.Join(targetDir, "team", "team-state.json")
-	var ts map[string]interface{}
+	var ts map[string]any
 	if data, err := os.ReadFile(tsPath); err == nil {
-		_ = json.Unmarshal(data, &ts)
+		//nolint:errcheck // Unmarshal failure results in empty map, which is safe
+		json.Unmarshal(data, &ts)
 	}
 
 	// daily-brief.md
@@ -56,7 +57,7 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 	}
 
 	// injury-and-usage.md
-	var inj, usage []map[string]interface{}
+	var inj, usage []map[string]any
 	for _, r := range recs {
 		if getStr(r, "topic") == "injury" {
 			inj = append(inj, r)
@@ -70,7 +71,7 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 	}
 	for _, pair := range []struct {
 		title string
-		group []map[string]interface{}
+		group []map[string]any
 	}{
 		{"## Injuries", inj},
 		{"## Usage / role / depth-chart", usage},
@@ -106,11 +107,11 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 		fmt.Sprintf("_Generated %s._", now),
 	}
 	if ts != nil {
-		if leagues, ok := ts["leagues"].([]interface{}); ok {
+		if leagues, ok := ts["leagues"].([]any); ok {
 			for _, lg := range leagues {
-				l, _ := lg.(map[string]interface{})
-				league, _ := l["league"].(map[string]interface{})
-				team, _ := l["team"].(map[string]interface{})
+				l, _ := lg.(map[string]any)                  //nolint:errcheck // Type assertion returns empty map if fails
+				league, _ := l["league"].(map[string]any)    //nolint:errcheck // Type assertion returns empty map if fails
+				team, _ := l["team"].(map[string]any)        //nolint:errcheck // Type assertion returns empty map if fails
 				if league == nil {
 					continue
 				}
@@ -120,7 +121,9 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 			}
 		}
 	}
-	WriteText(filepath.Join(curDir, "weekly-team-review.md"), strings.Join(lines, "\n"))
+	if err := WriteText(filepath.Join(curDir, "weekly-team-review.md"), strings.Join(lines, "\n")); err != nil {
+		return nil, err
+	}
 
 	// rookie-draft-board.md (simplified — queries DB)
 	lines = []string{
@@ -184,7 +187,9 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 			}
 		}
 	}
-	WriteText(filepath.Join(curDir, "rookie-draft-board.md"), strings.Join(lines, "\n"))
+	if err := WriteText(filepath.Join(curDir, "rookie-draft-board.md"), strings.Join(lines, "\n")); err != nil {
+		return nil, err
+	}
 
 	// upcoming-decisions.md
 	lines = []string{
@@ -192,7 +197,9 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 		fmt.Sprintf("_Generated %s._", now), "",
 		"_All decisions are PROPOSED — no autonomous action._", "",
 	}
-	WriteText(filepath.Join(curDir, "upcoming-decisions.md"), strings.Join(lines, "\n"))
+	if err := WriteText(filepath.Join(curDir, "upcoming-decisions.md"), strings.Join(lines, "\n")); err != nil {
+		return nil, err
+	}
 
 	// strategy/current-team-plan.md
 	if err := os.MkdirAll(filepath.Join(targetDir, "strategy"), 0o755); err != nil {
@@ -202,13 +209,15 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 		"# Current Team Plan", "",
 		fmt.Sprintf("_Regenerated %s._", now), "",
 	}
-	WriteText(filepath.Join(targetDir, "strategy", "current-team-plan.md"), strings.Join(planLines, "\n"))
+	if err := WriteText(filepath.Join(targetDir, "strategy", "current-team-plan.md"), strings.Join(planLines, "\n")); err != nil {
+		return nil, err
+	}
 
-	return map[string]interface{}{"daily_items": len(recent24), "evidence_total": len(recs)}, nil
+	return map[string]any{"daily_items": len(recent24), "evidence_total": len(recs)}, nil
 }
 
 // renderLeaguemates renders the leaguemate brief.
-func (p *Publisher) renderLeaguemates(ctx context.Context, targetDir string) (map[string]interface{}, error) {
+func (p *Publisher) renderLeaguemates(ctx context.Context, targetDir string) (map[string]any, error) {
 	curDir := filepath.Join(targetDir, "current")
 	dsDir := filepath.Join(targetDir, "datasets")
 	if err := os.MkdirAll(curDir, 0o755); err != nil {
@@ -274,7 +283,7 @@ func (p *Publisher) renderLeaguemates(ctx context.Context, targetDir string) (ma
 					dossierStr = "_No dossier generated._"
 				}
 				lines = append(lines, dossierStr, "")
-				appendJSONLFile(jpath, map[string]interface{}{
+				appendJSONLFile(jpath, map[string]any{
 					"id":              "leaguemate:" + uname,
 					"snapshot_date":   snap.Format("2006-01-02"),
 					"user_id":         uid,
@@ -294,12 +303,14 @@ func (p *Publisher) renderLeaguemates(ctx context.Context, targetDir string) (ma
 		}
 	}
 
-	WriteText(filepath.Join(curDir, "leaguemate-brief.md"), strings.Join(lines, "\n"))
-	return map[string]interface{}{"profiles": profiles}, nil
+	if err := WriteText(filepath.Join(curDir, "leaguemate-brief.md"), strings.Join(lines, "\n")); err != nil {
+		return nil, err
+	}
+	return map[string]any{"profiles": profiles}, nil
 }
 
 // renderManifest renders corpus-manifest.json + change-log.jsonl.
-func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir string, evidenceSummary map[string]interface{}) (map[string]interface{}, error) {
+func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir string, evidenceSummary map[string]any) (map[string]any, error) {
 	ts := p.common.NowISO()
 
 	// Carry forward prior change-log
@@ -323,7 +334,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 			filename := strings.Replace(rid, "sha256:", "", 1) + ".json"
 			contentHash := ""
 			if data, err := os.ReadFile(filepath.Join(recDir, filename)); err == nil {
-				var rec map[string]interface{}
+				var rec map[string]any
 				if json.Unmarshal(data, &rec) == nil {
 					contentHash = getStr(rec, "content_hash")
 				}
@@ -332,7 +343,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 				contentHash = ContentHash(rid)
 			}
 			changeID := ChangeID(ts, rid, operation)
-			entry := map[string]interface{}{
+			entry := map[string]any{
 				"change_id":    changeID,
 				"timestamp":    ts,
 				"operation":    operation,
@@ -347,8 +358,8 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 			}
 		}
 	}
-	added, _ := evidenceSummary["added"].([]string)
-	superseded, _ := evidenceSummary["superseded"].([]string)
+	added, _ := evidenceSummary["added"].([]string)              //nolint:errcheck // Type assertion returns empty slice if fails
+	superseded, _ := evidenceSummary["superseded"].([]string)  //nolint:errcheck // Type assertion returns empty slice if fails
 	appendEvidenceChanges(added, "added")
 	appendEvidenceChanges(superseded, "superseded")
 	changesThisRun := len(added) + len(superseded)
@@ -358,18 +369,22 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 	if err != nil {
 		return nil, fmt.Errorf("walk target directory: %w", err)
 	}
-	var filesMeta []map[string]interface{}
+	var filesMeta []map[string]any
 	for rel, full := range tFiles {
 		if rel == "datasets/change-log.jsonl" {
 			continue
 		}
-		hash, _ := FileSHA256Bytes(full)
+		hash, err := FileSHA256Bytes(full)
+		if err != nil {
+			slog.Warn("failed to hash file for manifest", "path", rel, "err", err)
+			continue
+		}
 		info, err := os.Stat(full)
 		if err != nil {
 			slog.Warn("failed to stat file for manifest", "path", rel, "err", err)
 			continue
 		}
-		filesMeta = append(filesMeta, map[string]interface{}{
+		filesMeta = append(filesMeta, map[string]any{
 			"path":   rel,
 			"sha256": hash,
 			"bytes":  info.Size(),
@@ -387,7 +402,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 			if err != nil {
 				continue
 			}
-			var rec map[string]interface{}
+			var rec map[string]any
 			if json.Unmarshal(data, &rec) == nil && rec["status"] == "current" {
 				currentEvidence++
 			}
@@ -401,7 +416,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 		teamStateCount = 1
 	}
 
-	counts := map[string]interface{}{
+	counts := map[string]any{
 		"evidence":           currentEvidence,
 		"player_signal":      countJSONLFile(targetDir, "datasets/player-signals.jsonl"),
 		"valuation":          countJSONLFile(targetDir, "datasets/valuations.jsonl"),
@@ -411,17 +426,17 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 		"change":             countJSONLFile(targetDir, "datasets/change-log.jsonl"),
 	}
 
-	var leagueList []map[string]interface{}
+	var leagueList []map[string]any
 	for lid, lf := range models.LeagueFormats {
-		leagueList = append(leagueList, map[string]interface{}{"league_id": lid, "name": lf.Name})
+		leagueList = append(leagueList, map[string]any{"league_id": lid, "name": lf.Name})
 	}
 
-	var cursor interface{}
+	var cursor any
 	if lastChangeID != "" {
 		cursor = lastChangeID
 	}
 
-	manifest := map[string]interface{}{
+	manifest := map[string]any{
 		"generated_at":       ts,
 		"schema_version":     1,
 		"change_log_cursor":  cursor,
@@ -433,9 +448,11 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 	if teamStateHash != "" {
 		manifest["team_state_hash"] = teamStateHash
 	}
-	WriteJSON(filepath.Join(targetDir, "corpus-manifest.json"), manifest)
+	if err := WriteJSON(filepath.Join(targetDir, "corpus-manifest.json"), manifest); err != nil {
+		return nil, err
+	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"changes": changesThisRun,
 		"cursor":  cursor,
 		"files":   len(filesMeta),
@@ -443,8 +460,8 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 	}, nil
 }
 
-func loadCurrentRecords(recordsDir string) []map[string]interface{} {
-	var result []map[string]interface{}
+func loadCurrentRecords(recordsDir string) []map[string]any {
+	var result []map[string]any
 	entries, err := os.ReadDir(recordsDir)
 	if err != nil {
 		return result
@@ -457,7 +474,7 @@ func loadCurrentRecords(recordsDir string) []map[string]interface{} {
 		if err != nil {
 			continue
 		}
-		var rec map[string]interface{}
+		var rec map[string]any
 		if json.Unmarshal(data, &rec) == nil && rec["status"] == "current" {
 			result = append(result, rec)
 		}
@@ -465,8 +482,8 @@ func loadCurrentRecords(recordsDir string) []map[string]interface{} {
 	return result
 }
 
-func filterRecent(recs []map[string]interface{}, hours int) []map[string]interface{} {
-	var result []map[string]interface{}
+func filterRecent(recs []map[string]any, hours int) []map[string]any {
+	var result []map[string]any
 	cutoff := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
 	for _, r := range recs {
 		pubStr := getStr(r, "published_at")
@@ -484,7 +501,7 @@ func filterRecent(recs []map[string]interface{}, hours int) []map[string]interfa
 	return result
 }
 
-func fmtRec(rec map[string]interface{}) string {
+func fmtRec(rec map[string]any) string {
 	pub := getStr(rec, "published_at")
 	if len(pub) > 10 {
 		pub = pub[:10]
@@ -548,7 +565,7 @@ func countJSONLFile(targetDir, rel string) int {
 		return 0
 	}
 	count := 0
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if strings.TrimSpace(line) != "" {
 			count++
 		}

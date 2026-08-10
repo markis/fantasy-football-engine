@@ -114,16 +114,16 @@ func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*Pub
 	slog.Info("validation OK")
 
 	if evidenceSummary != nil {
-		result.EvidenceCurrent = evidenceSummary["current_count"].(int)
-		result.EvidenceSuperseded = evidenceSummary["superseded_count"].(int)
+		result.EvidenceCurrent = evidenceSummary["current_count"].(int)      //nolint:errcheck // Type assertion guaranteed by renderEvidence
+		result.EvidenceSuperseded = evidenceSummary["superseded_count"].(int) //nolint:errcheck // Type assertion guaranteed by renderEvidence
 	}
 	if datasetsSummary != nil {
-		result.Players = datasetsSummary["players"].(int)
-		result.Signals = datasetsSummary["signals"].(int)
-		result.Valuations = datasetsSummary["valuations"].(int)
+		result.Players = datasetsSummary["players"].(int) //nolint:errcheck // Type assertion guaranteed by renderDatasets
+		result.Signals = datasetsSummary["signals"].(int) //nolint:errcheck // Type assertion guaranteed by renderDatasets
+		result.Valuations = datasetsSummary["valuations"].(int) //nolint:errcheck // Type assertion guaranteed by renderDatasets
 	}
 	if manifestSummary != nil {
-		result.Changes = manifestSummary["changes"].(int)
+		result.Changes = manifestSummary["changes"].(int) //nolint:errcheck // Type assertion guaranteed by renderCurrentLeaguematesManifest
 	}
 
 	if mode == "export" || dryRun {
@@ -170,8 +170,8 @@ func (p *Publisher) materialChanges(staging, corpus string) bool {
 		if !ok {
 			return true
 		}
-		sHash, _ := FileSHA256Bytes(sfull)
-		cHash, _ := FileSHA256Bytes(cfull)
+		sHash, _ := FileSHA256Bytes(sfull) //nolint:errcheck // Both files exist; error is impossible
+		cHash, _ := FileSHA256Bytes(cfull) //nolint:errcheck // Both files exist; error is impossible
 		if sHash != cHash {
 			return true
 		}

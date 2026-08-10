@@ -196,8 +196,8 @@ func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, 
 		} else if createdAt != nil {
 			occurredAt = *createdAt
 		} else if fact.OccurredAt != nil {
-			t, err := time.Parse(time.RFC3339, *fact.OccurredAt)
-			if err == nil {
+			t, parseErr := time.Parse(time.RFC3339, *fact.OccurredAt)
+			if parseErr == nil {
 				occurredAt = t
 			} else {
 				occurredAt = time.Now().UTC()

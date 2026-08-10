@@ -96,7 +96,7 @@ func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCo
 	url := fcBase + params
 	slog.Info("fetching FantasyCalc", "market", combo.Market, "label", combo.Label)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCo
 		return nil, fmt.Errorf("%w (%d)", errFantasyCalcHTTP, resp.StatusCode)
 	}
 
-	var data []map[string]interface{}
+	var data []map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, fmt.Errorf("decode FantasyCalc: %w", err)
 	}
@@ -122,7 +122,7 @@ func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCo
 
 	var freshIDs []uuid.UUID
 	for _, rec := range data {
-		p, ok := rec["player"].(map[string]interface{})
+		p, ok := rec["player"].(map[string]any)
 		sid := ""
 		if ok && p != nil {
 			sid = fmt.Sprint(p["sleeperId"])
@@ -158,8 +158,8 @@ func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCo
 			}
 		}
 
-		params := []interface{}{pid, source, combo.Market}
-		vals := []interface{}{
+		params := []any{pid, source, combo.Market}
+		vals := []any{
 			getStrFromMap(p, "position"), getStrFromMap(p, "maybeTeam"),
 			toInt(rec["overallRank"]), toInt(rec["positionRank"]),
 			value, lastMonth, toInt(rec["redraftValue"]), pct,
@@ -223,7 +223,7 @@ func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCo
 	return result, nil
 }
 
-func toInt(v interface{}) *int {
+func toInt(v any) *int {
 	if v == nil {
 		return nil
 	}
@@ -250,7 +250,7 @@ func toInt(v interface{}) *int {
 	}
 }
 
-func getStrFromMap(m map[string]interface{}, key string) *string {
+func getStrFromMap(m map[string]any, key string) *string {
 	if m == nil {
 		return nil
 	}

@@ -21,7 +21,7 @@ const (
 )
 
 // renderEvidence renders evidence/ from decision-relevant news items.
-func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir string) (map[string]interface{}, error) {
+func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir string) (map[string]any, error) {
 	recDir := filepath.Join(targetDir, "evidence", "records")
 	if err := os.MkdirAll(recDir, 0o755); err != nil {
 		return nil, err
@@ -34,10 +34,10 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 	items := p.queryRelevantItems(ctx, watchIDs, nameIndex)
 
 	// Build current records
-	current := make(map[string]map[string]interface{})
+	current := make(map[string]map[string]any)
 	for _, item := range items {
 		rec := p.buildEvidenceRecord(ctx, item, ownership)
-		current[rec["id"].(string)] = rec
+		current[rec["id"].(string)] = rec //nolint:errcheck // buildEvidenceRecord guarantees "id" key exists and is string
 	}
 
 	// Load previous records
@@ -62,7 +62,9 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 		}
 		prev["status"] = "superseded"
 		filename := strings.Replace(rid, "sha256:", "", 1) + ".json"
-		WriteJSON(filepath.Join(recDir, filename), prev)
+		if err := WriteJSON(filepath.Join(recDir, filename), prev); err != nil {
+			return nil, err
+		}
 		superseded = append(superseded, rid)
 	}
 
@@ -73,7 +75,7 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 			len(current), len(superseded), evidenceWindowDays, p.common.NowISO()), "",
 		"| Published | Topic | Title | Players | Source |", "|---|---|---|---|---|")
 	// Sort by published_at desc
-	var sortedRecs []map[string]interface{}
+	var sortedRecs []map[string]any
 	for _, rec := range current {
 		sortedRecs = append(sortedRecs, rec)
 	}
@@ -108,9 +110,11 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 		lines = append(lines, fmt.Sprintf("| %s | %s | %s | %s | %s |",
 			pub, getStr(rec, "topic"), title, players, getStr(rec, "publisher")))
 	}
-	WriteText(filepath.Join(targetDir, "evidence", "index.md"), strings.Join(lines, "\n"))
+	if writeErr := WriteText(filepath.Join(targetDir, "evidence", "index.md"), strings.Join(lines, "\n")); writeErr != nil {
+		return nil, writeErr
+	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"current_count":    len(current),
 		"superseded_count": len(superseded),
 		"added":            added,
@@ -154,7 +158,7 @@ func (p *Publisher) buildWatchSet(ctx context.Context) ([]string, map[string][]s
 	return ids, nameIndex, ownership
 }
 
-func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, nameIndex map[string][]string) []map[string]interface{} {
+func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, nameIndex map[string][]string) []map[string]any {
 	cutoff := time.Now().UTC().AddDate(0, 0, -evidenceWindowDays)
 	rows, err := p.common.pool.Query(ctx, `
 		SELECT id, canonical_url, url, title, summary_short, content_hash,
@@ -176,10 +180,10 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, n
 		"id", "canonical_url", "url", "title", "summary_short", "content_hash",
 		"entities", "topics", "author", "published_at", "fetched_at", "updated_at", "news_story",
 	}
-	var result []map[string]interface{}
+	var result []map[string]any
 	seenURLs := make(map[string]bool)
 	for rows.Next() {
-		var id, canonicalURL, url, contentHash interface{}
+		var id, canonicalURL, url, contentHash any
 		var title, summaryShort, author, newsStory *string
 		var entities, topics []string
 		var publishedAt, fetchedAt, updatedAt *time.Time
@@ -187,7 +191,7 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, n
 			&entities, &topics, &author, &publishedAt, &fetchedAt, &updatedAt, &newsStory); err != nil {
 			continue
 		}
-		d := map[string]interface{}{
+		d := map[string]any{
 			"id":            id,
 			"canonical_url": canonicalURL,
 			"url":           url,
@@ -227,7 +231,7 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, n
 	return result
 }
 
-func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]interface{}, ownership map[string][][2]string) map[string]interface{} {
+func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any, ownership map[string][][2]string) map[string]any {
 	urlStr := fmt.Sprint(item["canonical_url"])
 	if urlStr == "<nil>" || urlStr == "" {
 		urlStr = fmt.Sprint(item["url"])
@@ -260,7 +264,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]int
 
 	recID := EvidenceID(urlStr, chStr)
 
-	matchedPlayers := item["matched_players"].([]string)
+	matchedPlayers, _ := item["matched_players"].([]string)  //nolint:errcheck // External data may not have field
 	playerIDs := make([]string, 0, len(matchedPlayers))
 	for _, sid := range matchedPlayers {
 		playerIDs = append(playerIDs, "nfl:"+sid)
@@ -268,7 +272,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]int
 
 	// Team IDs: entities store full team names (e.g. "Philadelphia Eagles"),
 	// so resolve each against the canonical name->abbreviation table.
-	entities := item["entities"].([]string)
+	entities, _ := item["entities"].([]string)  //nolint:errcheck // External data may not have field
 	teamIDs := make([]string, 0, len(entities))
 	for _, e := range entities {
 		if abbr, ok := models.TeamAbbrForName(e); ok {
@@ -292,10 +296,10 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]int
 		titleStr = urlStr
 	}
 
-	topics := item["topics"].([]string)
+	topics := item["topics"].([]string) //nolint:errcheck // External data may not have field
 	topic := TopicFromTopics(topics)
 
-	var publishedAt interface{}
+	var publishedAt any
 	if v, ok := item["published_at"].(*time.Time); ok && v != nil {
 		publishedAt = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
@@ -306,7 +310,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]int
 	if fetchedAt == "" {
 		fetchedAt = p.common.NowISO()
 	}
-	var updatedAt interface{}
+	var updatedAt any
 	if v, ok := item["updated_at"].(*time.Time); ok && v != nil {
 		updatedAt = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
@@ -348,7 +352,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]int
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"id":            recID,
 		"canonical_url": urlStr,
 		"title":         titleStr,
@@ -362,7 +366,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]int
 		"updated_at":    updatedAt,
 		"summary":       summary,
 		"claims":        claims,
-		"decision_relevance": map[string]interface{}{
+		"decision_relevance": map[string]any{
 			"relevant_to_roster":       relevantToRoster,
 			"relevant_to_trade_target": relevantToTradeTarget,
 			"relevant_to_pick_value":   false,
@@ -370,12 +374,12 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]int
 		},
 		"status":       "current",
 		"content_hash": ContentHash(summary),
-		"supersedes":   []interface{}{},
+		"supersedes":   []any{},
 	}
 }
 
-func (p *Publisher) factsForItem(ctx context.Context, itemID interface{}) []map[string]interface{} {
-	claims := make([]map[string]interface{}, 0)
+func (p *Publisher) factsForItem(ctx context.Context, itemID any) []map[string]any {
+	claims := make([]map[string]any, 0)
 	rows, err := p.common.pool.Query(ctx,
 		"SELECT fact_text, confidence FROM fact WHERE news_item_id = $1 ORDER BY occurred_at DESC",
 		itemID)
@@ -397,7 +401,7 @@ func (p *Publisher) factsForItem(ctx context.Context, itemID interface{}) []map[
 		if conf != nil && (*conf == "high" || *conf == "medium" || *conf == "low") {
 			confStr = *conf
 		}
-		claims = append(claims, map[string]interface{}{
+		claims = append(claims, map[string]any{
 			"id":         ClaimID(text),
 			"text":       text,
 			"confidence": confStr,
@@ -406,8 +410,8 @@ func (p *Publisher) factsForItem(ctx context.Context, itemID interface{}) []map[
 	return claims
 }
 
-func loadExistingRecords(recordsDir string) map[string]map[string]interface{} {
-	result := make(map[string]map[string]interface{})
+func loadExistingRecords(recordsDir string) map[string]map[string]any {
+	result := make(map[string]map[string]any)
 	entries, err := os.ReadDir(recordsDir)
 	if err != nil {
 		return result
@@ -420,7 +424,7 @@ func loadExistingRecords(recordsDir string) map[string]map[string]interface{} {
 		if err != nil {
 			continue
 		}
-		var rec map[string]interface{}
+		var rec map[string]any
 		if json.Unmarshal(data, &rec) == nil {
 			if id, ok := rec["id"].(string); ok {
 				result[id] = rec
@@ -430,7 +434,7 @@ func loadExistingRecords(recordsDir string) map[string]map[string]interface{} {
 	return result
 }
 
-func getStr(m map[string]interface{}, key string) string {
+func getStr(m map[string]any, key string) string {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return ""
