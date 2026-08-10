@@ -416,7 +416,7 @@ func evidenceTopic(item map[string]any) string {
 // a news item, formatting them as RFC3339-ish UTC strings. fetchedAt falls
 // back to the current time when the item has none.
 //
-//nolint:nakedret,nonamedreturns // Named return values are necessary for clarity with multiple similar-typed returns
+//nolint:nonamedreturns // Named return values are necessary for clarity with multiple similar-typed returns
 func (p *Publisher) evidenceTimestamps(item map[string]any) (publishedAt, fetchedAt, updatedAt any) {
 	if v, ok := item["published_at"].(*time.Time); ok && v != nil {
 		publishedAt = v.UTC().Format("2006-01-02T15:04:05Z")
