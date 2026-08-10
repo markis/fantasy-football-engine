@@ -48,24 +48,21 @@ type FetchResult struct {
 	Status          string `json:"status"`
 }
 
-// Fetch fetches a single RSS feed, stores the raw document, and upserts news items.
-func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) (*FetchResult, error) {
-	result := &FetchResult{URL: feedURL, Status: "ok"}
-
-	// Look up source by URL
+// lookupSource looks up a source's id and conditional-request cache
+// validators by feed URL.
+func (f *RSSFetcher) lookupSource(ctx context.Context, feedURL string) (uuid.UUID, *string, *string, error) {
 	var sourceID uuid.UUID
 	var etag, lastModified *string
 	err := f.pool.QueryRow(ctx,
 		"SELECT id, etag, last_modified FROM source WHERE url = $1", feedURL,
 	).Scan(&sourceID, &etag, &lastModified)
-	if err != nil {
-		return nil, fmt.Errorf("source not found for URL %s: %w", feedURL, err)
-	}
-	result.SourceID = sourceID.String()
+	return sourceID, etag, lastModified, err
+}
 
-	// Build conditional request headers
-	headers := make(map[string]string)
-	headers["User-Agent"] = userAgent
+// doConditionalFetch issues a GET request for the feed URL with conditional
+// request headers (If-None-Match / If-Modified-Since) set when available.
+func (f *RSSFetcher) doConditionalFetch(ctx context.Context, feedURL string, etag, lastModified *string) (*http.Response, error) {
+	headers := map[string]string{"User-Agent": userAgent}
 	if etag != nil && *etag != "" {
 		headers["If-None-Match"] = *etag
 	}
@@ -73,12 +70,10 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 		headers["If-Modified-Since"] = *lastModified
 	}
 
-	// Fetch the feed
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, http.NoBody)
 	if err != nil {
-		result.Status = statusError
-		return result, fmt.Errorf("create request: %w", err)
+		return nil, fmt.Errorf("create request: %w", err)
 	}
 	for k, v := range headers {
 		req.Header.Set(k, v)
@@ -86,8 +81,92 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		return nil, fmt.Errorf("http request: %w", err)
+	}
+	return resp, nil
+}
+
+// readAndParseFeed reads the response body and parses it as an RSS/Atom
+// feed, also returning the marshaled response headers and content type for
+// raw-document storage.
+func (f *RSSFetcher) readAndParseFeed(resp *http.Response) (body string, feed *gofeed.Feed, headersJSON []byte, contentType string, err error) {
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", nil, nil, "", fmt.Errorf("read body: %w", err)
+	}
+	body = string(bodyBytes)
+
+	contentType = resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/rss+xml"
+	}
+
+	parser := gofeed.NewParser()
+	feed, err = parser.ParseString(body)
+	if err != nil {
+		return "", nil, nil, "", fmt.Errorf("parse feed: %w", err)
+	}
+
+	headersJSON, err = json.Marshal(resp.Header)
+	if err != nil {
+		slog.Warn("failed to marshal response headers", "err", err)
+		headersJSON = []byte("{}")
+	}
+	return body, feed, headersJSON, contentType, nil
+}
+
+// storeRawDocument inserts the fetched raw feed document and returns its id.
+func (f *RSSFetcher) storeRawDocument(ctx context.Context, sourceID uuid.UUID, feedURL string, statusCode int, headersJSON []byte, body, contentType string) (uuid.UUID, error) {
+	var rawDocID uuid.UUID
+	err := f.pool.QueryRow(ctx, `
+		INSERT INTO raw_document (source_id, url, fetch_status, headers, body_text, content_type)
+		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+	`, sourceID, feedURL, statusCode, headersJSON, body, contentType).Scan(&rawDocID)
+	return rawDocID, err
+}
+
+// processFeedEntries upserts each feed entry (skipping ones older than the
+// max age cutoff) and tallies new/updated/skipped counts into result.
+func (f *RSSFetcher) processFeedEntries(ctx context.Context, sourceID uuid.UUID, feed *gofeed.Feed, rawDocID uuid.UUID, maxAgeDays int, result *FetchResult) {
+	var cutoff time.Time
+	if maxAgeDays > 0 {
+		cutoff = time.Now().UTC().AddDate(0, 0, -maxAgeDays)
+	}
+
+	for _, item := range feed.Items {
+		// Recency filter
+		if maxAgeDays > 0 && item.PublishedParsed != nil && item.PublishedParsed.Before(cutoff) {
+			result.ItemsSkippedOld++
+			continue
+		}
+
+		isNew, isUpdated, err := f.upsertNewsItem(ctx, sourceID, "rss", item, rawDocID)
+		if err != nil {
+			slog.Warn("upsert news item", "title", item.Title, "err", err)
+			continue
+		}
+		if isNew {
+			result.ItemsNew++
+		} else if isUpdated {
+			result.ItemsUpdated++
+		}
+	}
+}
+
+// Fetch fetches a single RSS feed, stores the raw document, and upserts news items.
+func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) (*FetchResult, error) {
+	result := &FetchResult{URL: feedURL, Status: "ok"}
+
+	sourceID, etag, lastModified, err := f.lookupSource(ctx, feedURL)
+	if err != nil {
+		return nil, fmt.Errorf("source not found for URL %s: %w", feedURL, err)
+	}
+	result.SourceID = sourceID.String()
+
+	resp, err := f.doConditionalFetch(ctx, feedURL, etag, lastModified)
+	if err != nil {
 		result.Status = statusError
-		return result, fmt.Errorf("http request: %w", err)
+		return result, err
 	}
 	defer resp.Body.Close()
 
@@ -106,74 +185,24 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 	}
 	result.HTTPStatus = resp.StatusCode
 
-	// Read body
-	bodyBytes, err := io.ReadAll(resp.Body)
+	body, feed, headersJSON, contentType, err := f.readAndParseFeed(resp)
 	if err != nil {
 		result.Status = statusError
-		return result, fmt.Errorf("read body: %w", err)
-	}
-	body := string(bodyBytes)
-
-	newETag := resp.Header.Get("etag")
-	newLastModified := resp.Header.Get("Last-Modified")
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/rss+xml"
-	}
-
-	// Parse the feed
-	parser := gofeed.NewParser()
-	feed, err := parser.ParseString(body)
-	if err != nil {
-		result.Status = statusError
-		return result, fmt.Errorf("parse feed: %w", err)
+		return result, err
 	}
 	result.ItemsFetched = len(feed.Items)
 
-	// Store raw document
-	headersJSON, err := json.Marshal(resp.Header)
-	if err != nil {
-		slog.Warn("failed to marshal response headers", "err", err)
-		headersJSON = []byte("{}")
-	}
-	var rawDocID uuid.UUID
-	err = f.pool.QueryRow(ctx, `
-		INSERT INTO raw_document (source_id, url, fetch_status, headers, body_text, content_type)
-		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
-	`, sourceID, feedURL, resp.StatusCode, headersJSON, body, contentType).Scan(&rawDocID)
+	rawDocID, err := f.storeRawDocument(ctx, sourceID, feedURL, resp.StatusCode, headersJSON, body, contentType)
 	if err != nil {
 		result.Status = statusError
 		return result, fmt.Errorf("insert raw_document: %w", err)
 	}
 
-	// Process entries
-	var cutoff time.Time
-	if maxAgeDays > 0 {
-		cutoff = time.Now().UTC().AddDate(0, 0, -maxAgeDays)
-	}
-
-	for _, item := range feed.Items {
-		// Recency filter
-		if maxAgeDays > 0 && item.PublishedParsed != nil {
-			if item.PublishedParsed.Before(cutoff) {
-				result.ItemsSkippedOld++
-				continue
-			}
-		}
-
-		isNew, isUpdated, err := f.upsertNewsItem(ctx, sourceID, "rss", item, rawDocID)
-		if err != nil {
-			slog.Warn("upsert news item", "title", item.Title, "err", err)
-			continue
-		}
-		if isNew {
-			result.ItemsNew++
-		} else if isUpdated {
-			result.ItemsUpdated++
-		}
-	}
+	f.processFeedEntries(ctx, sourceID, feed, rawDocID, maxAgeDays, result)
 
 	// Update source poll state
+	newETag := resp.Header.Get("etag")
+	newLastModified := resp.Header.Get("Last-Modified")
 	newETagPtr := &newETag
 	if newETag == "" {
 		newETagPtr = etag
@@ -242,13 +271,26 @@ func contentHash(text string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sourceType string, item *gofeed.Item, rawDocID uuid.UUID) (bool, bool, error) {
-	link := item.Link
-	guid := link
-	if item.GUID != "" {
-		guid = item.GUID
-	}
-	title := item.Title
+// normalizedItem holds a feed entry's fields after normalization, ready to
+// be inserted or used to update an existing news item.
+type normalizedItem struct {
+	link         string
+	guid         string
+	title        string
+	author       string
+	contentHTML  string
+	contentText  string
+	summaryShort string
+	cHash        string
+	cURL         string
+	cURLHash     string
+	published    *time.Time
+	bodyStatus   string
+	simhash      int64
+}
+
+// extractAuthor picks the entry's author name from the Author or Authors field.
+func extractAuthor(item *gofeed.Item) string {
 	author := ""
 	if item.Author != nil {
 		author = item.Author.Name
@@ -256,9 +298,13 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 	if len(item.Authors) > 0 && author == "" {
 		author = item.Authors[0].Name
 	}
+	return author
+}
 
+// extractContentFields derives HTML content, a short plain-text summary, and
+// plain-text content from a feed entry's content:encoded/description fields.
+func extractContentFields(item *gofeed.Item) (contentHTML, summaryShort, contentText string) {
 	// content:encoded (RSS 2.0) or Atom content
-	contentHTML := ""
 	if item.Content != "" {
 		contentHTML = item.Content
 	}
@@ -266,7 +312,7 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 		contentHTML = item.Description
 	}
 
-	summaryShort := item.Description
+	summaryShort = item.Description
 	if summaryShort == "" && contentHTML != "" {
 		summaryShort = stripHTML(contentHTML)
 		if len(summaryShort) > 500 {
@@ -274,12 +320,40 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 		}
 	}
 
-	contentText := ""
 	if contentHTML != "" && contentHTML != summaryShort {
 		contentText = stripHTML(contentHTML)
 	} else if summaryShort != "" {
 		contentText = stripHTML(summaryShort)
 	}
+	return contentHTML, summaryShort, contentText
+}
+
+// resolvePublished picks the entry's published timestamp, falling back to
+// its updated timestamp.
+func resolvePublished(item *gofeed.Item) *time.Time {
+	if item.PublishedParsed != nil {
+		t := item.PublishedParsed.UTC()
+		return &t
+	}
+	if item.UpdatedParsed != nil {
+		t := item.UpdatedParsed.UTC()
+		return &t
+	}
+	return nil
+}
+
+// normalizeFeedItem converts a raw feed entry into a normalizedItem with all
+// derived fields (content, hashes, body status, simhash) computed.
+func normalizeFeedItem(item *gofeed.Item) normalizedItem {
+	link := item.Link
+	guid := link
+	if item.GUID != "" {
+		guid = item.GUID
+	}
+	title := item.Title
+	author := extractAuthor(item)
+
+	contentHTML, summaryShort, contentText := extractContentFields(item)
 
 	cHash := contentHash(summaryShort)
 	if cHash == "" && contentHTML != "" {
@@ -288,14 +362,7 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 	cURL := canonicalizeURL(link)
 	cURLHash := urlHash(link)
 
-	var published *time.Time
-	if item.PublishedParsed != nil {
-		t := item.PublishedParsed.UTC()
-		published = &t
-	} else if item.UpdatedParsed != nil {
-		t := item.UpdatedParsed.UTC()
-		published = &t
-	}
+	published := resolvePublished(item)
 
 	// Body fetch status: RSS-only pipeline
 	bodyStatus := statusSkipped
@@ -313,9 +380,18 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 		sh = SimhashCompute(title)
 	}
 
-	// Check for existing item by GUID, falling back to canonical URL hash
-	// when the GUID doesn't match anything (e.g. a feed changed its GUID
-	// format for an already-ingested URL).
+	return normalizedItem{
+		link: link, guid: guid, title: title, author: author,
+		contentHTML: contentHTML, contentText: contentText, summaryShort: summaryShort,
+		cHash: cHash, cURL: cURL, cURLHash: cURLHash, published: published,
+		bodyStatus: bodyStatus, simhash: sh,
+	}
+}
+
+// findExistingItem looks up an existing news item by GUID, falling back to
+// canonical URL hash when the GUID doesn't match anything (e.g. a feed
+// changed its GUID format for an already-ingested URL).
+func (f *RSSFetcher) findExistingItem(ctx context.Context, sourceID uuid.UUID, guid, cURLHash string) *uuid.UUID {
 	var existingID *uuid.UUID
 	if err := f.pool.QueryRow(ctx,
 		"SELECT id FROM news_item WHERE source_id = $1 AND external_id = $2",
@@ -331,13 +407,11 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 			slog.Warn("lookup existing item by canonical url hash", "err", err)
 		}
 	}
+	return existingID
+}
 
-	if existingID != nil {
-		return f.updateExistingItem(ctx, existingID, &link, &cURL, &cURLHash, &title, &author, published,
-			&contentHTML, &contentText, &summaryShort, &cHash, &sh, rawDocID, bodyStatus)
-	}
-
-	// Insert new item
+// insertNewNewsItem inserts a brand-new news item row for a normalized feed entry.
+func (f *RSSFetcher) insertNewNewsItem(ctx context.Context, sourceID uuid.UUID, sourceType, guid string, rawDocID uuid.UUID, n normalizedItem) error {
 	_, err := f.pool.Exec(ctx, `
 		INSERT INTO news_item
 			(source_id, source_type, external_id, raw_document_id,
@@ -346,10 +420,22 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 			 content_hash, simhash, fetched_at, body_fetch_status)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), $17)
 	`, sourceID, sourceType, guid, rawDocID,
-		link, cURL, cURLHash, title, author,
-		published, contentHTML, contentText, contentHTML, summaryShort,
-		cHash, sh, bodyStatus)
-	if err != nil {
+		n.link, n.cURL, n.cURLHash, n.title, n.author,
+		n.published, n.contentHTML, n.contentText, n.contentHTML, n.summaryShort,
+		n.cHash, n.simhash, n.bodyStatus)
+	return err
+}
+
+func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sourceType string, item *gofeed.Item, rawDocID uuid.UUID) (bool, bool, error) {
+	n := normalizeFeedItem(item)
+
+	existingID := f.findExistingItem(ctx, sourceID, n.guid, n.cURLHash)
+	if existingID != nil {
+		return f.updateExistingItem(ctx, existingID, &n.link, &n.cURL, &n.cURLHash, &n.title, &n.author, n.published,
+			&n.contentHTML, &n.contentText, &n.summaryShort, &n.cHash, &n.simhash, rawDocID, n.bodyStatus)
+	}
+
+	if err := f.insertNewNewsItem(ctx, sourceID, sourceType, n.guid, rawDocID, n); err != nil {
 		return false, false, err
 	}
 	return true, false, nil

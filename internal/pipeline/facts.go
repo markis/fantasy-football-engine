@@ -118,7 +118,29 @@ func (f *FactExtractor) ExtractBatch(ctx context.Context, limit int) (*FactsResu
 	return result, nil
 }
 
-func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, error) {
+// factSource holds the title/body and timestamps used to extract facts for
+// one news item.
+type factSource struct {
+	title       string
+	body        string
+	publishedAt *time.Time
+	createdAt   *time.Time
+}
+
+// validFact pairs an LLM-extracted fact with its trimmed, validated text.
+//
+// Valid facts are collected before embedding so they can be embedded in one
+// batched call instead of one HTTP round trip per fact (EmbedBatch exists
+// precisely to avoid the one-call-per-text pattern the Python pipeline used).
+type validFact struct {
+	fact llmFact
+	text string
+}
+
+// loadFactSource fetches the news item's title/body and timestamps needed
+// for fact extraction. A nil factSource (with nil error) means there is no
+// usable body text and extraction should be skipped.
+func (f *FactExtractor) loadFactSource(ctx context.Context, itemID uuid.UUID) (*factSource, error) {
 	var title, content, summary *string
 	var publishedAt, createdAt *time.Time
 	err := f.pool.QueryRow(ctx, `
@@ -126,7 +148,7 @@ func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, 
 		FROM news_item WHERE id = $1
 	`, itemID).Scan(&title, &content, &summary, &publishedAt, &createdAt)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	body := ptrStr(content)
@@ -137,27 +159,18 @@ func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, 
 		body = ptrStr(title)
 	}
 	if strings.TrimSpace(body) == "" {
-		return 0, nil
+		return nil, nil
 	}
 	if len(body) > maxBodyChars {
 		body = body[:maxBodyChars]
 	}
 
-	prompt := fmt.Sprintf(factsPrompt, maxFactsPerItem, ptrStr(title), body)
-	resp, err := f.llm.Chat(ctx, prompt, 0)
-	if err != nil {
-		return 0, fmt.Errorf("llm: %w", err)
-	}
+	return &factSource{title: ptrStr(title), body: body, publishedAt: publishedAt, createdAt: createdAt}, nil
+}
 
-	facts := parseFactsJSON(resp)
-
-	// Collect valid fact texts first so they embed in one batched call
-	// instead of one HTTP round trip per fact (EmbedBatch exists precisely
-	// to avoid the one-call-per-text pattern the Python pipeline used).
-	type validFact struct {
-		fact llmFact
-		text string
-	}
+// filterValidFacts trims fact text and drops facts that are too short or
+// beyond the per-item cap.
+func filterValidFacts(facts []llmFact) []validFact {
 	var valid []validFact
 	for _, fact := range facts {
 		if len(valid) >= maxFactsPerItem {
@@ -169,6 +182,93 @@ func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, 
 		}
 		valid = append(valid, validFact{fact: fact, text: text})
 	}
+	return valid
+}
+
+// resolveOccurredAt picks the fact's occurred_at timestamp: article
+// published_at, else created_at, else the LLM-provided value, else now.
+func resolveOccurredAt(fact llmFact, publishedAt, createdAt *time.Time) time.Time {
+	switch {
+	case publishedAt != nil:
+		return *publishedAt
+	case createdAt != nil:
+		return *createdAt
+	case fact.OccurredAt != nil:
+		t, parseErr := time.Parse(time.RFC3339, *fact.OccurredAt)
+		if parseErr == nil {
+			return t
+		}
+		return time.Now().UTC()
+	default:
+		return time.Now().UTC()
+	}
+}
+
+// normalizeConfidence returns a pointer to confidence if it's one of the
+// accepted values, else nil.
+func normalizeConfidence(confidence string) *string {
+	if confidence != "high" && confidence != "medium" && confidence != "low" {
+		return nil
+	}
+	return &confidence
+}
+
+// insertFacts stores each valid fact (with its embedding) and returns the
+// count of facts actually inserted.
+func (f *FactExtractor) insertFacts(ctx context.Context, itemID uuid.UUID, valid []validFact, vecs [][]float32, publishedAt, createdAt *time.Time) int {
+	inserted := 0
+	for i, vf := range valid {
+		if i >= len(vecs) {
+			break
+		}
+		fact, text := vf.fact, vf.text
+
+		occurredAt := resolveOccurredAt(fact, publishedAt, createdAt)
+
+		entities := fact.Entities
+		if entities == nil {
+			entities = []string{}
+		}
+		topics := fact.Topics
+		if topics == nil {
+			topics = []string{}
+		}
+
+		confPtr := normalizeConfidence(fact.Confidence)
+
+		v := pgvector.NewVector(vecs[i])
+		_, err := f.pool.Exec(ctx, `
+			INSERT INTO fact (news_item_id, fact_text, entities, topics,
+			                  occurred_at, confidence, embedding)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+			ON CONFLICT (news_item_id, md5(fact_text)) DO NOTHING
+		`, itemID, text, entities, topics, occurredAt, confPtr, v)
+		if err != nil {
+			slog.Warn("store fact", "err", err)
+			continue
+		}
+		inserted++
+	}
+	return inserted
+}
+
+func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, error) {
+	src, err := f.loadFactSource(ctx, itemID)
+	if err != nil {
+		return 0, err
+	}
+	if src == nil {
+		return 0, nil
+	}
+
+	prompt := fmt.Sprintf(factsPrompt, maxFactsPerItem, src.title, src.body)
+	resp, err := f.llm.Chat(ctx, prompt, 0)
+	if err != nil {
+		return 0, fmt.Errorf("llm: %w", err)
+	}
+
+	facts := parseFactsJSON(resp)
+	valid := filterValidFacts(facts)
 	if len(valid) == 0 {
 		return 0, nil
 	}
@@ -182,63 +282,7 @@ func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, 
 		return 0, fmt.Errorf("embed facts: %w", err)
 	}
 
-	inserted := 0
-	for i, vf := range valid {
-		if i >= len(vecs) {
-			break
-		}
-		fact, text := vf.fact, vf.text
-
-		// occurred_at = article published_at, else created_at, else LLM value
-		var occurredAt time.Time
-		switch {
-		case publishedAt != nil:
-			occurredAt = *publishedAt
-		case createdAt != nil:
-			occurredAt = *createdAt
-		case fact.OccurredAt != nil:
-			t, parseErr := time.Parse(time.RFC3339, *fact.OccurredAt)
-			if parseErr == nil {
-				occurredAt = t
-			} else {
-				occurredAt = time.Now().UTC()
-			}
-		default:
-			occurredAt = time.Now().UTC()
-		}
-
-		entities := fact.Entities
-		if entities == nil {
-			entities = []string{}
-		}
-		topics := fact.Topics
-		if topics == nil {
-			topics = []string{}
-		}
-
-		confidence := fact.Confidence
-		if confidence != "high" && confidence != "medium" && confidence != "low" {
-			confidence = ""
-		}
-		var confPtr *string
-		if confidence != "" {
-			confPtr = &confidence
-		}
-
-		v := pgvector.NewVector(vecs[i])
-		_, err = f.pool.Exec(ctx, `
-			INSERT INTO fact (news_item_id, fact_text, entities, topics,
-			                  occurred_at, confidence, embedding)
-			VALUES ($1, $2, $3, $4, $5, $6, $7)
-			ON CONFLICT (news_item_id, md5(fact_text)) DO NOTHING
-		`, itemID, text, entities, topics, occurredAt, confPtr, v)
-		if err != nil {
-			slog.Warn("store fact", "err", err)
-			continue
-		}
-		inserted++
-	}
-	return inserted, nil
+	return f.insertFacts(ctx, itemID, valid, vecs, src.publishedAt, src.createdAt), nil
 }
 
 func parseFactsJSON(content string) []llmFact {

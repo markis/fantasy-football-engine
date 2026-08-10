@@ -55,19 +55,59 @@ func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*Pub
 	staging := p.common.StagingDir()
 	corpus := p.common.CorpusDir()
 
-	// Clear staging
-	if err := os.RemoveAll(staging); err != nil {
-		return nil, fmt.Errorf("clear staging: %w", err)
-	}
-	if err := os.MkdirAll(staging, 0o750); err != nil {
-		return nil, fmt.Errorf("create staging: %w", err)
+	if err := prepareStagingDir(staging); err != nil {
+		return nil, err
 	}
 
 	slog.Info("rendering to staging", "mode", mode)
+	summaries := p.renderStagingSections(ctx, staging, corpus)
 
-	// Render all sections
-	teamSummary, err := p.renderTeam(ctx, staging)
-	if err != nil {
+	if err := validateStaging(staging, result); err != nil {
+		return result, err
+	}
+
+	populatePublishResult(result, summaries)
+
+	if mode == "export" || dryRun {
+		slog.Info("export complete (no commit)")
+		return result, nil
+	}
+
+	if err := p.finalizePublish(ctx, staging, corpus, result); err != nil {
+		return nil, err
+	}
+
+	return result, nil
+}
+
+// renderSummaries collects the per-section summaries produced while
+// rendering the staging tree, so Publish can populate its result in one
+// place after all sections have run.
+type renderSummaries struct {
+	evidence map[string]any
+	datasets map[string]any
+	manifest map[string]any
+}
+
+// prepareStagingDir clears and recreates the staging directory.
+func prepareStagingDir(staging string) error {
+	if err := os.RemoveAll(staging); err != nil {
+		return fmt.Errorf("clear staging: %w", err)
+	}
+	if err := os.MkdirAll(staging, 0o750); err != nil {
+		return fmt.Errorf("create staging: %w", err)
+	}
+	return nil
+}
+
+// renderStagingSections renders every corpus section into staging. Each
+// section's error is logged and swallowed — a single section failing
+// shouldn't abort the rest of the render — and later validation is what
+// catches an incomplete/broken staging tree.
+func (p *Publisher) renderStagingSections(ctx context.Context, staging, corpus string) renderSummaries {
+	var s renderSummaries
+
+	if _, err := p.renderTeam(ctx, staging); err != nil {
 		slog.Warn("render team", "err", err)
 	}
 
@@ -75,32 +115,32 @@ func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*Pub
 	if err != nil {
 		slog.Warn("render evidence", "err", err)
 	}
+	s.evidence = evidenceSummary
 
-	datasetsSummary, err := p.renderDatasets(ctx, staging)
+	s.datasets, err = p.renderDatasets(ctx, staging)
 	if err != nil {
 		slog.Warn("render datasets", "err", err)
 	}
 
-	currentSummary, err := p.renderCurrent(ctx, staging)
-	if err != nil {
-		slog.Warn("render current", "err", err)
+	if _, currentErr := p.renderCurrent(ctx, staging); currentErr != nil {
+		slog.Warn("render current", "err", currentErr)
 	}
 
-	leaguemateSummary, err := p.renderLeaguemates(ctx, staging)
-	if err != nil {
-		slog.Warn("render leaguemates", "err", err)
+	if _, leaguemateErr := p.renderLeaguemates(ctx, staging); leaguemateErr != nil {
+		slog.Warn("render leaguemates", "err", leaguemateErr)
 	}
 
-	manifestSummary, err := p.renderManifest(ctx, staging, corpus, evidenceSummary)
+	s.manifest, err = p.renderManifest(ctx, staging, corpus, evidenceSummary)
 	if err != nil {
 		slog.Warn("render manifest", "err", err)
 	}
 
-	_ = teamSummary
-	_ = currentSummary
-	_ = leaguemateSummary
+	return s
+}
 
-	// Validate
+// validateStaging runs corpus validation over the staging tree, recording
+// failure status on result before returning the (wrapped) validation error.
+func validateStaging(staging string, result *PublishResult) error {
 	slog.Info("validating staging...")
 	errs := Validate(staging)
 	if len(errs) > 0 {
@@ -109,60 +149,61 @@ func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*Pub
 			slog.Error("validation error", "msg", e)
 		}
 		result.Status = "validation_failed"
-		return result, fmt.Errorf("%w (%d errors)", errValidationFailed, len(errs))
+		return fmt.Errorf("%w (%d errors)", errValidationFailed, len(errs))
 	}
 	slog.Info("validation OK")
+	return nil
+}
 
-	if evidenceSummary != nil {
-		if v, ok := evidenceSummary["current_count"].(int); ok {
+// populatePublishResult copies counters out of the per-section summaries
+// into the PublishResult returned to callers.
+func populatePublishResult(result *PublishResult, s renderSummaries) {
+	if s.evidence != nil {
+		if v, ok := s.evidence["current_count"].(int); ok {
 			result.EvidenceCurrent = v
 		}
-		if v, ok := evidenceSummary["superseded_count"].(int); ok {
+		if v, ok := s.evidence["superseded_count"].(int); ok {
 			result.EvidenceSuperseded = v
 		}
 	}
-	if datasetsSummary != nil {
-		if v, ok := datasetsSummary["players"].(int); ok {
+	if s.datasets != nil {
+		if v, ok := s.datasets["players"].(int); ok {
 			result.Players = v
 		}
-		if v, ok := datasetsSummary["signals"].(int); ok {
+		if v, ok := s.datasets["signals"].(int); ok {
 			result.Signals = v
 		}
-		if v, ok := datasetsSummary["valuations"].(int); ok {
+		if v, ok := s.datasets["valuations"].(int); ok {
 			result.Valuations = v
 		}
 	}
-	if manifestSummary != nil {
-		if v, ok := manifestSummary["changes"].(int); ok {
+	if s.manifest != nil {
+		if v, ok := s.manifest["changes"].(int); ok {
 			result.Changes = v
 		}
 	}
+}
 
-	if mode == "export" || dryRun {
-		slog.Info("export complete (no commit)")
-		return result, nil
-	}
-
-	// Check for material changes
+// finalizePublish syncs staging into the corpus (when there are material
+// changes) and commits/pushes the result.
+func (p *Publisher) finalizePublish(ctx context.Context, staging, corpus string, result *PublishResult) error {
 	if !p.materialChanges(staging, corpus) {
 		slog.Info("no material changes — skipping commit/push")
-		return result, nil
+		return nil
 	}
 
-	// Sync staging to corpus
 	slog.Info("material changes detected — syncing")
 	if err := p.sync(staging, corpus); err != nil {
-		return nil, fmt.Errorf("sync: %w", err)
+		return fmt.Errorf("sync: %w", err)
 	}
 
-	// Commit and push
 	if err := p.commitAndPush(ctx, result); err != nil {
 		slog.Warn("commit and push", "err", err)
 	}
 	result.Committed = true
 
 	slog.Info("publish complete")
-	return result, nil
+	return nil
 }
 
 func (p *Publisher) materialChanges(staging, corpus string) bool {

@@ -31,9 +31,14 @@ type EmbedResult struct {
 	Status   string `json:"status"`
 }
 
-// EmbedBatch embeds all news items without embeddings, using batched HTTP calls.
-func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, error) {
-	// Get items without embeddings
+// embedItem is a news item pending embedding.
+type embedItem struct {
+	id   uuid.UUID
+	text string
+}
+
+// fetchPendingEmbedItems loads news items that don't have embeddings yet.
+func (e *Embedder) fetchPendingEmbedItems(ctx context.Context, limit int) ([]embedItem, error) {
 	rows, err := e.pool.Query(ctx, `
 		SELECT id, title, summary_short, content_text FROM news_item
 		WHERE embedding IS NULL
@@ -45,11 +50,7 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 	}
 	defer rows.Close()
 
-	type item struct {
-		id   uuid.UUID
-		text string
-	}
-	var items []item
+	var items []embedItem
 	for rows.Next() {
 		var id uuid.UUID
 		var title, summary, content *string
@@ -64,8 +65,57 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 			text = ptrStr(title)
 		}
 		if text != "" {
-			items = append(items, item{id: id, text: text})
+			items = append(items, embedItem{id: id, text: text})
 		}
+	}
+	return items, nil
+}
+
+// embedAndStoreBatch embeds one batch of items and stores the resulting
+// vectors, tallying successes and failures into result.
+func (e *Embedder) embedAndStoreBatch(ctx context.Context, batch []embedItem, batchStart int, result *EmbedResult) {
+	texts := make([]string, len(batch))
+	for j, it := range batch {
+		texts[j] = it.text
+	}
+
+	vecs, err := e.embedClient.EmbedBatch(ctx, texts)
+	if err != nil {
+		slog.Warn("embed batch error", "err", err, "batch_start", batchStart)
+		result.Errors += len(batch)
+		return
+	}
+
+	if len(vecs) < len(batch) {
+		slog.Warn("embed batch returned fewer vectors than requested",
+			"requested", len(batch), "received", len(vecs), "batch_start", batchStart)
+	}
+
+	for j, vec := range vecs {
+		if j >= len(batch) {
+			break
+		}
+		v := pgvector.NewVector(vec)
+		_, err := e.pool.Exec(ctx,
+			"UPDATE news_item SET embedding = $1 WHERE id = $2",
+			v, batch[j].id)
+		if err != nil {
+			slog.Warn("store embedding", "id", batch[j].id, "err", err)
+			result.Errors++
+		} else {
+			result.Embedded++
+		}
+	}
+	if len(vecs) < len(batch) {
+		result.Errors += len(batch) - len(vecs)
+	}
+}
+
+// EmbedBatch embeds all news items without embeddings, using batched HTTP calls.
+func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, error) {
+	items, err := e.fetchPendingEmbedItems(ctx, limit)
+	if err != nil {
+		return nil, err
 	}
 
 	result := &EmbedResult{Status: "ok", Total: len(items)}
@@ -77,42 +127,7 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 	}
 	for i := 0; i < len(items); i += bs {
 		end := min(i+bs, len(items))
-		batch := items[i:end]
-		texts := make([]string, len(batch))
-		for j, it := range batch {
-			texts[j] = it.text
-		}
-
-		vecs, err := e.embedClient.EmbedBatch(ctx, texts)
-		if err != nil {
-			slog.Warn("embed batch error", "err", err, "batch_start", i)
-			result.Errors += len(batch)
-			continue
-		}
-
-		if len(vecs) < len(batch) {
-			slog.Warn("embed batch returned fewer vectors than requested",
-				"requested", len(batch), "received", len(vecs), "batch_start", i)
-		}
-
-		for j, vec := range vecs {
-			if j >= len(batch) {
-				break
-			}
-			v := pgvector.NewVector(vec)
-			_, err := e.pool.Exec(ctx,
-				"UPDATE news_item SET embedding = $1 WHERE id = $2",
-				v, batch[j].id)
-			if err != nil {
-				slog.Warn("store embedding", "id", batch[j].id, "err", err)
-				result.Errors++
-			} else {
-				result.Embedded++
-			}
-		}
-		if len(vecs) < len(batch) {
-			result.Errors += len(batch) - len(vecs)
-		}
+		e.embedAndStoreBatch(ctx, items[i:end], i, result)
 	}
 
 	slog.Info("embed batch complete", "embedded", result.Embedded, "errors", result.Errors)
