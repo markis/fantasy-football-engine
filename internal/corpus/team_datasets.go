@@ -533,7 +533,7 @@ func writeSignalsJSONL(dsDir string, watchIDs []string, pr map[string]map[string
 			"signal_id":   SignalID("nfl:"+sid, "injury", injStatus, obs),
 			"player_id":   "nfl:" + sid,
 			"signal_type": colInjury,
-			"value": map[string]any{
+			colValue: map[string]any{
 				colStatus:   injStatus,
 				"body_part": getStr(p, "injury_body_part"),
 				"notes":     getStr(p, "injury_notes"),

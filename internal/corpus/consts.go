@@ -30,4 +30,6 @@ const (
 	colEvidenceRecordID = "evidence_record_id"
 	colTitle            = "title"
 	tePPNone            = "none"
+	colUsage            = "usage"
+	colValue            = "value"
 )

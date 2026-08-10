@@ -413,11 +413,11 @@ var topicRules = []struct {
 	{colInjury, []string{colInjury}},
 	{"transaction", []string{"transaction"}},
 	{"depth-chart", []string{"depth chart"}},
-	{"usage", []string{"usage", "snap", "target", "touch"}},
+	{colUsage, []string{colUsage, "snap", "target", "touch"}},
 	{"production", []string{"performance", "production"}},
 	{"rookie", []string{"draft", "rookie"}},
 	{"schedule", []string{"schedule", "matchup"}},
-	{"market", []string{"market", "trade", "value"}},
+	{"market", []string{"market", "trade", colValue}},
 }
 
 func TopicFromTopics(topics []string) string {

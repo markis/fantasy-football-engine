@@ -89,7 +89,7 @@ func (p *Publisher) writeInjuryAndUsage(curDir, now string, recs []map[string]an
 	for _, r := range recs {
 		if getStr(r, "topic") == colInjury {
 			inj = append(inj, r)
-		} else if getStr(r, "topic") == "usage" {
+		} else if getStr(r, "topic") == colUsage {
 			usage = append(usage, r)
 		}
 	}
