@@ -26,15 +26,15 @@ type Config struct {
 	LLM         LLMConfig         `yaml:"llm"`
 	Sleeper     SleeperConfig     `yaml:"sleeper"`
 	Sources     []SourceConfig    `yaml:"sources"`
-	FantasyPros FantasyProsConfig `yaml:"fantasypros"`
+	FantasyPros FantasyProsConfig `yaml:"fantasyPros"`
 	Corpus      CorpusConfig      `yaml:"corpus"`
 	Telemetry   TelemetryConfig   `yaml:"telemetry"`
 	Scheduler   SchedulerConfig   `yaml:"scheduler"`
 }
 
 type ServerConfig struct {
-	MCPAddr     string `yaml:"mcp_addr"`
-	MetricsAddr string `yaml:"metrics_addr"`
+	MCPAddr     string `yaml:"mcpAddr"`
+	MetricsAddr string `yaml:"metricsAddr"`
 }
 
 type DatabaseConfig struct {
@@ -46,22 +46,22 @@ type EmbeddingsConfig struct {
 	URL        string `yaml:"url"`
 	Model      string `yaml:"model"`
 	Dimensions int    `yaml:"dimensions"`
-	BatchSize  int    `yaml:"batch_size"`
+	BatchSize  int    `yaml:"batchSize"`
 }
 
 type LLMConfig struct {
 	Provider       string `yaml:"provider"`
 	URL            string `yaml:"url"`
 	Model          string `yaml:"model"`
-	APIKey         string `yaml:"api_key"`
-	APIKeyPass     string `yaml:"api_key_pass"`
-	TimeoutSecs    int    `yaml:"timeout_secs"`
-	MaxConcurrency int    `yaml:"max_concurrency"`
+	APIKey         string `yaml:"apiKey"`
+	APIKeyPass     string `yaml:"apiKeyPass"`
+	TimeoutSecs    int    `yaml:"timeoutSecs"`
+	MaxConcurrency int    `yaml:"maxConcurrency"`
 }
 
 type SleeperConfig struct {
-	BaseURL         string `yaml:"base_url"`
-	RateLimitPerMin int    `yaml:"rate_limit_per_min"`
+	BaseURL         string `yaml:"baseUrl"`
+	RateLimitPerMin int    `yaml:"rateLimitPerMin"`
 	Seasons         []int  `yaml:"seasons"`
 }
 
@@ -71,22 +71,22 @@ type SourceConfig struct {
 }
 
 type FantasyProsConfig struct {
-	APIKeyPass string `yaml:"api_key_pass"`
-	CookiePass string `yaml:"cookie_pass"`
+	APIKeyPass string `yaml:"apiKeyPass"`
+	CookiePass string `yaml:"cookiePass"`
 }
 
 type CorpusConfig struct {
-	RepoDir     string `yaml:"repo_dir"`
-	GitURL      string `yaml:"git_url"`
-	GitPAT      string `yaml:"git_pat"`
-	GitPATPass  string `yaml:"git_pat_pass"`
-	AuthorName  string `yaml:"author_name"`
-	AuthorEmail string `yaml:"author_email"`
+	RepoDir     string `yaml:"repoDir"`
+	GitURL      string `yaml:"gitUrl"`
+	GitPAT      string `yaml:"gitPat"`
+	GitPATPass  string `yaml:"gitPatPass"`
+	AuthorName  string `yaml:"authorName"`
+	AuthorEmail string `yaml:"authorEmail"`
 }
 
 type TelemetryConfig struct {
-	OTelEndpoint string `yaml:"otel_endpoint"`
-	ServiceName  string `yaml:"service_name"`
+	OTelEndpoint string `yaml:"oTelEndpoint"`
+	ServiceName  string `yaml:"serviceName"`
 }
 
 type SchedulerConfig struct {

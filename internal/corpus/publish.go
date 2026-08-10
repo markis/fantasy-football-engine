@@ -31,8 +31,8 @@ func NewPublisher(common *Common) *Publisher {
 type PublishResult struct {
 	Mode               string `json:"mode"`
 	Committed          bool   `json:"committed"`
-	EvidenceCurrent    int    `json:"evidence_current"`
-	EvidenceSuperseded int    `json:"evidence_superseded"`
+	EvidenceCurrent    int    `json:"evidenceCurrent"`
+	EvidenceSuperseded int    `json:"evidenceSuperseded"`
 	Changes            int    `json:"changes"`
 	Players            int    `json:"players"`
 	Signals            int    `json:"signals"`
@@ -198,6 +198,7 @@ func (p *Publisher) sync(staging, corpus string) error {
 		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
 			return err
 		}
+		//nolint:gosec // path is internal storage path
 		data, err := os.ReadFile(full)
 		if err != nil {
 			return err

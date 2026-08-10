@@ -27,7 +27,7 @@ func NewPlayerSyncer(pool *db.Pool, sleeperClient *sleeper.Client) *PlayerSyncer
 // PlayerSyncResult is the result of a player sync.
 type PlayerSyncResult struct {
 	Synced     int            `json:"synced"`
-	ByPosition map[string]int `json:"by_position"`
+	ByPosition map[string]int `json:"byPosition"`
 	Status     string         `json:"status"`
 }
 

@@ -33,9 +33,9 @@ const (
 type RankingsSyncResult struct {
 	Fetched        int    `json:"fetched"`
 	Matched        int    `json:"matched"`
-	SkippedPicks   int    `json:"skipped_picks"`
-	SkippedNoMatch int    `json:"skipped_nomatch"`
-	RemovedStale   int    `json:"removed_stale"`
+	SkippedPicks   int    `json:"skippedPicks"`
+	SkippedNoMatch int    `json:"skippedNoMatch"`
+	RemovedStale   int    `json:"removedStale"`
 	Market         int    `json:"market"`
 	Source         string `json:"source"`
 	Status         string `json:"status"`

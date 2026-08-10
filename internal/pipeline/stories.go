@@ -60,7 +60,7 @@ Atomic facts:
 // StoryResult is the result of a story generation batch.
 type StoryResult struct {
 	Processed        int    `json:"processed"`
-	StoriesGenerated int    `json:"stories_generated"`
+	StoriesGenerated int    `json:"storiesGenerated"`
 	Errors           int    `json:"errors"`
 	Candidates       int    `json:"candidates"`
 	Status           string `json:"status"`

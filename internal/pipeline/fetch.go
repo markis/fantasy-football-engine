@@ -38,13 +38,13 @@ func NewRSSFetcher(pool *db.Pool) *RSSFetcher {
 
 // FetchResult is the result of fetching one feed.
 type FetchResult struct {
-	SourceID        string `json:"source_id"`
+	SourceID        string `json:"sourceId"`
 	URL             string `json:"url"`
-	ItemsFetched    int    `json:"items_fetched"`
-	ItemsNew        int    `json:"items_new"`
-	ItemsUpdated    int    `json:"items_updated"`
-	ItemsSkippedOld int    `json:"items_skipped_old"`
-	HTTPStatus      int    `json:"http_status"`
+	ItemsFetched    int    `json:"itemsFetched"`
+	ItemsNew        int    `json:"itemsNew"`
+	ItemsUpdated    int    `json:"itemsUpdated"`
+	ItemsSkippedOld int    `json:"itemsSkippedOld"`
+	HTTPStatus      int    `json:"httpStatus"`
 	Status          string `json:"status"`
 }
 

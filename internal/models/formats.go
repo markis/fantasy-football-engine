@@ -11,7 +11,7 @@ const (
 type LeagueFormat struct {
 	Name   string `json:"name"`
 	Teams  int    `json:"teams"`
-	NumQbs int    `json:"num_qbs"`
+	NumQbs int    `json:"numQbs"`
 	PPR    int    `json:"ppr"`
 	TEP    string `json:"tep"`
 	Market *int   `json:"market"`
@@ -32,7 +32,7 @@ var LeagueFormats = map[string]LeagueFormat{
 type FormatCombo struct {
 	Market int    `json:"market"`
 	Teams  int    `json:"teams"`
-	NumQbs int    `json:"num_qbs"`
+	NumQbs int    `json:"numQbs"`
 	PPR    int    `json:"ppr"`
 	TEP    string `json:"tep"`
 	Label  string `json:"label"`

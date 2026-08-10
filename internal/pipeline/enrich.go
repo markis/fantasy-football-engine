@@ -60,8 +60,8 @@ Summary: %s`
 // EnrichResult is the result of enriching items in batch.
 type EnrichResult struct {
 	Enriched        int    `json:"enriched"`
-	FantasyRelevant int    `json:"fantasy_relevant"`
-	NotRelevant     int    `json:"not_relevant"`
+	FantasyRelevant int    `json:"fantasyRelevant"`
+	NotRelevant     int    `json:"notRelevant"`
 	Status          string `json:"status"`
 }
 

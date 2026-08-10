@@ -28,10 +28,10 @@ const (
 // DedupResult is the result of a dedup check run.
 type DedupResult struct {
 	Checked      int    `json:"checked"`
-	ExactDups    int    `json:"exact_dups"`
-	NearDups     int    `json:"near_dups"`
-	SemanticDups int    `json:"semantic_dups"`
-	NewItems     int    `json:"new_items"`
+	ExactDups    int    `json:"exactDups"`
+	NearDups     int    `json:"nearDups"`
+	SemanticDups int    `json:"semanticDups"`
+	NewItems     int    `json:"newItems"`
 	Status       string `json:"status"`
 }
 

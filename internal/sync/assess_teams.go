@@ -23,7 +23,7 @@ func NewTeamAssessor(pool *db.Pool, sleeperClient *sleeper.Client) *TeamAssessor
 
 // TeamAssessResult is the result of a team assessment.
 type TeamAssessResult struct {
-	LeaguesAssessed int    `json:"leagues_assessed"`
+	LeaguesAssessed int    `json:"leaguesAssessed"`
 	Status          string `json:"status"`
 }
 

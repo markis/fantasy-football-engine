@@ -33,10 +33,10 @@ type Scheduler struct {
 // JobStatus tracks the last run of a job.
 type JobStatus struct {
 	Name         string    `json:"name"`
-	LastRun      time.Time `json:"last_run"`
-	LastStatus   string    `json:"last_status"` // ok | error
-	LastDuration string    `json:"last_duration"`
-	NextRun      time.Time `json:"next_run"`
+	LastRun      time.Time `json:"lastRun"`
+	LastStatus   string    `json:"lastStatus"` // ok | error
+	LastDuration string    `json:"lastDuration"`
+	NextRun      time.Time `json:"nextRun"`
 }
 
 // New creates a new scheduler.
@@ -174,6 +174,6 @@ func (s *Scheduler) TriggerStep(ctx context.Context, step string, job *config.Jo
 		return fmt.Errorf("%w: %s", errStepNotRegistered, step)
 	}
 	job.Step = step
-	go s.runJob(job, fn)
+	go s.runJob(job, fn) //nolint:gosec // background job has its own lifecycle
 	return nil
 }

@@ -64,7 +64,7 @@ Return ONLY a JSON array (no markdown fences), each element:
 type llmFact struct {
 	Fact       string   `json:"fact"`
 	Confidence string   `json:"confidence"`
-	OccurredAt *string  `json:"occurred_at"`
+	OccurredAt *string  `json:"occurredAt"`
 	Entities   []string `json:"entities"`
 	Topics     []string `json:"topics"`
 }
@@ -72,7 +72,7 @@ type llmFact struct {
 // FactsResult is the result of a fact extraction batch.
 type FactsResult struct {
 	Processed      int    `json:"processed"`
-	FactsExtracted int    `json:"facts_extracted"`
+	FactsExtracted int    `json:"factsExtracted"`
 	Errors         int    `json:"errors"`
 	Status         string `json:"status"`
 }

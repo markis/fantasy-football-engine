@@ -25,8 +25,8 @@ func NewLeaguemateTradesSyncer(pool *db.Pool, sleeperClient *sleeper.Client) *Le
 
 // TradesSyncResult is the result of a trades sync.
 type TradesSyncResult struct {
-	TradesStored   int    `json:"trades_stored"`
-	LeaguesScanned int    `json:"leagues_scanned"`
+	TradesStored   int    `json:"tradesStored"`
+	LeaguesScanned int    `json:"leaguesScanned"`
 	Status         string `json:"status"`
 }
 

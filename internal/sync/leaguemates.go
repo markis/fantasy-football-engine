@@ -26,9 +26,9 @@ func NewLeaguemateSyncer(pool *db.Pool, sleeperClient *sleeper.Client) *Leaguema
 
 // LeaguemateSyncResult is the result of a leaguemate sync.
 type LeaguemateSyncResult struct {
-	ManagersSeen int    `json:"managers_seen"`
-	LeaguesSeen  int    `json:"leagues_seen"`
-	RosterRows   int    `json:"roster_rows"`
+	ManagersSeen int    `json:"managersSeen"`
+	LeaguesSeen  int    `json:"leaguesSeen"`
+	RosterRows   int    `json:"rosterRows"`
 	Status       string `json:"status"`
 }
 

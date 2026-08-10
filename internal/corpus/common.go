@@ -132,27 +132,27 @@ func ISOOrNone(s string) string {
 // --- Sleeper fetch (with cache) ---
 
 func (c *Common) SleeperGet(ctx context.Context, path string) (any, error) {
-	return c.sleeper.GetRaw(ctx, path)
+	return c.sleeper.GetRaw(ctx, path) //nolint:wrapcheck // proxy method
 }
 
 func (c *Common) LeagueRosters(ctx context.Context, leagueID string) ([]map[string]any, error) {
-	return c.sleeper.GetLeagueRosters(ctx, leagueID)
+	return c.sleeper.GetLeagueRosters(ctx, leagueID) //nolint:wrapcheck // proxy method
 }
 
 func (c *Common) LeagueUsers(ctx context.Context, leagueID string) ([]map[string]any, error) {
-	return c.sleeper.GetLeagueUsers(ctx, leagueID)
+	return c.sleeper.GetLeagueUsers(ctx, leagueID) //nolint:wrapcheck // proxy method
 }
 
 func (c *Common) LeagueInfo(ctx context.Context, leagueID string) (map[string]any, error) {
-	return c.sleeper.GetLeagueInfo(ctx, leagueID)
+	return c.sleeper.GetLeagueInfo(ctx, leagueID) //nolint:wrapcheck // proxy method
 }
 
 func (c *Common) LeagueTradedPicks(ctx context.Context, leagueID string) ([]map[string]any, error) {
-	return c.sleeper.GetLeagueTradedPicks(ctx, leagueID)
+	return c.sleeper.GetLeagueTradedPicks(ctx, leagueID) //nolint:wrapcheck // proxy method
 }
 
 func (c *Common) LeagueTransactions(ctx context.Context, leagueID string, week int) ([]map[string]any, error) {
-	return c.sleeper.GetLeagueTransactions(ctx, leagueID, week)
+	return c.sleeper.GetLeagueTransactions(ctx, leagueID, week) //nolint:wrapcheck // proxy method
 }
 
 func (c *Common) MyRoster(rosters []map[string]any) map[string]any {
@@ -377,11 +377,11 @@ func AppendJSONL(path string, obj any) error {
 	}
 	defer f.Close()
 	_, err = f.Write(data)
-	return err
+	return err //nolint:wrapcheck // propagate stdlib error
 }
 
 func ReadJSONL(path string) ([]map[string]any, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is internal storage path, not user input
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

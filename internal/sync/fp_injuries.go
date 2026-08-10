@@ -32,8 +32,8 @@ const (
 
 // FPInjuriesResult is the result of an injury sync.
 type FPInjuriesResult struct {
-	InjuriesFetched int    `json:"injuries_fetched"`
-	PlayersUpdated  int    `json:"players_updated"`
+	InjuriesFetched int    `json:"injuriesFetched"`
+	PlayersUpdated  int    `json:"playersUpdated"`
 	Unmatched       int    `json:"unmatched"`
 	Status          string `json:"status"`
 }

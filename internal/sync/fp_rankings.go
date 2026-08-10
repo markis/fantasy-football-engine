@@ -36,7 +36,7 @@ const (
 // FPRankingsResult is the result of an FP rankings sync.
 type FPRankingsResult struct {
 	Source         string `json:"source"`
-	PlayersWithDyn int    `json:"players_with_dyn_rank"`
+	PlayersWithDyn int    `json:"playersWithDyn"`
 	Matched        int    `json:"matched"`
 	Unmatched      int    `json:"unmatched"`
 	Status         string `json:"status"`

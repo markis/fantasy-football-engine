@@ -45,7 +45,7 @@ type FantasyCalcResult struct {
 	Fetched      int    `json:"fetched"`
 	Matched      int    `json:"matched"`
 	Skipped      int    `json:"skipped"`
-	RemovedStale int    `json:"removed_stale"`
+	RemovedStale int    `json:"removedStale"`
 }
 
 // SyncAll syncs all format combos.

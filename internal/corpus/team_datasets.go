@@ -493,6 +493,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 		if !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
+		//nolint:gosec // path is internal storage path
 		data, err := os.ReadFile(filepath.Join(recDir, entry.Name()))
 		if err != nil {
 			continue
@@ -567,6 +568,7 @@ func appendJSONLFile(path string, obj any) {
 		return
 	}
 	data = append(data, '\n')
+	//nolint:gosec // path is internal storage path
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		slog.Warn("failed to open JSONL file", "path", path, "err", err)

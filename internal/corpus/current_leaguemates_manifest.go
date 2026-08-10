@@ -27,7 +27,7 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 	// Load team-state
 	tsPath := filepath.Join(targetDir, "team", "team-state.json")
 	var ts map[string]any
-	if data, err := os.ReadFile(tsPath); err == nil {
+	if data, err := os.ReadFile(tsPath); err == nil { //nolint:gosec // path is internal storage path, not user input
 		//nolint:errcheck // Unmarshal failure results in empty map, which is safe
 		json.Unmarshal(data, &ts)
 	}
@@ -217,7 +217,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 	// Carry forward prior change-log
 	clPath := filepath.Join(targetDir, "datasets", "change-log.jsonl")
 	clPrev := filepath.Join(prevDir, "datasets", "change-log.jsonl")
-	if data, err := os.ReadFile(clPrev); err == nil {
+	if data, err := os.ReadFile(clPrev); err == nil { //nolint:gosec // path is internal storage path, not user input
 		if err := os.WriteFile(clPath, data, 0o600); err != nil { //nolint:gosec // paths are internal corpus paths, not user input
 			slog.Warn("failed to write change-log", "err", err)
 		}
@@ -234,7 +234,9 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 		for _, rid := range ids {
 			filename := strings.Replace(rid, "sha256:", "", 1) + ".json"
 			contentHash := ""
-			if data, err := os.ReadFile(filepath.Join(recDir, filename)); err == nil {
+			//nolint:gosec // path is internal storage path
+			data, err := os.ReadFile(filepath.Join(recDir, filename))
+			if err == nil {
 				var rec map[string]any
 				if json.Unmarshal(data, &rec) == nil {
 					contentHash = getStr(rec, colContentHash)
@@ -299,7 +301,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 			if !strings.HasSuffix(e.Name(), ".json") {
 				continue
 			}
-			data, err := os.ReadFile(filepath.Join(recDir, e.Name()))
+			data, err := os.ReadFile(filepath.Join(recDir, e.Name())) //nolint:gosec // path is internal storage path, not user input
 			if err != nil {
 				continue
 			}
@@ -371,7 +373,7 @@ func loadCurrentRecords(recordsDir string) []map[string]any {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(recordsDir, e.Name()))
+		data, err := os.ReadFile(filepath.Join(recordsDir, e.Name())) //nolint:gosec // path is internal storage path, not user input
 		if err != nil {
 			continue
 		}
@@ -464,6 +466,7 @@ func walkFilesForManifest(root string) (map[string]string, error) {
 
 func countJSONLFile(targetDir, rel string) int {
 	path := filepath.Join(targetDir, rel)
+	//nolint:gosec // path is internal storage path
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0

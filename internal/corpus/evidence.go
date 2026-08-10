@@ -433,6 +433,7 @@ func loadExistingRecords(recordsDir string) map[string]map[string]any {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
+		//nolint:gosec // path is internal storage path
 		data, err := os.ReadFile(filepath.Join(recordsDir, entry.Name()))
 		if err != nil {
 			continue

@@ -28,9 +28,9 @@ const clusterCosineThreshold = 0.78
 
 // ClusterResult is the result of a clustering run.
 type ClusterResult struct {
-	ClustersCreated int    `json:"clusters_created"`
-	ClustersReused  int    `json:"clusters_reused"`
-	ItemsAssigned   int    `json:"items_assigned"`
+	ClustersCreated int    `json:"clustersCreated"`
+	ClustersReused  int    `json:"clustersReused"`
+	ItemsAssigned   int    `json:"itemsAssigned"`
 	Status          string `json:"status"`
 }
 
