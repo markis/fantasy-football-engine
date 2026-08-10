@@ -85,7 +85,10 @@ func (c *Client) Chat(ctx context.Context, prompt string, temperature float64) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			respBody = []byte("(unable to read error response body)")
+		}
 		return "", fmt.Errorf("%w (%d): %s", errChatHTTP, resp.StatusCode, string(respBody))
 	}
 

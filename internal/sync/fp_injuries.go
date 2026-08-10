@@ -61,7 +61,10 @@ func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			body = []byte("(unable to read error response body)")
+		}
 		return nil, fmt.Errorf("%w (%d): %s", errFPInjuriesHTTP, resp.StatusCode, string(body))
 	}
 

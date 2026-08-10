@@ -93,7 +93,10 @@ func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(resp.Body)
+		if err != nil {
+			respBody = []byte("(unable to read error response body)")
+		}
 		return nil, fmt.Errorf("%w (%d): %s", errEmbedHTTP, resp.StatusCode, string(respBody))
 	}
 

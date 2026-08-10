@@ -119,12 +119,15 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 				} else if contains(reserve, pid) {
 					slot = "reserve"
 				}
-				_, _ = s.pool.Exec(ctx, `
+				if _, err := s.pool.Exec(ctx, `
 					INSERT INTO leaguemate_roster_player (league_id, roster_id, sleeper_player_id, slot, snapshot_at)
 					VALUES ($1, $2, $3, $4, now())
 					ON CONFLICT (league_id, roster_id, sleeper_player_id) DO UPDATE SET slot = EXCLUDED.slot, snapshot_at = now()
-				`, leagueID, rid, pid, slot)
-				rosterRows++
+				`, leagueID, rid, pid, slot); err != nil {
+					slog.Warn("failed to insert roster player", "league_id", leagueID, "roster_id", rid, "err", err)
+				} else {
+					rosterRows++
+				}
 			}
 
 			// Discover manager's other leagues (1-hop)
@@ -190,12 +193,15 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 							} else if contains(olReserve, pid) {
 								slot = "reserve"
 							}
-							_, _ = s.pool.Exec(ctx, `
+							if _, err := s.pool.Exec(ctx, `
 								INSERT INTO leaguemate_roster_player (league_id, roster_id, sleeper_player_id, slot, snapshot_at)
 								VALUES ($1, $2, $3, $4, now())
 								ON CONFLICT (league_id, roster_id, sleeper_player_id) DO UPDATE SET slot = EXCLUDED.slot, snapshot_at = now()
-							`, olID, rrid, pid, slot)
-							rosterRows++
+							`, olID, rrid, pid, slot); err != nil {
+								slog.Warn("failed to insert other league roster player", "league_id", olID, "roster_id", rrid, "err", err)
+							} else {
+								rosterRows++
+							}
 						}
 					}
 				}
@@ -211,14 +217,22 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 
 func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg map[string]any, isMarkis bool, discoveredVia string) {
 	leagueID := fmt.Sprint(lg["league_id"])
-	rosterPositions, _ := json.Marshal(lg["roster_positions"])
-	settings, _ := json.Marshal(lg["settings"])
+	rosterPositions, err := json.Marshal(lg["roster_positions"])
+	if err != nil {
+		slog.Warn("failed to marshal roster positions", "league_id", leagueID, "err", err)
+		rosterPositions = []byte("null")
+	}
+	settings, err2 := json.Marshal(lg["settings"])
+	if err2 != nil {
+		slog.Warn("failed to marshal league settings", "league_id", leagueID, "err", err2)
+		settings = []byte("null")
+	}
 	var leagueType *int
 	if settingsMap, ok := lg["settings"].(map[string]any); ok {
 		leagueType = toInt(settingsMap["type"])
 	}
 
-	_, err := s.pool.Exec(ctx, `
+	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO league (league_id, name, season, sport, status, num_teams,
 			has_superflex, is_best_ball, league_type, roster_positions, settings,
 			previous_league_id, is_markis_league, discovered_via_user_id, last_synced_at)
@@ -234,8 +248,7 @@ func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg map[string]any, 
 	`, leagueID, lg["name"], lg["season"], "nfl", lg["status"], toInt(lg["total_rosters"]),
 		hasSuperflex(lg), isBestBall(lg), leagueType,
 		rosterPositions, settings, lg["previous_league_id"],
-		isMarkis, nilIfEmpty(discoveredVia))
-	if err != nil {
+		isMarkis, nilIfEmpty(discoveredVia)); err != nil {
 		slog.Warn("upsert league", "id", leagueID, "err", err)
 	}
 }

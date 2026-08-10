@@ -345,7 +345,7 @@ func MatchEntitiesToPlayers(entities []string, nameIndex map[string][]string) []
 // --- File IO ---
 
 func WriteJSON(path string, obj any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(obj, "", "  ")
@@ -353,18 +353,18 @@ func WriteJSON(path string, obj any) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o644)
+	return os.WriteFile(path, data, 0o600)
 }
 
 func WriteText(path, text string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(strings.TrimRight(text, "\n")+"\n"), 0o644)
+	return os.WriteFile(path, []byte(strings.TrimRight(text, "\n")+"\n"), 0o600)
 }
 
 func AppendJSONL(path string, obj any) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	data, err := json.Marshal(obj)
@@ -372,7 +372,7 @@ func AppendJSONL(path string, obj any) error {
 		return err
 	}
 	data = append(data, '\n')
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}

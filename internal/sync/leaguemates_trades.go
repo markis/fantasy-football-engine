@@ -113,7 +113,11 @@ func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]
 		return false
 	}
 
-	raw, _ := json.Marshal(txn)
+	raw, err := json.Marshal(txn)
+	if err != nil {
+		slog.Warn("failed to marshal transaction", "txn_id", txnID, "err", err)
+		raw = []byte("{}")
+	}
 
 	// Check if involves watch set
 	involvesWatchSet := false
@@ -139,7 +143,7 @@ func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]
 	rosterIDs := toIntSlice(txn["roster_ids"])
 	consenterIDs := toIntSlice(txn["consenter_ids"])
 
-	_, err := s.pool.Exec(ctx, `
+	if _, err := s.pool.Exec(ctx, `
 		INSERT INTO leaguemate_transaction (transaction_id, league_id, type, status, creator,
 			week, roster_ids, consenter_ids, created_at, status_updated_at,
 			is_markis_league, involves_watch_set, raw, last_synced_at)
@@ -149,8 +153,7 @@ func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]
 		nilIfEmpty(fmt.Sprint(txn["creator"])), toInt(txn["leg"]),
 		rosterIDs, consenterIDs,
 		epochMsToTime(txn["created"]), epochMsToTime(txn["status_updated"]),
-		isMarkisLeague, involvesWatchSet, raw)
-	if err != nil {
+		isMarkisLeague, involvesWatchSet, raw); err != nil {
 		slog.Warn("store trade", "id", txnID, "err", err)
 		return false
 	}
@@ -168,22 +171,26 @@ func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]
 	for pid, toRoster := range adds {
 		fromRoster := drops[pid]
 		isWatch := watchSet[pid]
-		_, _ = s.pool.Exec(ctx, `
+		if _, err := s.pool.Exec(ctx, `
 			INSERT INTO leaguemate_trade_asset (id, transaction_id, league_id, asset_type,
 				sleeper_player_id, from_roster_id, to_roster_id, is_watch_set)
 			VALUES ($1, $2, $3, 'player', $4, $5, $6, $7)
-		`, uuid.New(), txnID, leagueID, pid, toInt(fromRoster), toInt(toRoster), isWatch)
+		`, uuid.New(), txnID, leagueID, pid, toInt(fromRoster), toInt(toRoster), isWatch); err != nil {
+			slog.Warn("failed to insert trade asset (add)", "pid", pid, "err", err)
+		}
 	}
 	for pid, fromRoster := range drops {
 		if _, ok := adds[pid]; ok {
 			continue // already handled
 		}
 		isWatch := watchSet[pid]
-		_, _ = s.pool.Exec(ctx, `
+		if _, err := s.pool.Exec(ctx, `
 			INSERT INTO leaguemate_trade_asset (id, transaction_id, league_id, asset_type,
 				sleeper_player_id, from_roster_id, to_roster_id, is_watch_set)
 			VALUES ($1, $2, $3, 'player', $4, $5, NULL, $6)
-		`, uuid.New(), txnID, leagueID, pid, toInt(fromRoster), isWatch)
+		`, uuid.New(), txnID, leagueID, pid, toInt(fromRoster), isWatch); err != nil {
+			slog.Warn("failed to insert trade asset (drop)", "pid", pid, "err", err)
+		}
 	}
 
 	// Pick assets
@@ -192,13 +199,15 @@ func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]
 		if !ok {
 			continue
 		}
-		_, _ = s.pool.Exec(ctx, `
+		if _, err := s.pool.Exec(ctx, `
 			INSERT INTO leaguemate_trade_asset (id, transaction_id, league_id, asset_type,
 				pick_season, pick_round, pick_roster_id, from_roster_id, to_roster_id)
 			VALUES ($1, $2, $3, 'pick', $4, $5, $6, $7, $8)
 		`, uuid.New(), txnID, leagueID,
 			nilIfEmpty(fmt.Sprint(pm["season"])), toInt(pm["round"]),
-			toInt(pm["roster_id"]), toInt(pm["previous_owner_id"]), toInt(pm["owner_id"]))
+			toInt(pm["roster_id"]), toInt(pm["previous_owner_id"]), toInt(pm["owner_id"])); err != nil {
+			slog.Warn("failed to insert trade asset (pick)", "err", err)
+		}
 	}
 
 	return true

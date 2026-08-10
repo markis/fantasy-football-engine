@@ -67,7 +67,10 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			body = []byte("(unable to read error response body)")
+		}
 		return nil, fmt.Errorf("%w (%d): %s", errFPRankingsHTTP, resp.StatusCode, string(body))
 	}
 
@@ -102,9 +105,18 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 	var matched, skipped int
 	var freshIDs []uuid.UUID
 	for _, p := range players {
-		rankMap, _ := p["rank"].(map[string]any)
-		ecrMap, _ := getNested(rankMap, "ECR")
-		dynMap, _ := ecrMap["DYN"].(map[string]any)
+		rankMap, ok := p["rank"].(map[string]any)
+		if !ok {
+			skipped++
+			continue
+		}
+		ecrMap, ok := getNested(rankMap, "ECR")
+		if !ok {
+			skipped++
+			continue
+		}
+		dynMap, ok := ecrMap["DYN"].(map[string]any)
+		_ = ok
 		if dynMap == nil {
 			continue
 		}
@@ -148,9 +160,11 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 	// Delete stale rows for this source/market, but only once we know we
 	// have fresh data to replace them — never wipe on an empty/failed sync.
 	if len(freshIDs) > 0 {
-		_, _ = s.pool.Exec(ctx,
+		if _, err := s.pool.Exec(ctx,
 			"DELETE FROM player_ranking WHERE source = $1 AND market = $2 AND NOT (player_id = ANY($3))",
-			fpRankingsSource, fpRankingsMarket, freshIDs)
+			fpRankingsSource, fpRankingsMarket, freshIDs); err != nil {
+			slog.Warn("failed to delete stale rankings", "err", err)
+		}
 	}
 
 	result.Matched = matched

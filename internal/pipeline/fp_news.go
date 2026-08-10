@@ -55,7 +55,7 @@ func (f *FPNewsFetcher) Fetch(ctx context.Context) (*FPNewsResult, error) {
 		return nil, fmt.Errorf("get FP API key: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpNewsURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpNewsURL, http.NoBody)
 	if err != nil {
 		return nil, err
 	}

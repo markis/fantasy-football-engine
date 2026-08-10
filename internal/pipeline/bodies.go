@@ -142,7 +142,7 @@ func (b *BodyFetcher) processItem(ctx context.Context, item pendingItem) string 
 	}
 
 	httpClient := &http.Client{Timeout: 20 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, item.url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, item.url, http.NoBody)
 	if err != nil {
 		return "skipped"
 	}

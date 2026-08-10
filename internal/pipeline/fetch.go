@@ -73,7 +73,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 
 	// Fetch the feed
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, http.NoBody)
 	if err != nil {
 		result.Status = "error"
 		return result, fmt.Errorf("create request: %w", err)
@@ -129,7 +129,11 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 	result.ItemsFetched = len(feed.Items)
 
 	// Store raw document
-	headersJSON, _ := json.Marshal(resp.Header)
+	headersJSON, err := json.Marshal(resp.Header)
+	if err != nil {
+		slog.Warn("failed to marshal response headers", "err", err)
+		headersJSON = []byte("{}")
+	}
 	var rawDocID uuid.UUID
 	err = f.pool.QueryRow(ctx, `
 		INSERT INTO raw_document (source_id, url, fetch_status, headers, body_text, content_type)

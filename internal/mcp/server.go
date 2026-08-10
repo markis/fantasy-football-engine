@@ -15,6 +15,29 @@ import (
 
 var errPipelineTriggerNotEnabled = errors.New("pipeline trigger not enabled")
 
+const (
+	schemaTypeObject  = "object"
+	schemaProperties  = "properties"
+	schemaType        = "type"
+	schemaTypeString  = "string"
+	schemaTypeInteger = "integer"
+	schemaTypeBoolean = "boolean"
+	schemaTypeArray   = "array"
+	schemaDescription = "description"
+	schemaDefault     = "default"
+	schemaRequired    = "required"
+	schemaItems       = "items"
+	contentTypeJSON   = "application/json"
+	statusOK          = "ok"
+	toolStatus        = "status"
+	toolService       = "service"
+	toolsKey          = "tools"
+	textType          = "text"
+	jsonrpcVersion    = "2.0"
+	isErrorKey        = "isError"
+	contentKey        = "content"
+)
+
 // Server is the MCP server that exposes tools over Streamable HTTP.
 // It implements a minimal MCP-compatible JSON-RPC handler that supports
 // tools/list and tools/call.
@@ -57,14 +80,14 @@ func (s *Server) registerTools() {
 		Name:        "search_news",
 		Description: "Semantic search over fantasy football news items using embeddings.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query":         map[string]any{"type": "string", "description": "Search query"},
-				"limit":         map[string]any{"type": "integer", "default": 10},
-				"days":          map[string]any{"type": "integer", "description": "Only items from last N days"},
-				"relevant_only": map[string]any{"type": "boolean", "default": false},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				"query":         map[string]any{schemaType: schemaTypeString, schemaDescription: "Search query"},
+				"limit":         map[string]any{schemaType: schemaTypeInteger, schemaDefault: 10},
+				"days":          map[string]any{schemaType: schemaTypeInteger, schemaDescription: "Only items from last N days"},
+				"relevant_only": map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
-			"required": []string{"query"},
+			schemaRequired: []string{"query"},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			query := getStr(args, "query")
@@ -448,10 +471,14 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// Serialize result as text content
-		resultJSON, _ := json.MarshalIndent(result, "", "  ")
+		resultJSON, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			slog.Warn("failed to marshal result", "err", err)
+			resultJSON = []byte("(unable to marshal result)")
+		}
 		writeJSONRPCResult(w, req.ID, map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": string(resultJSON)},
+			contentKey: []map[string]any{
+				{schemaType: textType, textType: string(resultJSON)},
 			},
 		})
 
@@ -478,29 +505,33 @@ func missingRequired(schema map[string]any, args map[string]any) []string {
 }
 
 func writeJSONRPCResult(w http.ResponseWriter, id json.RawMessage, result any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", contentTypeJSON)
 	resp := map[string]any{
-		"jsonrpc": "2.0",
+		"jsonrpc": jsonrpcVersion,
 		"id":      json.RawMessage(id),
 		"result":  result,
 	}
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Warn("failed to encode JSON-RPC result", "err", err)
+	}
 }
 
 func writeJSONRPCError(w http.ResponseWriter, id json.RawMessage, code int, message string) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", contentTypeJSON)
 	if id == nil {
 		id = json.RawMessage("null")
 	}
 	resp := map[string]any{
-		"jsonrpc": "2.0",
+		"jsonrpc": jsonrpcVersion,
 		"id":      json.RawMessage(id),
 		"error": map[string]any{
 			"code":    code,
 			"message": message,
 		},
 	}
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		slog.Warn("failed to encode JSON-RPC error", "err", err)
+	}
 }
 
 // --- Helpers ---

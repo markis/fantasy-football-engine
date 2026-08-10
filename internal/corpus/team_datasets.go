@@ -25,10 +25,16 @@ func anyToInt(v any) int {
 	case int:
 		return t
 	case json.Number:
-		n, _ := t.Int64()
+		n, err := t.Int64()
+		if err != nil {
+			return 0
+		}
 		return int(n)
 	case string:
-		n, _ := strconv.Atoi(t)
+		n, err := strconv.Atoi(t)
+		if err != nil {
+			return 0
+		}
 		return n
 	default:
 		return 0
@@ -60,7 +66,9 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 		return nil, err
 	}
 	leaguesDir := filepath.Join(teamDir, "leagues")
-	os.MkdirAll(leaguesDir, 0o755)
+	if err := os.MkdirAll(leaguesDir, 0o750); err != nil {
+		slog.Warn("failed to create leagues directory", "err", err)
+	}
 
 	now := p.common.NowISO()
 	var leagues []map[string]any
@@ -81,7 +89,11 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 			rosterOwner[anyToInt(r["roster_id"])] = fmt.Sprint(r["owner_id"])
 		}
 
-		leagueInfo, _ := p.common.LeagueInfo(ctx, leagueID)
+		leagueInfo, err := p.common.LeagueInfo(ctx, leagueID)
+		if err != nil {
+			slog.Warn("failed to get league info", "league_id", leagueID, "err", err)
+			continue
+		}
 		var starterSlots []string
 		for _, rp := range toStringSlice(leagueInfo["roster_positions"]) {
 			if rp != "BN" {
@@ -166,7 +178,11 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 
 		// Get future picks currently owned by Markis's roster in this league.
 		markisRosterID := fmt.Sprint(myRoster["roster_id"])
-		tradedPicks, _ := p.common.LeagueTradedPicks(ctx, leagueID)
+		tradedPicks, err := p.common.LeagueTradedPicks(ctx, leagueID)
+		if err != nil {
+			slog.Warn("failed to get league traded picks", "league_id", leagueID, "err", err)
+			tradedPicks = nil
+		}
 		var futurePicks []map[string]any
 		for _, pick := range tradedPicks {
 			if fmt.Sprint(pick["owner_id"]) != markisRosterID {
@@ -298,7 +314,9 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 	})
 
 	// Transaction history (empty for now)
-	os.WriteFile(filepath.Join(teamDir, "transaction-history.jsonl"), []byte(""), 0o644)
+	if err := os.WriteFile(filepath.Join(teamDir, "transaction-history.jsonl"), []byte(""), 0o600); err != nil {
+		slog.Warn("failed to create transaction-history.jsonl", "err", err)
+	}
 
 	return map[string]any{"leagues": len(leagues)}, nil
 }
@@ -327,7 +345,9 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 	// players.jsonl
 	playersPath := filepath.Join(dsDir, "players.jsonl")
-	os.WriteFile(playersPath, []byte(""), 0o644)
+	if err := os.WriteFile(playersPath, []byte(""), 0o600); err != nil {
+		slog.Warn("failed to create players.jsonl", "err", err)
+	}
 	for _, sid := range sortedStringSlice(watchIDs) {
 		p := pr[sid]
 		if p == nil {
@@ -357,7 +377,9 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 	// player-signals.jsonl
 	sigPath := filepath.Join(dsDir, "player-signals.jsonl")
-	os.WriteFile(sigPath, []byte(""), 0o644)
+	if err := os.WriteFile(sigPath, []byte(""), 0o600); err != nil {
+		slog.Warn("failed to create player-signals.jsonl", "err", err)
+	}
 	sigCount := 0
 	for _, sid := range sortedStringSlice(watchIDs) {
 		p := pr[sid]
@@ -429,9 +451,15 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 	// news-events.jsonl (from evidence records)
 	newsPath := filepath.Join(dsDir, "news-events.jsonl")
-	os.WriteFile(newsPath, []byte(""), 0o644)
+	if err := os.WriteFile(newsPath, []byte(""), 0o600); err != nil {
+		slog.Warn("failed to create news-events.jsonl", "err", err)
+	}
 	recDir := filepath.Join(targetDir, "evidence", "records")
-	entries, _ := os.ReadDir(recDir)
+	entries, err := os.ReadDir(recDir)
+	if err != nil {
+		slog.Warn("failed to read evidence records directory", "path", recDir, "err", err)
+		entries = nil
+	}
 	newsCount := 0
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".json") {
@@ -501,14 +529,21 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 }
 
 func appendJSONLFile(path string, obj any) {
-	data, _ := json.Marshal(obj)
-	data = append(data, '\n')
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	data, err := json.Marshal(obj)
 	if err != nil {
+		slog.Warn("failed to marshal JSONL object", "path", path, "err", err)
+		return
+	}
+	data = append(data, '\n')
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		slog.Warn("failed to open JSONL file", "path", path, "err", err)
 		return
 	}
 	defer f.Close()
-	f.Write(data)
+	if _, err := f.Write(data); err != nil {
+		slog.Warn("failed to write JSONL data", "path", path, "err", err)
+	}
 }
 
 func sortedStringSlice(ids []string) []string {

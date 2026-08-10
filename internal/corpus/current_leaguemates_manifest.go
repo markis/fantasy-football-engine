@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -27,7 +28,7 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 	tsPath := filepath.Join(targetDir, "team", "team-state.json")
 	var ts map[string]interface{}
 	if data, err := os.ReadFile(tsPath); err == nil {
-		json.Unmarshal(data, &ts)
+		_ = json.Unmarshal(data, &ts)
 	}
 
 	// daily-brief.md
@@ -50,7 +51,9 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 			}
 		}
 	}
-	WriteText(filepath.Join(curDir, "daily-brief.md"), strings.Join(lines, "\n"))
+	if err := WriteText(filepath.Join(curDir, "daily-brief.md"), strings.Join(lines, "\n")); err != nil {
+		slog.Warn("failed to write daily-brief.md", "err", err)
+	}
 
 	// injury-and-usage.md
 	var inj, usage []map[string]interface{}
@@ -81,7 +84,9 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 			}
 		}
 	}
-	WriteText(filepath.Join(curDir, "injury-and-usage.md"), strings.Join(lines, "\n"))
+	if err := WriteText(filepath.Join(curDir, "injury-and-usage.md"), strings.Join(lines, "\n")); err != nil {
+		slog.Warn("failed to write injury-and-usage.md", "err", err)
+	}
 
 	// market-and-trade-watch.md
 	lines = []string{
@@ -91,7 +96,9 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 		"- Treat value movement as a **dated market signal**, not truth.",
 		"- _No autonomous action: every trade is a proposed decision awaiting human confirmation._",
 	}
-	WriteText(filepath.Join(curDir, "market-and-trade-watch.md"), strings.Join(lines, "\n"))
+	if err := WriteText(filepath.Join(curDir, "market-and-trade-watch.md"), strings.Join(lines, "\n")); err != nil {
+		slog.Warn("failed to write market-and-trade-watch.md", "err", err)
+	}
 
 	// weekly-team-review.md
 	lines = []string{
@@ -204,11 +211,17 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 func (p *Publisher) renderLeaguemates(ctx context.Context, targetDir string) (map[string]interface{}, error) {
 	curDir := filepath.Join(targetDir, "current")
 	dsDir := filepath.Join(targetDir, "datasets")
-	os.MkdirAll(curDir, 0o755)
-	os.MkdirAll(dsDir, 0o755)
+	if err := os.MkdirAll(curDir, 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(dsDir, 0o755); err != nil {
+		return nil, err
+	}
 
 	var snap *time.Time
-	_ = p.common.pool.QueryRow(ctx, "SELECT max(snapshot_date) FROM leaguemate_signal").Scan(&snap)
+	if err := p.common.pool.QueryRow(ctx, "SELECT max(snapshot_date) FROM leaguemate_signal").Scan(&snap); err != nil {
+		slog.Warn("failed to query leaguemate snapshot date", "err", err)
+	}
 
 	gen := p.common.NowISO()
 	var lines []string
@@ -233,7 +246,9 @@ func (p *Publisher) renderLeaguemates(ctx context.Context, targetDir string) (ma
 		if err == nil {
 			defer rows.Close()
 			jpath := filepath.Join(dsDir, "leaguemate-profiles.jsonl")
-			os.WriteFile(jpath, []byte(""), 0o644)
+			if err := os.WriteFile(jpath, []byte(""), 0o600); err != nil {
+				slog.Warn("failed to create leaguemate profiles file", "err", err)
+			}
 			for rows.Next() {
 				var uid, uname, dname string
 				var leagues, contScore, tc, tc30, nf *int
@@ -291,9 +306,13 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 	clPath := filepath.Join(targetDir, "datasets", "change-log.jsonl")
 	clPrev := filepath.Join(prevDir, "datasets", "change-log.jsonl")
 	if data, err := os.ReadFile(clPrev); err == nil {
-		os.WriteFile(clPath, data, 0o644)
+		if err := os.WriteFile(clPath, data, 0o600); err != nil {
+			slog.Warn("failed to write change-log", "err", err)
+		}
 	} else {
-		os.WriteFile(clPath, []byte(""), 0o644)
+		if err := os.WriteFile(clPath, []byte(""), 0o600); err != nil {
+			slog.Warn("failed to create change-log", "err", err)
+		}
 	}
 
 	// Append change-log entries for evidence added/superseded this run.
@@ -345,7 +364,11 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 			continue
 		}
 		hash, _ := FileSHA256Bytes(full)
-		info, _ := os.Stat(full)
+		info, err := os.Stat(full)
+		if err != nil {
+			slog.Warn("failed to stat file for manifest", "path", rel, "err", err)
+			continue
+		}
 		filesMeta = append(filesMeta, map[string]interface{}{
 			"path":   rel,
 			"sha256": hash,

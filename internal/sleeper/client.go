@@ -56,7 +56,10 @@ func (c *Client) get(ctx context.Context, path string, target any) error {
 		if time.Now().Before(entry.expires) {
 			// Deep-copy via re-marshal is complex; for our use the cache is per-run
 			// and callers don't mutate the returned slice, so this is acceptable.
-			raw, _ := json.Marshal(entry.data)
+			raw, err := json.Marshal(entry.data)
+			if err != nil {
+				return fmt.Errorf("marshal cache entry: %w", err)
+			}
 			return json.Unmarshal(raw, target)
 		}
 		// Expired — evict now rather than leaving it for the size-triggered sweep.
@@ -75,9 +78,14 @@ func (c *Client) get(ctx context.Context, path string, target any) error {
 		return fmt.Errorf("decode sleeper response %s: %w", path, err)
 	}
 	// Cache the result (re-marshal for storage)
-	raw, _ := json.Marshal(target)
+	raw, err := json.Marshal(target)
+	if err != nil {
+		return fmt.Errorf("marshal for cache %s: %w", path, err)
+	}
 	var stored any
-	json.Unmarshal(raw, &stored)
+	if err := json.Unmarshal(raw, &stored); err != nil {
+		return fmt.Errorf("unmarshal for cache %s: %w", path, err)
+	}
 	c.mu.Lock()
 	c.cache[path] = cacheEntry{data: stored, expires: time.Now().Add(5 * time.Minute)}
 	if len(c.cache) > cacheSweepThreshold {
@@ -117,7 +125,10 @@ func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error)
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			body, _ := io.ReadAll(resp.Body)
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				body = []byte("(unable to read error body)")
+			}
 			resp.Body.Close()
 			lastErr = fmt.Errorf("%s: %w (%d): %s", path, errSleeperHTTP, resp.StatusCode, string(body))
 			time.Sleep(time.Duration(attempt+1) * time.Second)
@@ -296,7 +307,10 @@ func (c *Client) GetRaw(ctx context.Context, path string) (any, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			body = []byte("(unable to read error body)")
+		}
 		return nil, fmt.Errorf("%s: %w (%d): %s", path, errSleeperHTTP, resp.StatusCode, string(body))
 	}
 	var result any

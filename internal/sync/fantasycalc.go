@@ -17,10 +17,10 @@ import (
 )
 
 var (
-	errFantasyCalcHTTP  = errors.New("FantasyCalc HTTP error")
-	errFPInjuriesHTTP   = errors.New("FP injuries HTTP error")
-	errFPRankingsHTTP   = errors.New("FP rankings HTTP error")
-	errRankingsHTTP     = errors.New("rankings HTTP error")
+	errFantasyCalcHTTP = errors.New("FantasyCalc HTTP error")
+	errFPInjuriesHTTP  = errors.New("FP injuries HTTP error")
+	errFPRankingsHTTP  = errors.New("FP rankings HTTP error")
+	errRankingsHTTP    = errors.New("rankings HTTP error")
 )
 
 // FantasyCalcSyncer syncs FantasyCalc dynasty values per league format.
@@ -122,9 +122,9 @@ func (s *FantasyCalcSyncer) syncCombo(ctx context.Context, combo models.FormatCo
 
 	var freshIDs []uuid.UUID
 	for _, rec := range data {
-		p, _ := rec["player"].(map[string]interface{})
+		p, ok := rec["player"].(map[string]interface{})
 		sid := ""
-		if p != nil {
+		if ok && p != nil {
 			sid = fmt.Sprint(p["sleeperId"])
 		}
 		if sid == "" || sid == "<nil>" {

@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	errPublishInProgress    = errors.New("publish already in progress")
-	errValidationFailed     = errors.New("validation failed")
+	errPublishInProgress = errors.New("publish already in progress")
+	errValidationFailed  = errors.New("validation failed")
 )
 
 // Publisher is the corpus publishing orchestrator.
@@ -190,7 +190,7 @@ func (p *Publisher) sync(staging, corpus string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(dst, data, 0o644); err != nil {
+		if err := os.WriteFile(dst, data, 0o600); err != nil {
 			return err
 		}
 	}
@@ -199,9 +199,18 @@ func (p *Publisher) sync(staging, corpus string) error {
 		src := filepath.Join(staging, extra)
 		if _, err := os.Stat(src); err == nil {
 			dst := filepath.Join(corpus, extra)
-			os.MkdirAll(filepath.Dir(dst), 0o755)
-			data, _ := os.ReadFile(src)
-			os.WriteFile(dst, data, 0o644)
+			if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+				slog.Warn("failed to create destination directory", "path", filepath.Dir(dst), "err", err)
+				continue
+			}
+			data, err := os.ReadFile(src)
+			if err != nil {
+				slog.Warn("failed to read extra file", "src", src, "err", err)
+				continue
+			}
+			if err := os.WriteFile(dst, data, 0o600); err != nil {
+				slog.Warn("failed to write extra file", "dst", dst, "err", err)
+			}
 		}
 	}
 	return nil
