@@ -63,7 +63,7 @@ func (s *Scheduler) RegisterStep(name string, fn StepFunc) {
 }
 
 // AddJob adds a cron job.
-func (s *Scheduler) AddJob(job config.JobConfig) error {
+func (s *Scheduler) AddJob(job *config.JobConfig) error {
 	s.mu.RLock()
 	stepFn, ok := s.steps[job.Step]
 	s.mu.RUnlock()
@@ -81,7 +81,7 @@ func (s *Scheduler) AddJob(job config.JobConfig) error {
 	return nil
 }
 
-func (s *Scheduler) runJob(job config.JobConfig, fn StepFunc) {
+func (s *Scheduler) runJob(job *config.JobConfig, fn StepFunc) {
 	s.mu.Lock()
 	if s.running[job.Name] {
 		s.mu.Unlock()
@@ -125,14 +125,14 @@ func (s *Scheduler) runJob(job config.JobConfig, fn StepFunc) {
 // runStep runs fn and recovers from a panic, converting it into an error so
 // one bad step can't take down the whole scheduler (and the daemon along
 // with it — cron dispatches jobs on unrecovered goroutines).
-func runStep(ctx context.Context, job config.JobConfig, fn StepFunc) (err error) {
+func runStep(ctx context.Context, job *config.JobConfig, fn StepFunc) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			slog.Error("panic in cron step", "name", job.Name, "step", job.Step, "panic", r, "stack", string(debug.Stack()))
 			err = fmt.Errorf("%w (%s): %v", errStepPanic, job.Step, r)
 		}
 	}()
-	return fn(ctx, job)
+	return fn(ctx, *job)
 }
 
 // Start starts the cron scheduler.
@@ -163,7 +163,7 @@ func (s *Scheduler) GetStatus() []JobStatus {
 // (it may take up to an hour), independent of the caller's request
 // lifetime — but if the caller's context is already canceled, the step is
 // never started.
-func (s *Scheduler) TriggerStep(ctx context.Context, step string, job config.JobConfig) error {
+func (s *Scheduler) TriggerStep(ctx context.Context, step string, job *config.JobConfig) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("trigger step %s: %w", step, err)
 	}

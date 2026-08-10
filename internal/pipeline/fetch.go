@@ -330,9 +330,7 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 		}
 	}
 
-	if existingID == nil {
-		// Insert new item will be handled below
-	} else {
+	if existingID != nil {
 		return f.updateExistingItem(ctx, existingID, &link, &cURL, &cURLHash, &title, &author, published,
 			&contentHTML, &contentText, &summaryShort, &cHash, &sh, rawDocID, bodyStatus)
 	}
@@ -359,7 +357,7 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UUID,
 	link, cURL, cURLHash, title, author *string, published any,
 	contentHTML, contentText, summaryShort, cHash *string, sh *int64, rawDocID uuid.UUID, bodyStatus string,
-) (bool, bool, error) {
+) (updated bool, changed bool, err error) {
 	// Query existing content length
 	var existingTextLen int
 	if err := f.pool.QueryRow(ctx, "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1", *existingID).Scan(&existingTextLen); err != nil {

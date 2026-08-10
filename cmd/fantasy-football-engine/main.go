@@ -47,7 +47,7 @@ func main() {
 	pool, err := db.New(ctx, cfg.Database.DSN)
 	if err != nil {
 		slog.Error("database connection", "err", err)
-		os.Exit(1)
+		return
 	}
 
 	// Run migrations (in-place upgrade: marks existing migrations as applied)
@@ -100,8 +100,7 @@ func main() {
 	sched, err := scheduler.New(cfg.Scheduler.Timezone)
 	if err != nil {
 		slog.Error("scheduler init", "err", err)
-		pool.Close()
-		os.Exit(1)
+		return
 	}
 
 	// Register step functions
@@ -114,13 +113,13 @@ func main() {
 	// Set pipeline trigger for MCP
 	mcpServer.SetTrigger(func(ctx context.Context, step string) error {
 		job := config.JobConfig{Step: step, Name: "manual:" + step}
-		return sched.TriggerStep(ctx, step, job)
+		return sched.TriggerStep(ctx, step, &job)
 	})
 
 	// Register cron jobs from config
-	for _, job := range cfg.Scheduler.Jobs {
-		if err := sched.AddJob(job); err != nil {
-			slog.Warn("add cron job", "name", job.Name, "err", err)
+	for i := range cfg.Scheduler.Jobs {
+		if err := sched.AddJob(&cfg.Scheduler.Jobs[i]); err != nil {
+			slog.Warn("add cron job", "name", cfg.Scheduler.Jobs[i].Name, "err", err)
 		}
 	}
 

@@ -25,7 +25,7 @@ func SimhashCompute(text string) int64 {
 
 	v := make([]int, HashBits)
 	for _, token := range tokens {
-		h := md5.Sum([]byte(token)) //nolint:gosec // MD5 used for locality-sensitive hashing, not cryptographic security
+		h := md5.Sum([]byte(token))                   //nolint:gosec // MD5 used for locality-sensitive hashing, not cryptographic security
 		hash := int64(binary.BigEndian.Uint64(h[:8])) //nolint:gosec // Conversion is safe for fingerprinting
 		for i := range HashBits {
 			if hash&(1<<int64(i)) != 0 {

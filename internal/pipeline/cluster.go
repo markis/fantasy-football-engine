@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/markis/fantasy-football-engine/internal/db"
 )
 
@@ -80,29 +82,13 @@ func (c *Clusterer) processItem(ctx context.Context, itemID uuid.UUID) (string, 
 		return "not_found", err
 	}
 
-	if embeddingText == nil || *embeddingText == "" {
-		// No embedding, create new cluster
-	} else {
-		// Find matching cluster
-		var clusterID uuid.UUID
-		var repTitle *string
-		var distance float64
-		err := c.pool.QueryRow(ctx, `
-			SELECT sc.id, sc.representative_title,
-			       ni.embedding <=> $1::vector AS distance
-			FROM story_cluster sc
-			JOIN news_item ni ON ni.cluster_id = sc.id
-			WHERE ni.embedding IS NOT NULL
-			ORDER BY distance LIMIT 1
-		`, *embeddingText).Scan(&clusterID, &repTitle, &distance)
-		if err == nil {
-			cosineSim := 1 - distance
-			if cosineSim >= clusterCosineThreshold {
-				if err := c.assignToCluster(ctx, itemID, clusterID); err != nil {
-					return "not_assigned", err
-				}
-				return "reused", nil
-			}
+	if embeddingText != nil && *embeddingText != "" {
+		reused, err := c.tryReuseCluster(ctx, itemID, *embeddingText)
+		if err != nil {
+			return "not_assigned", err
+		}
+		if reused {
+			return "reused", nil
 		}
 	}
 
@@ -111,6 +97,35 @@ func (c *Clusterer) processItem(ctx context.Context, itemID uuid.UUID) (string, 
 		return "not_assigned", err
 	}
 	return "created", nil
+}
+
+func (c *Clusterer) tryReuseCluster(ctx context.Context, itemID uuid.UUID, embedding string) (bool, error) {
+	var clusterID uuid.UUID
+	var repTitle *string
+	var distance float64
+	err := c.pool.QueryRow(ctx, `
+		SELECT sc.id, sc.representative_title,
+		       ni.embedding <=> $1::vector AS distance
+		FROM story_cluster sc
+		JOIN news_item ni ON ni.cluster_id = sc.id
+		WHERE ni.embedding IS NOT NULL
+		ORDER BY distance LIMIT 1
+	`, embedding).Scan(&clusterID, &repTitle, &distance)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil // No existing clusters found
+	}
+	if err != nil {
+		return false, fmt.Errorf("query nearest cluster: %w", err)
+	}
+	_ = repTitle // Unused field from query
+	cosineSim := 1 - distance
+	if cosineSim < clusterCosineThreshold {
+		return false, nil // No match
+	}
+	if err := c.assignToCluster(ctx, itemID, clusterID); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (c *Clusterer) assignToCluster(ctx context.Context, itemID, clusterID uuid.UUID) error {

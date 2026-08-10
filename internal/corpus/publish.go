@@ -125,11 +125,17 @@ func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*Pub
 		if v, ok := datasetsSummary["players"].(int); ok {
 			result.Players = v
 		}
-		result.Signals = datasetsSummary["signals"].(int) //nolint:errcheck // Type assertion guaranteed by renderDatasets
-		result.Valuations = datasetsSummary["valuations"].(int) //nolint:errcheck // Type assertion guaranteed by renderDatasets
+		if v, ok := datasetsSummary["signals"].(int); ok {
+			result.Signals = v
+		}
+		if v, ok := datasetsSummary["valuations"].(int); ok {
+			result.Valuations = v
+		}
 	}
 	if manifestSummary != nil {
-		result.Changes = manifestSummary["changes"].(int) //nolint:errcheck // Type assertion guaranteed by renderCurrentLeaguematesManifest
+		if v, ok := manifestSummary["changes"].(int); ok {
+			result.Changes = v
+		}
 	}
 
 	if mode == "export" || dryRun {
