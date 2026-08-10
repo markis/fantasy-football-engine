@@ -216,7 +216,7 @@ func (p *Publisher) sync(staging, corpus string) error {
 				slog.Warn("failed to create destination directory", "path", filepath.Dir(dst), "err", err)
 				continue
 			}
-			data, err := os.ReadFile(src)
+			data, err := os.ReadFile(src) //nolint:gosec // src is constructed from internal config paths, not user input
 			if err != nil {
 				slog.Warn("failed to read extra file", "src", src, "err", err)
 				continue

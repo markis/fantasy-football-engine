@@ -174,6 +174,7 @@ func (s *Scheduler) TriggerStep(ctx context.Context, step string, job *config.Jo
 		return fmt.Errorf("%w: %s", errStepNotRegistered, step)
 	}
 	job.Step = step
-	go s.runJob(job, fn) //nolint:gosec // background job has its own lifecycle
+	//nolint:contextcheck,gosec // intentional: background job creates its own context from Background()
+	go s.runJob(job, fn)
 	return nil
 }

@@ -96,7 +96,7 @@ func Validate(target string) []string {
 			return nil
 		}
 		// Scan for secrets
-		data, err := os.ReadFile(path)
+		data, err := os.ReadFile(path) //nolint:gosec // path comes from internal filepath.Walk, not user input
 		if err != nil {
 			return err
 		}
@@ -147,27 +147,40 @@ func Validate(target string) []string {
 
 	// Validate manifest hashes
 	manifestPath := filepath.Join(target, "corpus-manifest.json")
+	//nolint:gosec // manifestPath is from internal config path, not user input
 	if data, err := os.ReadFile(manifestPath); err == nil {
-		var manifest map[string]any
-		if json.Unmarshal(data, &manifest) == nil {
-			if files, ok := manifest["files"].([]any); ok {
-				for _, f := range files {
-					fi, ok := f.(map[string]any)
-					if !ok {
-						errors = append(errors, "manifest \"files\" entry is not an object")
-						continue
-					}
-					path, ok := fi["path"].(string)
-					if !ok {
-						errors = append(errors, "manifest \"files\" entry missing \"path\"")
-						continue
-					}
-					fp := filepath.Join(target, path)
-					if _, err := os.Stat(fp); err != nil {
-						errors = append(errors, "manifest references missing file "+path)
-					}
-				}
-			}
+		errors = append(errors, validateManifest(data, target)...)
+	}
+
+	return errors
+}
+
+func validateManifest(data []byte, target string) []string {
+	var errors []string
+	var manifest map[string]any
+	if json.Unmarshal(data, &manifest) != nil {
+		return errors
+	}
+
+	files, ok := manifest["files"].([]any)
+	if !ok {
+		return errors
+	}
+
+	for _, f := range files {
+		fi, ok := f.(map[string]any)
+		if !ok {
+			errors = append(errors, "manifest \"files\" entry is not an object")
+			continue
+		}
+		path, ok := fi["path"].(string)
+		if !ok {
+			errors = append(errors, "manifest \"files\" entry missing \"path\"")
+			continue
+		}
+		fp := filepath.Join(target, path)
+		if _, err := os.Stat(fp); err != nil {
+			errors = append(errors, "manifest references missing file "+path)
 		}
 	}
 
