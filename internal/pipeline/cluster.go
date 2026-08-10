@@ -126,7 +126,7 @@ func (c *Clusterer) assignToCluster(ctx context.Context, itemID, clusterID uuid.
 	return nil
 }
 
-func (c *Clusterer) createCluster(ctx context.Context, itemID uuid.UUID, title string, sourceID uuid.UUID) error {
+func (c *Clusterer) createCluster(ctx context.Context, itemID uuid.UUID, title string, _ uuid.UUID) error {
 	clusterKey := clusterKeyHash(title, itemID.String())
 	var clusterID uuid.UUID
 	err := c.pool.QueryRow(ctx, `

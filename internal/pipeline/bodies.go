@@ -84,12 +84,12 @@ func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResu
 	var items []pendingItem
 	for rows.Next() {
 		var it pendingItem
-		var url, title, summary, content *string
-		if err := rows.Scan(&it.id, &url, &title, &summary, &content); err != nil {
+		var urlStr, title, summary, content *string
+		if err := rows.Scan(&it.id, &urlStr, &title, &summary, &content); err != nil {
 			return nil, err
 		}
-		if url != nil {
-			it.url = *url
+		if urlStr != nil {
+			it.url = *urlStr
 		}
 		if title != nil {
 			it.title = *title
@@ -105,7 +105,8 @@ func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResu
 
 	result := &BodyFetchResult{Checked: len(items), Status: "ok"}
 
-	for _, item := range items {
+	for i := range items {
+		item := &items[i]
 		// Mark as fetching
 		if _, err := b.pool.Exec(ctx, `
 			UPDATE news_item SET body_fetch_status = 'fetching',
@@ -132,7 +133,7 @@ func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResu
 	return result, nil
 }
 
-func (b *BodyFetcher) processItem(ctx context.Context, item pendingItem) string {
+func (b *BodyFetcher) processItem(ctx context.Context, item *pendingItem) string {
 	parsed, err := url.Parse(item.url)
 	if err != nil {
 		return "skipped"

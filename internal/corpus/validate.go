@@ -79,7 +79,10 @@ func Validate(target string) []string {
 
 	// JSON parse + secret scan + JSON-schema validation over all tracked files
 	if err := filepath.Walk(target, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil || info.IsDir() {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
 			return nil
 		}
 		rel, err := filepath.Rel(target, path)
@@ -95,7 +98,7 @@ func Validate(target string) []string {
 		// Scan for secrets
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil
+			return err
 		}
 		content := string(data)
 		for _, pat := range secretPatterns {
@@ -175,7 +178,7 @@ var secretPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`gh[ps]_[A-Za-z0-9]{20,}`),
 	regexp.MustCompile(`github_pat_[A-Za-z0-9_]{20,}`),
 	regexp.MustCompile(`\benc2:[0-9a-f]{8,}`),
-	regexp.MustCompile(`-----BEGIN (RSA |EC |OPENSSH |)PRIVATE KEY-----`),
+	regexp.MustCompile(`-{5}BEGIN (RSA |EC |OPENSSH |)PRIVATE KEY-{5}`),
 	regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`),
 	regexp.MustCompile(`\bsk-[A-Za-z0-9]{20,}`),
 }

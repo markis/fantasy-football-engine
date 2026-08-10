@@ -294,10 +294,10 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 	var mdLines []string
 	mdLines = append(mdLines, "# Roster", "", fmt.Sprintf("_Generated %s._", now), "")
 	for _, lg := range leagues {
-		l, _ := lg["league"].(map[string]any)     //nolint:errcheck // Map guaranteed by buildLeagueState
-		t, _ := lg["team"].(map[string]any)       //nolint:errcheck // Map guaranteed by buildLeagueState
+		l, _ := lg["league"].(map[string]any) //nolint:errcheck // Map guaranteed by buildLeagueState
+		t, _ := lg["team"].(map[string]any)   //nolint:errcheck // Map guaranteed by buildLeagueState
 		mdLines = append(mdLines, fmt.Sprintf("## %s", l["name"]), "")
-		roster, _ := t["roster"].([]map[string]any)  //nolint:errcheck // Roster guaranteed by buildLeagueState
+		roster, _ := t["roster"].([]map[string]any) //nolint:errcheck // Roster guaranteed by buildLeagueState
 		for _, r := range roster {
 			mdLines = append(mdLines, fmt.Sprintf("- %s (%s, %s) — value: %v",
 				r["full_name"], r["position"], r["nfl_team"], r["trade_value"]))
@@ -423,7 +423,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 	// valuations.jsonl
 	valPath := filepath.Join(dsDir, "valuations.jsonl")
-	if err := os.WriteFile(valPath, []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(valPath, []byte(""), 0o600); err != nil {
 		return nil, fmt.Errorf("writeFile valuations: %w", err)
 	}
 	valCount := 0
@@ -503,7 +503,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 	}
 
 	// league-transactions.jsonl (empty for now)
-	if err := os.WriteFile(filepath.Join(dsDir, "league-transactions.jsonl"), []byte(""), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dsDir, "league-transactions.jsonl"), []byte(""), 0o600); err != nil {
 		return nil, fmt.Errorf("writeFile league-transactions: %w", err)
 	}
 

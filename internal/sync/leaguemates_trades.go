@@ -121,9 +121,9 @@ func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]
 
 	// Check if involves watch set
 	involvesWatchSet := false
-	adds, _ := txn["adds"].(map[string]any)           //nolint:errcheck // Type assertion returns empty map if fails
-	drops, _ := txn["drops"].(map[string]any)         //nolint:errcheck // Type assertion returns empty map if fails
-	draftPicks, _ := txn["draft_picks"].([]any)       //nolint:errcheck // Type assertion returns empty slice if fails
+	adds, _ := txn["adds"].(map[string]any)     //nolint:errcheck // Type assertion returns empty map if fails
+	drops, _ := txn["drops"].(map[string]any)   //nolint:errcheck // Type assertion returns empty map if fails
+	draftPicks, _ := txn["draft_picks"].([]any) //nolint:errcheck // Type assertion returns empty slice if fails
 
 	for pid := range adds {
 		if watchSet[pid] {

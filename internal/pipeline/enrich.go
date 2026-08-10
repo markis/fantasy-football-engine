@@ -254,16 +254,18 @@ func computeQuality(contentText, summaryShort string) float64 {
 	if textLen == 0 {
 		textLen = len(summaryShort)
 	}
-	if textLen > 5000 {
+	switch {
+	case textLen > 5000:
 		return 0.9
-	} else if textLen > 1000 {
+	case textLen > 1000:
 		return 0.75
-	} else if textLen > 200 {
+	case textLen > 200:
 		return 0.5
-	} else if textLen > 50 {
+	case textLen > 50:
 		return 0.3
+	default:
+		return 0.1
 	}
-	return 0.1
 }
 
 func ptrStr(s *string) string {

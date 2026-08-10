@@ -114,9 +114,7 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	cfg.setDefaults()
-	if err := cfg.resolveSecrets(); err != nil {
-		return nil, err
-	}
+	cfg.resolveSecrets()
 	return &cfg, nil
 }
 
@@ -193,7 +191,7 @@ func (c *Config) setDefaults() {
 }
 
 // resolveSecrets resolves ${ENV_VAR} references and pass-store fallbacks.
-func (c *Config) resolveSecrets() error {
+func (c *Config) resolveSecrets() {
 	// Database DSN
 	c.Database.DSN = expandEnv(c.Database.DSN)
 
@@ -224,8 +222,6 @@ func (c *Config) resolveSecrets() error {
 		}
 	}
 	c.Corpus.GitPAT = expandEnv(c.Corpus.GitPAT)
-
-	return nil
 }
 
 // expandEnv replaces ${VAR} with the environment variable value.

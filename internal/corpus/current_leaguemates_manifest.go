@@ -109,9 +109,9 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 	if ts != nil {
 		if leagues, ok := ts["leagues"].([]any); ok {
 			for _, lg := range leagues {
-				l, _ := lg.(map[string]any)                  //nolint:errcheck // Type assertion returns empty map if fails
-				league, _ := l["league"].(map[string]any)    //nolint:errcheck // Type assertion returns empty map if fails
-				team, _ := l["team"].(map[string]any)        //nolint:errcheck // Type assertion returns empty map if fails
+				l, _ := lg.(map[string]any)               //nolint:errcheck // Type assertion returns empty map if fails
+				league, _ := l["league"].(map[string]any) //nolint:errcheck // Type assertion returns empty map if fails
+				team, _ := l["team"].(map[string]any)     //nolint:errcheck // Type assertion returns empty map if fails
 				if league == nil {
 					continue
 				}
@@ -358,8 +358,8 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 			}
 		}
 	}
-	added, _ := evidenceSummary["added"].([]string)              //nolint:errcheck // Type assertion returns empty slice if fails
-	superseded, _ := evidenceSummary["superseded"].([]string)  //nolint:errcheck // Type assertion returns empty slice if fails
+	added, _ := evidenceSummary["added"].([]string)           //nolint:errcheck // Type assertion returns empty slice if fails
+	superseded, _ := evidenceSummary["superseded"].([]string) //nolint:errcheck // Type assertion returns empty slice if fails
 	appendEvidenceChanges(added, "added")
 	appendEvidenceChanges(superseded, "superseded")
 	changesThisRun := len(added) + len(superseded)
@@ -535,7 +535,10 @@ func truncateID(s string) string {
 func walkFilesForManifest(root string) (map[string]string, error) {
 	files := make(map[string]string)
 	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil || info.IsDir() {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
 			return nil
 		}
 		base := filepath.Base(path)

@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/markis/fantasy-football-engine/internal/db"
 	"github.com/markis/fantasy-football-engine/internal/models"
 	"github.com/markis/fantasy-football-engine/internal/sleeper"
@@ -456,5 +455,3 @@ func toStringSlice(v any) []string {
 	}
 	return result
 }
-
-func ptrToUUID(u uuid.UUID) *uuid.UUID { return &u }

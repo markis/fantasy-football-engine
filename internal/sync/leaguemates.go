@@ -112,11 +112,12 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 
 			for _, pid := range players {
 				slot := "bench"
-				if contains(starters, pid) {
+				switch {
+				case contains(starters, pid):
 					slot = "starter"
-				} else if contains(taxi, pid) {
+				case contains(taxi, pid):
 					slot = "taxi"
-				} else if contains(reserve, pid) {
+				case contains(reserve, pid):
 					slot = "reserve"
 				}
 				if _, err := s.pool.Exec(ctx, `
@@ -186,11 +187,12 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 						olReserve := toStringSlice(olRoster["reserve"])
 						for _, pid := range olPlayers {
 							slot := "bench"
-							if contains(olStarters, pid) {
+							switch {
+							case contains(olStarters, pid):
 								slot = "starter"
-							} else if contains(olTaxi, pid) {
+							case contains(olTaxi, pid):
 								slot = "taxi"
-							} else if contains(olReserve, pid) {
+							case contains(olReserve, pid):
 								slot = "reserve"
 							}
 							if _, err := s.pool.Exec(ctx, `
@@ -290,7 +292,7 @@ func (s *LeaguemateSyncer) upsertSleeperUser(ctx context.Context, userID string,
 	}
 }
 
-func (s *LeaguemateSyncer) upsertLeagueManager(ctx context.Context, leagueID, userID string, rosterID int, user map[string]any, coOwner bool, isMarkis bool) {
+func (s *LeaguemateSyncer) upsertLeagueManager(ctx context.Context, leagueID, userID string, rosterID int, user map[string]any, coOwner, isMarkis bool) {
 	teamName := ""
 	if user != nil {
 		if meta, ok := user["metadata"].(map[string]any); ok {

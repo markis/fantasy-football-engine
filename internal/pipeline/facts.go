@@ -191,18 +191,19 @@ func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, 
 
 		// occurred_at = article published_at, else created_at, else LLM value
 		var occurredAt time.Time
-		if publishedAt != nil {
+		switch {
+		case publishedAt != nil:
 			occurredAt = *publishedAt
-		} else if createdAt != nil {
+		case createdAt != nil:
 			occurredAt = *createdAt
-		} else if fact.OccurredAt != nil {
+		case fact.OccurredAt != nil:
 			t, parseErr := time.Parse(time.RFC3339, *fact.OccurredAt)
 			if parseErr == nil {
 				occurredAt = t
 			} else {
 				occurredAt = time.Now().UTC()
 			}
-		} else {
+		default:
 			occurredAt = time.Now().UTC()
 		}
 

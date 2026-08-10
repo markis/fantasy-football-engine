@@ -50,9 +50,7 @@ func (s *PlayerSyncer) Sync(ctx context.Context) (*PlayerSyncResult, error) {
 		count++
 	}
 
-	if flushErr := batch.flush(ctx); flushErr != nil {
-		return nil, fmt.Errorf("flush player batch: %w", flushErr)
-	}
+	batch.flush(ctx)
 
 	// Count by position
 	result := &PlayerSyncResult{
@@ -129,15 +127,12 @@ func projectPlayer(pid string, p map[string]any) []any {
 
 	// fantasy_positions as string array
 	fantasyPositionsIdx := colIndex["fantasy_positions"]
-	if vals[fantasyPositionsIdx] != nil {
-		switch v := vals[fantasyPositionsIdx].(type) {
-		case []any:
-			arr := make([]string, 0, len(v))
-			for _, item := range v {
-				arr = append(arr, fmt.Sprint(item))
-			}
-			vals[fantasyPositionsIdx] = arr
+	if v, ok := vals[fantasyPositionsIdx].([]any); ok {
+		arr := make([]string, 0, len(v))
+		for _, item := range v {
+			arr = append(arr, fmt.Sprint(item))
 		}
+		vals[fantasyPositionsIdx] = arr
 	}
 
 	// active as bool
@@ -176,9 +171,9 @@ func (b *pgxBatch) add(row []any) {
 	b.rows = append(b.rows, row)
 }
 
-func (b *pgxBatch) flush(ctx context.Context) error {
+func (b *pgxBatch) flush(ctx context.Context) {
 	if len(b.rows) == 0 {
-		return nil
+		return
 	}
 
 	cols := []string{
@@ -237,5 +232,4 @@ func (b *pgxBatch) flush(ctx context.Context) error {
 			}
 		}
 	}
-	return nil
 }

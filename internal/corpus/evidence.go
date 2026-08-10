@@ -122,9 +122,9 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 	}, nil
 }
 
-func (p *Publisher) buildWatchSet(ctx context.Context) ([]string, map[string][]string, map[string][][2]string) {
-	watchIDs := make(map[string]bool)
-	ownership := make(map[string][][2]string)
+func (p *Publisher) buildWatchSet(ctx context.Context) (watchIDs []string, nameIndex map[string][]string, ownership map[string][][2]string) {
+	watchIDsSet := make(map[string]bool)
+	ownership = make(map[string][][2]string)
 
 	for leagueID, lf := range models.LeagueFormats {
 		rosters, err := p.common.LeagueRosters(ctx, leagueID)
@@ -140,7 +140,7 @@ func (p *Publisher) buildWatchSet(ctx context.Context) ([]string, map[string][]s
 			}
 		}
 		for _, pid := range p.common.AllRosterPlayerIDs(rosters) {
-			watchIDs[pid] = true
+			watchIDsSet[pid] = true
 			role := "rival"
 			if myPlayers[pid] {
 				role = "owned"
@@ -149,16 +149,17 @@ func (p *Publisher) buildWatchSet(ctx context.Context) ([]string, map[string][]s
 		}
 	}
 
-	ids := make([]string, 0, len(watchIDs))
-	for id := range watchIDs {
+	ids := make([]string, 0, len(watchIDsSet))
+	for id := range watchIDsSet {
 		ids = append(ids, id)
 	}
 	playerRows := p.common.PlayerRows(ctx, ids)
-	nameIndex := BuildNameIndex(playerRows)
-	return ids, nameIndex, ownership
+	nameIndex = BuildNameIndex(playerRows)
+	watchIDs = ids
+	return
 }
 
-func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, nameIndex map[string][]string) []map[string]any {
+func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameIndex map[string][]string) []map[string]any {
 	cutoff := time.Now().UTC().AddDate(0, 0, -evidenceWindowDays)
 	rows, err := p.common.pool.Query(ctx, `
 		SELECT id, canonical_url, url, title, summary_short, content_hash,
@@ -264,7 +265,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 
 	recID := EvidenceID(urlStr, chStr)
 
-	matchedPlayers, _ := item["matched_players"].([]string)  //nolint:errcheck // External data may not have field
+	matchedPlayers, _ := item["matched_players"].([]string) //nolint:errcheck // External data may not have field
 	playerIDs := make([]string, 0, len(matchedPlayers))
 	for _, sid := range matchedPlayers {
 		playerIDs = append(playerIDs, "nfl:"+sid)
@@ -272,7 +273,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 
 	// Team IDs: entities store full team names (e.g. "Philadelphia Eagles"),
 	// so resolve each against the canonical name->abbreviation table.
-	entities, _ := item["entities"].([]string)  //nolint:errcheck // External data may not have field
+	entities, _ := item["entities"].([]string) //nolint:errcheck // External data may not have field
 	teamIDs := make([]string, 0, len(entities))
 	for _, e := range entities {
 		if abbr, ok := models.TeamAbbrForName(e); ok {

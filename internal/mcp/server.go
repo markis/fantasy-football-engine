@@ -90,15 +90,15 @@ func (s *Server) registerTools() {
 			schemaRequired: []string{"query"},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
-			query := getStr(args, "query")
+			q := getStr(args, "query")
 			limit := getInt(args, "limit", 10)
 			var days *int
 			if d, ok := args["days"]; ok {
 				di := toInt(d)
 				days = &di
 			}
-			relevant := getBool(args, "relevant_only", false)
-			return s.query.SearchNews(ctx, query, limit, days, relevant)
+			relevant := getBool(args, "relevant_only")
+			return s.query.SearchNews(ctx, q, limit, days, relevant)
 		},
 	})
 
@@ -149,7 +149,7 @@ func (s *Server) registerTools() {
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			limit := getInt(args, "limit", 10)
-			relevant := getBool(args, "relevant_only", false)
+			relevant := getBool(args, "relevant_only")
 			return s.query.GetRecentNews(ctx, limit, relevant)
 		},
 	})
@@ -214,7 +214,7 @@ func (s *Server) registerTools() {
 				source = "FantasyCalc"
 			}
 			market := getInt(args, "market", 14)
-			superflex := getBool(args, "superflex", false)
+			superflex := getBool(args, "superflex")
 			var pos *string
 			if p := getStr(args, "position"); p != "" {
 				pos = &p
@@ -256,7 +256,7 @@ func (s *Server) registerTools() {
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			leagueID := getStr(args, "league_id")
 			limit := getInt(args, "limit", 15)
-			superflex := getBool(args, "superflex", false)
+			superflex := getBool(args, "superflex")
 			var pos *string
 			if p := getStr(args, "position"); p != "" {
 				pos = &p
@@ -270,7 +270,7 @@ func (s *Server) registerTools() {
 		Name:        "get_nfl_state",
 		Description: "Get the current NFL state (week, season, season type).",
 		InputSchema: map[string]any{"type": "object"},
-		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			return s.query.GetNFLState(ctx)
 		},
 	})
@@ -294,7 +294,7 @@ func (s *Server) registerTools() {
 			if userID == "" {
 				userID = "558115100726579200"
 			}
-			superflex := getBool(args, "superflex", false)
+			superflex := getBool(args, "superflex")
 			return s.query.EvaluateRoster(ctx, leagueID, userID, superflex)
 		},
 	})
@@ -316,7 +316,7 @@ func (s *Server) registerTools() {
 			give := toStrSlice(args["give"])
 			get := toStrSlice(args["get"])
 			leagueID := getStr(args, "league_id")
-			superflex := getBool(args, "superflex", false)
+			superflex := getBool(args, "superflex")
 			return s.query.EvaluateTrade(ctx, give, get, leagueID, superflex)
 		},
 	})
@@ -490,7 +490,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 // missingRequired returns the names of any InputSchema "required" fields not
 // present in args, so tools/call can reject an incomplete call up front
 // instead of letting the handler run with silently-defaulted zero values.
-func missingRequired(schema map[string]any, args map[string]any) []string {
+func missingRequired(schema, args map[string]any) []string {
 	required, ok := schema["required"].([]string)
 	if !ok {
 		return nil
@@ -552,16 +552,16 @@ func getInt(m map[string]any, key string, def int) int {
 	return toInt(v)
 }
 
-func getBool(m map[string]any, key string, def bool) bool {
+func getBool(m map[string]any, key string) bool {
 	v, ok := m[key]
 	if !ok || v == nil {
-		return def
+		return false
 	}
 	switch val := v.(type) {
 	case bool:
 		return val
 	default:
-		return def
+		return false
 	}
 }
 

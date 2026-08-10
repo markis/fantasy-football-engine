@@ -49,13 +49,14 @@ func main() {
 		slog.Error("database connection", "err", err)
 		os.Exit(1)
 	}
-	defer pool.Close()
 
 	// Run migrations (in-place upgrade: marks existing migrations as applied)
 	if migrErr := pool.RunMigrations(ctx); migrErr != nil {
 		slog.Error("migrations", "err", migrErr)
+		pool.Close()
 		os.Exit(1)
 	}
+	defer pool.Close()
 
 	// Initialize clients
 	embedClient := embed.New(cfg.Embeddings.URL, cfg.Embeddings.Model)
@@ -99,6 +100,7 @@ func main() {
 	sched, err := scheduler.New(cfg.Scheduler.Timezone)
 	if err != nil {
 		slog.Error("scheduler init", "err", err)
+		pool.Close()
 		os.Exit(1)
 	}
 
@@ -170,7 +172,7 @@ func registerSteps(
 	// Pipeline: fetch RSS. Sources are independent, so fetch them
 	// concurrently (bounded) instead of one at a time; each worker logs its
 	// own failure and returns nil so one bad feed can't cancel the rest.
-	sched.RegisterStep("pipeline.fetch", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("pipeline.fetch", func(ctx context.Context, _ config.JobConfig) error {
 		var g errgroup.Group
 		g.SetLimit(8)
 		for _, src := range cfg.Sources {
@@ -195,7 +197,7 @@ func registerSteps(
 	})
 
 	// Pipeline: fetch FP news
-	sched.RegisterStep("pipeline.fetch_fp_news", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("pipeline.fetch_fp_news", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := fpNewsFetcher.Fetch(ctx)
 		return err
 	})
@@ -231,7 +233,7 @@ func registerSteps(
 	})
 
 	// Pipeline: cluster
-	sched.RegisterStep("pipeline.cluster", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("pipeline.cluster", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := clusterer.AssignBatch(ctx)
 		return err
 	})
@@ -257,7 +259,7 @@ func registerSteps(
 	})
 
 	// Sync: players
-	sched.RegisterStep("sync.players", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("sync.players", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := playerSyncer.Sync(ctx)
 		return err
 	})
@@ -269,13 +271,13 @@ func registerSteps(
 	})
 
 	// Sync: FantasyCalc
-	sched.RegisterStep("sync.fantasycalc", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("sync.fantasycalc", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := fcSyncer.SyncAll(ctx)
 		return err
 	})
 
 	// Sync: FP injuries
-	sched.RegisterStep("sync.fp_injuries", func(ctx context.Context, job config.JobConfig) error {
+	sched.RegisterStep("sync.fp_injuries", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := fpInjuriesSyncer.Sync(ctx)
 		return err
 	})
