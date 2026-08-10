@@ -48,7 +48,32 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 	prevRecords := loadExistingRecords(filepath.Join(prevDir, "evidence", "records"))
 
 	// Write current records
-	var added, superseded []string
+	added := writeCurrentRecords(recDir, current, prevRecords)
+
+	// Preserve prior records as superseded
+	superseded, err := writeSupersededRecords(recDir, current, prevRecords)
+	if err != nil {
+		return nil, err
+	}
+
+	// Write index.md
+	indexMD := p.buildEvidenceIndexMarkdown(current, superseded)
+	if writeErr := WriteText(filepath.Join(targetDir, "evidence", "index.md"), indexMD); writeErr != nil {
+		return nil, writeErr
+	}
+
+	return map[string]any{
+		"current_count":    len(current),
+		"superseded_count": len(superseded),
+		"added":            added,
+		"superseded":       superseded,
+	}, nil
+}
+
+// writeCurrentRecords writes each current evidence record to disk and
+// returns the ids that are new relative to prevRecords.
+func writeCurrentRecords(recDir string, current, prevRecords map[string]map[string]any) []string {
+	var added []string
 	for rid, rec := range current {
 		filename := strings.Replace(rid, "sha256:", "", 1) + ".json"
 		if err := WriteJSON(filepath.Join(recDir, filename), rec); err != nil {
@@ -58,8 +83,13 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 			added = append(added, rid)
 		}
 	}
+	return added
+}
 
-	// Preserve prior records as superseded
+// writeSupersededRecords marks previous records that no longer appear in
+// current as superseded, writes them back to disk, and returns their ids.
+func writeSupersededRecords(recDir string, current, prevRecords map[string]map[string]any) ([]string, error) {
+	var superseded []string
 	for rid, prev := range prevRecords {
 		if _, ok := current[rid]; ok {
 			continue
@@ -71,15 +101,19 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 		}
 		superseded = append(superseded, rid)
 	}
+	return superseded, nil
+}
 
-	// Write index.md
+// buildEvidenceIndexMarkdown renders the evidence/index.md content from the
+// current records, sorted by published date descending.
+func (p *Publisher) buildEvidenceIndexMarkdown(current map[string]map[string]any, superseded []string) string {
 	var lines []string
 	lines = append(lines, "# Evidence Index", "",
 		fmt.Sprintf("_Current records: %d · superseded preserved: %d · window: last %d days. Generated %s._",
 			len(current), len(superseded), evidenceWindowDays, p.common.NowISO()), "",
 		"| Published | Topic | Title | Players | Source |", "|---|---|---|---|---|")
-	// Sort by published_at desc
-	var sortedRecs []map[string]any
+
+	sortedRecs := make([]map[string]any, 0, len(current))
 	for _, rec := range current {
 		sortedRecs = append(sortedRecs, rec)
 	}
@@ -88,42 +122,38 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 		return getStr(sortedRecs[i], "published_at") > getStr(sortedRecs[j], "published_at")
 	})
 	for _, rec := range sortedRecs {
-		pub := getStr(rec, "published_at")
-		if len(pub) > 10 {
-			pub = pub[:10]
-		}
-		players := ""
-		if pids, ok := rec["player_ids"].([]string); ok {
-			var playersSb89 strings.Builder
-			for i, pid := range pids {
-				if i >= 4 {
-					break
-				}
-				if i > 0 {
-					playersSb89.WriteString(", ")
-				}
-				playersSb89.WriteString(strings.TrimPrefix(pid, "nfl:"))
-			}
-			players += playersSb89.String()
-		}
-		title := getStr(rec, "title")
-		if len(title) > 60 {
-			title = title[:60]
-		}
-		title = strings.ReplaceAll(title, "|", "/")
-		lines = append(lines, fmt.Sprintf("| %s | %s | %s | %s | %s |",
-			pub, getStr(rec, "topic"), title, players, getStr(rec, "publisher")))
+		lines = append(lines, evidenceIndexRow(rec))
 	}
-	if writeErr := WriteText(filepath.Join(targetDir, "evidence", "index.md"), strings.Join(lines, "\n")); writeErr != nil {
-		return nil, writeErr
-	}
+	return strings.Join(lines, "\n")
+}
 
-	return map[string]any{
-		"current_count":    len(current),
-		"superseded_count": len(superseded),
-		"added":            added,
-		"superseded":       superseded,
-	}, nil
+// evidenceIndexRow renders a single markdown table row for an evidence record.
+func evidenceIndexRow(rec map[string]any) string {
+	pub := getStr(rec, "published_at")
+	if len(pub) > 10 {
+		pub = pub[:10]
+	}
+	players := ""
+	if pids, ok := rec["player_ids"].([]string); ok {
+		var playersSb89 strings.Builder
+		for i, pid := range pids {
+			if i >= 4 {
+				break
+			}
+			if i > 0 {
+				playersSb89.WriteString(", ")
+			}
+			playersSb89.WriteString(strings.TrimPrefix(pid, "nfl:"))
+		}
+		players += playersSb89.String()
+	}
+	title := getStr(rec, "title")
+	if len(title) > 60 {
+		title = title[:60]
+	}
+	title = strings.ReplaceAll(title, "|", "/")
+	return fmt.Sprintf("| %s | %s | %s | %s | %s |",
+		pub, getStr(rec, "topic"), title, players, getStr(rec, "publisher"))
 }
 
 //nolint:nakedret,nonamedreturns // Named return values are necessary for clarity with multiple complex returns
@@ -243,10 +273,56 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameInde
 }
 
 func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any, ownership map[string][][2]string) map[string]any {
+	urlStr := evidenceItemURL(item)
+	summary := evidenceSummary(item, urlStr)
+	recID := EvidenceID(urlStr, evidenceContentHashSeed(item, summary))
+
+	matchedPlayers, _ := item["matched_players"].([]string) //nolint:errcheck // External data may not have field
+	playerIDs := evidencePlayerIDs(matchedPlayers)
+	teamIDs := evidenceTeamIDs(item)
+	publisher := evidencePublisher(item)
+	titleStr := evidenceTitle(item, urlStr)
+	topic := evidenceTopic(item)
+	publishedAt, fetchedAt, updatedAt := p.evidenceTimestamps(item)
+
+	claims := p.factsForItem(ctx, item["id"])
+	relevance := buildDecisionRelevance(matchedPlayers, ownership)
+
+	return map[string]any{
+		"id":                 recID,
+		colCanonicalURL:      urlStr,
+		"title":              titleStr,
+		"player_ids":         playerIDs,
+		"team_ids":           teamIDs,
+		"topic":              topic,
+		"publisher":          publisher,
+		"source_type":        "secondary",
+		"published_at":       publishedAt,
+		"retrieved_at":       fetchedAt,
+		"updated_at":         updatedAt,
+		"summary":            summary,
+		"claims":             claims,
+		"decision_relevance": relevance,
+		colStatus:            colCurrent,
+		"content_hash":       ContentHash(summary),
+		"supersedes":         []any{},
+	}
+}
+
+// evidenceItemURL resolves the canonical URL for a news item, falling back
+// to the raw URL when no canonical URL is set.
+func evidenceItemURL(item map[string]any) string {
 	urlStr := fmt.Sprint(item["canonical_url"])
 	if urlStr == nilStr || urlStr == "" {
 		urlStr = fmt.Sprint(item["url"])
 	}
+	return urlStr
+}
+
+// evidenceSummary resolves the best available summary text for a news item,
+// preferring the generated news story, then the short summary, then the
+// title, then finally the URL. The result is capped at 1200 characters.
+func evidenceSummary(item map[string]any, urlStr string) string {
 	summary := ""
 	if v, ok := item["news_story"].(*string); ok && v != nil {
 		summary = *v
@@ -267,22 +343,32 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 	if len(summary) > 1200 {
 		summary = summary[:1200]
 	}
+	return summary
+}
 
+// evidenceContentHashSeed returns the item's stored content hash, or
+// derives one from the summary when missing.
+func evidenceContentHashSeed(item map[string]any, summary string) string {
 	chStr := fmt.Sprint(item["content_hash"])
 	if chStr == nilStr || chStr == "" {
 		chStr = ContentHash(summary)
 	}
+	return chStr
+}
 
-	recID := EvidenceID(urlStr, chStr)
-
-	matchedPlayers, _ := item["matched_players"].([]string) //nolint:errcheck // External data may not have field
+// evidencePlayerIDs converts matched player sleeper ids into namespaced
+// player ids.
+func evidencePlayerIDs(matchedPlayers []string) []string {
 	playerIDs := make([]string, 0, len(matchedPlayers))
 	for _, sid := range matchedPlayers {
 		playerIDs = append(playerIDs, "nfl:"+sid)
 	}
+	return playerIDs
+}
 
-	// Team IDs: entities store full team names (e.g. "Philadelphia Eagles"),
-	// so resolve each against the canonical name->abbreviation table.
+// evidenceTeamIDs resolves entity team names (e.g. "Philadelphia Eagles")
+// against the canonical name->abbreviation table into namespaced team ids.
+func evidenceTeamIDs(item map[string]any) []string {
 	entities, _ := item["entities"].([]string) //nolint:errcheck // External data may not have field
 	teamIDs := make([]string, 0, len(entities))
 	for _, e := range entities {
@@ -290,7 +376,11 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 			teamIDs = append(teamIDs, "nfl:"+abbr)
 		}
 	}
+	return teamIDs
+}
 
+// evidencePublisher resolves the item's author, defaulting to "unknown".
+func evidencePublisher(item map[string]any) string {
 	publisher := ""
 	if v, ok := item["author"].(*string); ok && v != nil {
 		publisher = *v
@@ -298,7 +388,11 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 	if publisher == "" {
 		publisher = "unknown"
 	}
+	return publisher
+}
 
+// evidenceTitle resolves the item's title, falling back to the URL.
+func evidenceTitle(item map[string]any, urlStr string) string {
 	titleStr := ""
 	if v, ok := item["title"].(*string); ok && v != nil {
 		titleStr = *v
@@ -306,54 +400,84 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 	if titleStr == "" {
 		titleStr = urlStr
 	}
+	return titleStr
+}
 
+// evidenceTopic derives the display topic from the item's topics list.
+func evidenceTopic(item map[string]any) string {
 	var topic string
 	if topicsList, ok := item["topics"].([]string); ok {
 		topic = TopicFromTopics(topicsList)
 	}
+	return topic
+}
 
-	var publishedAt any
+// evidenceTimestamps resolves the published/fetched/updated timestamps for
+// a news item, formatting them as RFC3339-ish UTC strings. fetchedAt falls
+// back to the current time when the item has none.
+//
+//nolint:nakedret,nonamedreturns // Named return values are necessary for clarity with multiple similar-typed returns
+func (p *Publisher) evidenceTimestamps(item map[string]any) (publishedAt, fetchedAt, updatedAt any) {
 	if v, ok := item["published_at"].(*time.Time); ok && v != nil {
 		publishedAt = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
-	fetchedAt := ""
+	fetched := ""
 	if v, ok := item["fetched_at"].(*time.Time); ok && v != nil {
-		fetchedAt = v.UTC().Format("2006-01-02T15:04:05Z")
+		fetched = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
-	if fetchedAt == "" {
-		fetchedAt = p.common.NowISO()
+	if fetched == "" {
+		fetched = p.common.NowISO()
 	}
-	var updatedAt any
+	fetchedAt = fetched
 	if v, ok := item["updated_at"].(*time.Time); ok && v != nil {
 		updatedAt = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
+	return
+}
 
-	// Facts
-	claims := p.factsForItem(ctx, item["id"])
+// buildDecisionRelevance computes the decision_relevance block for an
+// evidence record based on which of the matched players are owned or
+// rostered by rivals.
+func buildDecisionRelevance(matchedPlayers []string, ownership map[string][][2]string) map[string]any {
+	reason := evidenceOwnerReason(matchedPlayers, ownership)
+	relevantToRoster, relevantToTradeTarget := evidenceRelevanceFlags(matchedPlayers, ownership)
+	return map[string]any{
+		"relevant_to_roster":       relevantToRoster,
+		"relevant_to_trade_target": relevantToTradeTarget,
+		"relevant_to_pick_value":   false,
+		"reason":                   reason,
+	}
+}
 
-	// Owner reasons
+// evidenceOwnerReason builds the human-readable "reason" string describing
+// which leagues/roles the matched players belong to.
+func evidenceOwnerReason(matchedPlayers []string, ownership map[string][][2]string) string {
 	var ownerReasons []string
 	for _, sid := range matchedPlayers {
 		for _, pair := range ownership[sid] {
 			ownerReasons = append(ownerReasons, fmt.Sprintf("%s in %s", pair[1], pair[0]))
 		}
 	}
-	reason := "decision-relevant"
-	if len(ownerReasons) > 0 {
-		// Dedupe
-		seen := make(map[string]bool)
-		var unique []string
-		for _, r := range ownerReasons {
-			if !seen[r] {
-				seen[r] = true
-				unique = append(unique, r)
-			}
-		}
-		reason = "Mentions " + strings.Join(unique, ", ")
+	if len(ownerReasons) == 0 {
+		return "decision-relevant"
 	}
+	// Dedupe
+	seen := make(map[string]bool)
+	var unique []string
+	for _, r := range ownerReasons {
+		if !seen[r] {
+			seen[r] = true
+			unique = append(unique, r)
+		}
+	}
+	return "Mentions " + strings.Join(unique, ", ")
+}
 
-	relevantToRoster := false
-	relevantToTradeTarget := false
+// evidenceRelevanceFlags reports whether any matched player is owned on the
+// user's roster and/or rostered by a rival (trade target).
+//
+//nolint:nonamedreturns // Named return values are necessary for clarity with multiple bool returns
+func evidenceRelevanceFlags(matchedPlayers []string, ownership map[string][][2]string) (relevantToRoster, relevantToTradeTarget bool) {
 	for _, sid := range matchedPlayers {
 		for _, pair := range ownership[sid] {
 			if pair[1] == "owned" {
@@ -364,31 +488,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 			}
 		}
 	}
-
-	return map[string]any{
-		"id":            recID,
-		colCanonicalURL: urlStr,
-		"title":         titleStr,
-		"player_ids":    playerIDs,
-		"team_ids":      teamIDs,
-		"topic":         topic,
-		"publisher":     publisher,
-		"source_type":   "secondary",
-		"published_at":  publishedAt,
-		"retrieved_at":  fetchedAt,
-		"updated_at":    updatedAt,
-		"summary":       summary,
-		"claims":        claims,
-		"decision_relevance": map[string]any{
-			"relevant_to_roster":       relevantToRoster,
-			"relevant_to_trade_target": relevantToTradeTarget,
-			"relevant_to_pick_value":   false,
-			"reason":                   reason,
-		},
-		colStatus:      colCurrent,
-		"content_hash": ContentHash(summary),
-		"supersedes":   []any{},
-	}
+	return relevantToRoster, relevantToTradeTarget
 }
 
 func (p *Publisher) factsForItem(ctx context.Context, itemID any) []map[string]any {
