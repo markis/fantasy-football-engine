@@ -16,13 +16,13 @@ import (
 )
 
 const (
-	colPlayerID     = "player_id"
-	colFullName     = "full_name"
-	colPosition     = "position"
-	colTeam         = "team"
-	colTitle        = "title"
-	srcFantasyCalc  = "FantasyCalc"
-	statusFound     = "found"
+	colPlayerID    = "player_id"
+	colFullName    = "full_name"
+	colPosition    = "position"
+	colTeam        = "team"
+	colTitle       = "title"
+	srcFantasyCalc = "FantasyCalc"
+	statusFound    = "found"
 )
 
 var errRosterNotFound = errors.New("roster not found")
@@ -310,8 +310,8 @@ func (s *Service) GetPlayer(ctx context.Context, playerID string) (map[string]an
 		return nil, err
 	}
 	item := map[string]any{
-		"player_id": playerID,
-		"full_name": ptrStr(fullName),
+		colPlayerID: playerID,
+		colFullName: ptrStr(fullName),
 		"position":  ptrStr(pos),
 		"team":      ptrStr(teamAbbr),
 		"active":    active,
@@ -329,7 +329,14 @@ func (s *Service) GetPlayer(ctx context.Context, playerID string) (map[string]an
 }
 
 // GetRankings returns dynasty trade values.
-func (s *Service) GetRankings(ctx context.Context, position *string, limit int, source string, market int, superflex bool) ([]map[string]any, error) {
+func (s *Service) GetRankings(
+	ctx context.Context,
+	position *string,
+	limit int,
+	source string,
+	market int,
+	superflex bool,
+) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 15
 	}
@@ -453,7 +460,13 @@ func (s *Service) GetTrendingPlayers(ctx context.Context, trendType string, limi
 }
 
 // GetFreeAgents returns top ranked free agents in a league.
-func (s *Service) GetFreeAgents(ctx context.Context, leagueID string, position *string, limit int, superflex bool) ([]map[string]any, error) {
+func (s *Service) GetFreeAgents(
+	ctx context.Context,
+	leagueID string,
+	position *string,
+	limit int,
+	superflex bool,
+) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 15
 	}
@@ -527,7 +540,12 @@ func (s *Service) GetFreeAgents(ctx context.Context, leagueID string, position *
 }
 
 // EvaluateTrade returns structured data for a trade proposal.
-func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []string, leagueID string, superflex bool) (map[string]any, error) {
+func (s *Service) EvaluateTrade(
+	ctx context.Context,
+	giveNames, getNames []string,
+	leagueID string,
+	superflex bool,
+) (map[string]any, error) {
 	lf, hasLF := models.LeagueFormats[leagueID]
 	source := "Dynasty Daddy"
 	market := 14
@@ -571,7 +589,7 @@ func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []strin
 				"player_id":   sleeperID,
 				"full_name":   ptrStr(fullName),
 				"trade_value": val,
-				statusFound:  true,
+				statusFound:   true,
 			})
 		}
 		return items, total

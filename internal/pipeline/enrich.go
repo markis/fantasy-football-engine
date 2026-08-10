@@ -219,10 +219,22 @@ func extractEntities(text, title string) []string {
 }
 
 var topicKeywords = map[string][]string{
-	"injury":      {"injury", "injured", "hurt", "concussion", "hamstring", "ankle", "knee", "shoulder", "questionable", "doubtful", "out", "ir", "injured reserve", "physically unable", "pup", "dnp", "limited"},
-	"depth chart": {"depth chart", "starter", "backup", "benched", "demoted", "promoted", "number one", "number 1", "rb1", "rb2", "wr1", "wr2", "te1", "starting"},
-	"transaction": {"trade", "traded", "signing", "signed", "released", "cut", "waived", "claimed", "free agent", "free agency", "contract", "extension", "retire", "retirement", "suspended", "suspension"},
-	"performance": {"snap count", "snaps", "targets", "touchdown", "td", "yards", "receptions", "carries", "rush", "receiving", "passing", "fantasy points", "ppr", "half ppr"},
+	"injury": {
+		"injury", "injured", "hurt", "concussion", "hamstring", "ankle", "knee", "shoulder",
+		"questionable", "doubtful", "out", "ir", "injured reserve", "physically unable", "pup", "dnp", "limited",
+	},
+	"depth chart": {
+		"depth chart", "starter", "backup", "benched", "demoted", "promoted",
+		"number one", "number 1", "rb1", "rb2", "wr1", "wr2", "te1", "starting",
+	},
+	"transaction": {
+		"trade", "traded", "signing", "signed", "released", "cut", "waived", "claimed",
+		"free agent", "free agency", "contract", "extension", "retire", "retirement", "suspended", "suspension",
+	},
+	"performance": {
+		"snap count", "snaps", "targets", "touchdown", "td", "yards", "receptions", "carries",
+		"rush", "receiving", "passing", "fantasy points", "ppr", "half ppr",
+	},
 	"matchup":     {"matchup", "vs", "versus", "against", "defense", "defense", "secondary", "pass rush", "blitz"},
 	"coaching":    {"coach", "coordinator", "offensive coordinator", "dc", "head coach", "fired", "hired", "playcaller", "play caller"},
 	"practice":    {"practice", "mini camp", "minicamp", "ota", "training camp", "preseason", "walk-through"},

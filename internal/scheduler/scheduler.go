@@ -96,7 +96,8 @@ func (s *Scheduler) runJob(job *config.JobConfig, fn StepFunc) {
 		s.mu.Unlock()
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour) //nolint:gosec // Goroutine intentionally runs independently of request context
+	//nolint:gosec // Goroutine intentionally runs independently of request context
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 	defer cancel()
 
 	start := time.Now()

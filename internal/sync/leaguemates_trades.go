@@ -109,7 +109,7 @@ func (s *LeaguemateTradesSyncer) Sync(ctx context.Context, maxWeeks int) (*Trade
 
 func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]any, leagueID string, isMarkisLeague bool, watchSet map[string]bool) bool {
 	txnID := fmt.Sprint(txn["transaction_id"])
-	if txnID == "" || txnID == "<nil>" {
+	if txnID == "" || txnID == nilStr {
 		return false
 	}
 

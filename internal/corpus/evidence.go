@@ -126,7 +126,9 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 	}, nil
 }
 
-func (p *Publisher) buildWatchSet(ctx context.Context) (watchIDs []string, nameIndex map[string][]string, ownership map[string][][2]string) {
+func (p *Publisher) buildWatchSet(
+	ctx context.Context,
+) (watchIDs []string, nameIndex map[string][]string, ownership map[string][][2]string) {
 	watchIDsSet := make(map[string]bool)
 	ownership = make(map[string][][2]string)
 
@@ -182,8 +184,8 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameInde
 	defer rows.Close()
 
 	cols := []string{
-		"id", colCanonicalURL, "url", "title", "summary_short", "content_hash",
-		"entities", "topics", "author", "published_at", "fetched_at", "updated_at", "news_story",
+		"id", colCanonicalURL, "url", colTitle, "summary_short", colContentHash,
+		"entities", "topics", "author", colPublishedAt, "fetched_at", colUpdatedAt, "news_story",
 	}
 	var result []map[string]any
 	seenURLs := make(map[string]bool)
@@ -379,7 +381,7 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 			"relevant_to_pick_value":   false,
 			"reason":                   reason,
 		},
-		"status":       "current",
+		colStatus:      colCurrent,
 		"content_hash": ContentHash(summary),
 		"supersedes":   []any{},
 	}
@@ -404,7 +406,7 @@ func (p *Publisher) factsForItem(ctx context.Context, itemID any) []map[string]a
 		if text == "" {
 			continue
 		}
-		confStr := "medium"
+		confStr := colMedium
 		if conf != nil && (*conf == "high" || *conf == "medium" || *conf == "low") {
 			confStr = *conf
 		}

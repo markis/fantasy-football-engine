@@ -37,7 +37,7 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 	if season == "" {
 		season = s.sleeper.CurrentSeason(ctx)
 	}
-	if maxLeagues == 0 {
+	if maxLeagues <= 0 {
 		maxLeagues = 15
 	}
 	result := &LeaguemateSyncResult{Status: "ok"}
@@ -89,7 +89,7 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 		// Process rosters
 		for _, roster := range rosters {
 			ownerID := fmt.Sprint(roster["owner_id"])
-			if ownerID == "" || ownerID == "<nil>" {
+			if ownerID == "" || ownerID == nilStr {
 				continue
 			}
 			seenManagers[ownerID] = true
@@ -189,7 +189,7 @@ func (s *LeaguemateSyncer) upsertSleeperUser(ctx context.Context, userID string,
 	username := ""
 	if user != nil {
 		username = fmt.Sprint(user["username"])
-		if username == "<nil>" {
+		if username == nilStr {
 			username = ""
 		}
 	}
@@ -222,7 +222,13 @@ func (s *LeaguemateSyncer) upsertSleeperUser(ctx context.Context, userID string,
 	}
 }
 
-func (s *LeaguemateSyncer) upsertLeagueManager(ctx context.Context, leagueID, userID string, rosterID int, user map[string]any, coOwner, isMarkis bool) {
+func (s *LeaguemateSyncer) upsertLeagueManager(
+	ctx context.Context,
+	leagueID, userID string,
+	rosterID int,
+	user map[string]any,
+	coOwner, isMarkis bool,
+) {
 	teamName := ""
 	if user != nil {
 		if meta, ok := user["metadata"].(map[string]any); ok {

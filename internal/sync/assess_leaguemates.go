@@ -152,10 +152,30 @@ func (a *LeaguemateAssessor) computeSignals(ctx context.Context, userID string) 
 	// Picks
 	if err := a.pool.QueryRow(ctx, `
 		SELECT
-			count(*) FILTER (WHERE a.asset_type = 'pick' AND a.to_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id)),
-			count(*) FILTER (WHERE a.asset_type = 'pick' AND a.from_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id)),
-			count(*) FILTER (WHERE a.asset_type = 'pick' AND a.pick_round = 1 AND a.to_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id))
-			- count(*) FILTER (WHERE a.asset_type = 'pick' AND a.pick_round = 1 AND a.from_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id))
+			count(*) FILTER (
+				WHERE a.asset_type = 'pick'
+					AND a.to_roster_id IN (
+						SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id
+					)
+			),
+			count(*) FILTER (
+				WHERE a.asset_type = 'pick'
+					AND a.from_roster_id IN (
+						SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id
+					)
+			),
+			count(*) FILTER (
+				WHERE a.asset_type = 'pick' AND a.pick_round = 1
+					AND a.to_roster_id IN (
+						SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id
+					)
+			)
+			- count(*) FILTER (
+				WHERE a.asset_type = 'pick' AND a.pick_round = 1
+					AND a.from_roster_id IN (
+						SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id
+					)
+			)
 		FROM leaguemate_transaction t
 		JOIN leaguemate_trade_asset a ON a.transaction_id = t.transaction_id
 		WHERE t.type = 'trade' AND t.status = 'complete'
@@ -170,14 +190,15 @@ func (a *LeaguemateAssessor) generateDossier(ctx context.Context, s *leaguemateS
 	if s == nil {
 		return ""
 	}
-	prompt := fmt.Sprintf(`Write a concise "how to trade with this manager" dossier (3-4 sentences) for a fantasy football dynasty league manager.
+	promptTmpl := `Write a concise "how to trade with this manager" dossier (3-4 sentences) for a fantasy football dynasty league manager.
 
 Manager: %s (%s)
 Leagues: %d | Win%%: %.1f | Contender score: %d
 Trades total: %d | Last 30d: %d
 Picks acquired: %d | Picks traded: %d | Net 1sts: %d
 
-Based on these signals, describe their tendency (contender/rebuilder, pick-hoarder or win-now, overpayer or value-shopper) and how to approach trades with them. Be concise and direct. Output ONLY the dossier prose.`,
+Based on these signals, describe their tendency (contender/rebuilder, pick-hoarder or win-now, overpayer or value-shopper) and how to approach trades with them. Be concise and direct. Output ONLY the dossier prose.`
+	prompt := fmt.Sprintf(promptTmpl,
 		s.DisplayName, s.Username, s.LeaguesCount, s.WinPct*100, s.ContenderScore,
 		s.TradeCount, s.TradeCount30d, s.PicksAcquired, s.PicksTraded, s.NetFirsts)
 
@@ -189,7 +210,13 @@ Based on these signals, describe their tendency (contender/rebuilder, pick-hoard
 	return strings.TrimSpace(dossier)
 }
 
-func (a *LeaguemateAssessor) snapshotSignal(ctx context.Context, snapshotDate time.Time, userID string, s *leaguemateSignals, dossier string) {
+func (a *LeaguemateAssessor) snapshotSignal(
+	ctx context.Context,
+	snapshotDate time.Time,
+	userID string,
+	s *leaguemateSignals,
+	dossier string,
+) {
 	posBiasJSON := []byte("{}")
 	if len(s.PositionBias) > 0 {
 		posBiasJSON = []byte("{}") // simplified

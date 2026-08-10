@@ -60,7 +60,7 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 	// injury-and-usage.md
 	var inj, usage []map[string]any
 	for _, r := range recs {
-		if getStr(r, "topic") == "injury" {
+		if getStr(r, "topic") == colInjury {
 			inj = append(inj, r)
 		} else if getStr(r, "topic") == "usage" {
 			usage = append(usage, r)
@@ -305,7 +305,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 				continue
 			}
 			var rec map[string]any
-			if json.Unmarshal(data, &rec) == nil && rec["status"] == "current" {
+			if json.Unmarshal(data, &rec) == nil && rec[colStatus] == colCurrent {
 				currentEvidence++
 			}
 		}
@@ -330,7 +330,7 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 
 	var leagueList []map[string]any
 	for lid, lf := range models.LeagueFormats {
-		leagueList = append(leagueList, map[string]any{"league_id": lid, "name": lf.Name})
+		leagueList = append(leagueList, map[string]any{colLeagueID: lid, colName: lf.Name})
 	}
 
 	var cursor any
@@ -339,13 +339,13 @@ func (p *Publisher) renderManifest(ctx context.Context, targetDir, prevDir strin
 	}
 
 	manifest := map[string]any{
-		"generated_at":       ts,
+		colGeneratedAt:       ts,
 		"schema_version":     1,
 		"change_log_cursor":  cursor,
 		"as_of_window_hours": evidenceWindowDays * 24,
 		"counts":             counts,
 		"files":              filesMeta,
-		"leagues":            leagueList,
+		colLeagues:           leagueList,
 	}
 	if teamStateHash != "" {
 		manifest["team_state_hash"] = teamStateHash
@@ -539,7 +539,7 @@ func (p *Publisher) renderLeaguemateProfiles(ctx context.Context, dsDir string, 
 	}
 	defer rows.Close()
 	jpath := filepath.Join(dsDir, "leaguemate-profiles.jsonl")
-	if err := os.WriteFile(jpath, []byte(""), 0o600); err != nil { //nolint:gosec // paths are internal corpus paths
+	if err := os.WriteFile(jpath, []byte(""), 0o600); err != nil { //nolint:gosec,G304 // paths are internal corpus paths
 		slog.Warn("failed to create leaguemate profiles file", "err", err)
 	}
 	profiles := 0
@@ -581,7 +581,7 @@ func (p *Publisher) renderLeaguemateProfiles(ctx context.Context, dsDir string, 
 			"trade_count_30d": tc30,
 			"net_firsts":      nf,
 			"dossier":         dossierStr,
-			"generated_at":    gen,
+			colGeneratedAt:    gen,
 		})
 		profiles++
 	}

@@ -41,6 +41,8 @@ const (
 	paramSuperflex    = "superflex"
 	paramLeagueID     = "league_id"
 	paramStep         = "step"
+	paramQuery        = "query"
+	paramLimit        = "limit"
 )
 
 // Server is the MCP server that exposes tools over Streamable HTTP.
@@ -87,16 +89,16 @@ func (s *Server) registerTools() {
 		InputSchema: map[string]any{
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
-				"query":         map[string]any{schemaType: schemaTypeString, schemaDescription: "Search query"},
-				"limit":         map[string]any{schemaType: schemaTypeInteger, schemaDefault: 10},
+				paramQuery:      map[string]any{schemaType: schemaTypeString, schemaDescription: "Search query"},
+				paramLimit:      map[string]any{schemaType: schemaTypeInteger, schemaDefault: 10},
 				"days":          map[string]any{schemaType: schemaTypeInteger, schemaDescription: "Only items from last N days"},
 				"relevant_only": map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 			schemaRequired: []string{"query"},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
-			q := getStr(args, "query")
-			limit := getInt(args, "limit", 10)
+			q := getStr(args, paramQuery)
+			limit := getInt(args, paramLimit, 10)
 			var days *int
 			if d, ok := args["days"]; ok {
 				di := toInt(d)
@@ -111,15 +113,15 @@ func (s *Server) registerTools() {
 		Name:        "get_stories",
 		Description: "Get top story clusters from a time window.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"hours": map[string]any{"type": "integer", "default": 24},
-				"limit": map[string]any{"type": "integer", "default": 5},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				"hours":    map[string]any{schemaType: schemaTypeInteger, schemaDefault: 24},
+				paramLimit: map[string]any{schemaType: schemaTypeInteger, schemaDefault: 5},
 			},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			hours := getInt(args, "hours", 24)
-			limit := getInt(args, "limit", 5)
+			limit := getInt(args, paramLimit, 5)
 			return s.query.GetStories(ctx, hours, limit)
 		},
 	})
@@ -128,16 +130,16 @@ func (s *Server) registerTools() {
 		Name:        "search_facts",
 		Description: "Semantic search over extracted fantasy football facts.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query": map[string]any{"type": "string"},
-				"limit": map[string]any{"type": "integer", "default": 10},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramQuery: map[string]any{schemaType: schemaTypeString},
+				paramLimit: map[string]any{schemaType: schemaTypeInteger, schemaDefault: 10},
 			},
-			"required": []string{"query"},
+			schemaRequired: []string{paramQuery},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
-			q := getStr(args, "query")
-			limit := getInt(args, "limit", 10)
+			q := getStr(args, paramQuery)
+			limit := getInt(args, paramLimit, 10)
 			return s.query.SearchFacts(ctx, q, limit)
 		},
 	})
@@ -146,10 +148,10 @@ func (s *Server) registerTools() {
 		Name:        "get_recent_news",
 		Description: "Get the latest N news items, optionally filtered to fantasy-relevant only.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"limit":         map[string]any{"type": "integer", "default": 10},
-				"relevant_only": map[string]any{"type": "boolean", "default": false},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLimit:      map[string]any{schemaType: schemaTypeInteger, schemaDefault: 10},
+				"relevant_only": map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
@@ -164,13 +166,13 @@ func (s *Server) registerTools() {
 		Name:        "search_players",
 		Description: "Search NFL players by name, with optional position filter.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query":    map[string]any{"type": "string"},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramQuery:    map[string]any{schemaType: schemaTypeString},
 				paramPosition: map[string]any{schemaType: schemaTypeString},
-				"limit":    map[string]any{"type": "integer", "default": 25},
+				paramLimit:    map[string]any{schemaType: schemaTypeInteger, schemaDefault: 25},
 			},
-			"required": []string{"query"},
+			schemaRequired: []string{paramQuery},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			q := getStr(args, "query")
@@ -187,9 +189,9 @@ func (s *Server) registerTools() {
 		Name:        "get_player",
 		Description: "Get a full player profile by Sleeper player ID.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"player_id": map[string]any{"type": "string"},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				"player_id": map[string]any{schemaType: schemaTypeString},
 			},
 			"required": []string{"player_id"},
 		},
@@ -203,12 +205,12 @@ func (s *Server) registerTools() {
 		Name:        "get_rankings",
 		Description: "Get dynasty trade value rankings. Default source: FantasyCalc, market 14 (Dynasty Daddy composite).",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"position":  map[string]any{"type": "string"},
-				"limit":     map[string]any{"type": "integer", "default": 15},
-				"source":    map[string]any{"type": "string", "default": "FantasyCalc"},
-				"market":    map[string]any{"type": "integer", "default": 14},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				"position":     map[string]any{"type": "string"},
+				"limit":        map[string]any{"type": "integer", "default": 15},
+				"source":       map[string]any{"type": "string", "default": "FantasyCalc"},
+				"market":       map[string]any{"type": "integer", "default": 14},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 		},
@@ -232,8 +234,8 @@ func (s *Server) registerTools() {
 		Name:        "get_trending_players",
 		Description: "Get trending players (adds/drops) from Sleeper.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
 				"trend_type": map[string]any{"type": "string", "default": "add"},
 				"limit":      map[string]any{"type": "integer", "default": 25},
 			},
@@ -249,11 +251,11 @@ func (s *Server) registerTools() {
 		Name:        "get_free_agents",
 		Description: "Get top ranked free agents (unowned players) in a league.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				paramLeagueID: map[string]any{schemaType: schemaTypeString},
-				"position":  map[string]any{"type": "string"},
-				"limit":     map[string]any{"type": "integer", "default": 15},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLeagueID:  map[string]any{schemaType: schemaTypeString},
+				"position":     map[string]any{"type": "string"},
+				"limit":        map[string]any{"type": "integer", "default": 15},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 			schemaRequired: []string{paramLeagueID},
@@ -285,10 +287,10 @@ func (s *Server) registerTools() {
 		Name:        "evaluate_roster",
 		Description: "Get structured roster data with trade values for a user in a league. Returns data only — the agent does the reasoning.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				paramLeagueID: map[string]any{schemaType: schemaTypeString},
-				"user_id":   map[string]any{"type": "string", "default": "558115100726579200"},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLeagueID:  map[string]any{schemaType: schemaTypeString},
+				"user_id":      map[string]any{"type": "string", "default": "558115100726579200"},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 			schemaRequired: []string{paramLeagueID},
@@ -305,14 +307,15 @@ func (s *Server) registerTools() {
 	})
 
 	s.registerTool(Tool{
-		Name:        "evaluate_trade",
-		Description: "Evaluate a dynasty trade proposal. Returns structured data: both sides' players with trade values, totals, delta, and a recommendation. The agent does the reasoning.",
+		Name: "evaluate_trade",
+		Description: "Evaluate a dynasty trade proposal. Returns structured data: both sides' players " +
+			"with trade values, totals, delta, and a recommendation. The agent does the reasoning.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"give":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				"get":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				paramLeagueID: map[string]any{schemaType: schemaTypeString},
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				"give":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"get":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				paramLeagueID:  map[string]any{schemaType: schemaTypeString},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 			"required": []string{"give", "get"},
@@ -331,8 +334,8 @@ func (s *Server) registerTools() {
 		Name:        "get_study_material",
 		Description: "Get a digest of recent stories + news for agent self-study. Returns markdown + structured data.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
 				"hours": map[string]any{"type": "integer", "default": 24},
 			},
 		},
@@ -347,8 +350,8 @@ func (s *Server) registerTools() {
 		Name:        "trigger_pipeline",
 		Description: "Manually trigger a named pipeline step (e.g. fetch_rss, enrich, publish_daily). Requires pipeline trigger to be enabled.",
 		InputSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
 				paramStep: map[string]any{schemaType: schemaTypeString, schemaDescription: "Pipeline step name"},
 			},
 			schemaRequired: []string{paramStep},
@@ -398,7 +401,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewEncoder(w).Encode(map[string]any{
 			"status":  "ok",
 			"service": "fantasy-football-engine",
-			"tools":   len(s.tools),
+			toolsKey:  len(s.tools),
 		}); err != nil {
 			slog.Warn("encode health response", "err", err)
 		}

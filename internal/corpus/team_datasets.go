@@ -157,14 +157,14 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 			}
 
 			slotRec := map[string]any{
-				"sleeper_player_id": sid,
-				"full_name":         nilIfEmpty(fullName),
-				"position":          nilIfEmpty(pos),
+				colSleeperPlayerID: sid,
+				colFullName:         nilIfEmpty(fullName),
+				colPosition:         nilIfEmpty(pos),
 				"nfl_team":          nilIfEmpty(teamAbbr),
 				"slot":              slot,
 				"trade_value":       tradeValue,
-				colAge:             age,
-				"injury_status":     nilIfEmpty(injuryStatus),
+				colAge:              age,
+				colInjuryStatus:     nilIfEmpty(injuryStatus),
 			}
 
 			switch {
@@ -240,12 +240,12 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 		}
 
 		leagueState := map[string]any{
-			"league": map[string]any{
-				"league_id":       leagueID,
-				"name":            lf.Name,
+			colLeague: map[string]any{
+				colLeagueID:       leagueID,
+				colName:           lf.Name,
 				"platform":        "Sleeper",
 				"format":          lf.Type,
-				"teams":           lf.Teams,
+				colTeams:          lf.Teams,
 				"scoring_summary": fmt.Sprintf("%d QB, PPR=%d, TEP=%s", lf.NumQbs, lf.PPR, lf.TEP),
 				"roster_summary":  fmt.Sprintf("Starters: %s; Bench: %d", strings.Join(starterSlots, ","), benchCount),
 				"trade_deadline":  nil,
@@ -283,9 +283,9 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 
 	// Write multi-league team-state
 	multi := map[string]any{
-		"leagues":      leagues,
+		colLeagues:     leagues,
 		"as_of":        now,
-		"generated_at": now,
+		colGeneratedAt: now,
 	}
 	if err := WriteJSON(filepath.Join(teamDir, "team-state.json"), multi); err != nil {
 		return nil, err
@@ -312,15 +312,15 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 	// Future picks
 	if err := WriteJSON(filepath.Join(teamDir, "future-picks.json"), map[string]any{
 		"picks":        []any{},
-		"generated_at": now,
+		colGeneratedAt: now,
 	}); err != nil {
 		return nil, err
 	}
 
 	// League settings
 	if err := WriteJSON(filepath.Join(teamDir, "league-settings.json"), map[string]any{
-		"leagues":      models.LeagueFormats,
-		"generated_at": now,
+		colLeagues:     models.LeagueFormats,
+		colGeneratedAt: now,
 	}); err != nil {
 		return nil, err
 	}
@@ -330,7 +330,7 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 		slog.Warn("failed to create transaction-history.jsonl", "err", err)
 	}
 
-	return map[string]any{"leagues": len(leagues)}, nil
+	return map[string]any{colLeagues: len(leagues)}, nil
 }
 
 var slugNonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
@@ -377,7 +377,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 			"position":          getStr(p, "position"),
 			"nfl_team":          getStr(p, "team_abbr"),
 			"age":               getStr(p, "age"),
-			"status":            getStr(p, "status"),
+			colStatus:           getStr(p, colStatus),
 			"active":            p["active"],
 			"injury_status":     getStr(p, "injury_status"),
 			"injury_body_part":  getStr(p, "injury_body_part"),
@@ -407,15 +407,19 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 			rec := map[string]any{
 				"signal_id":          SignalID("nfl:"+sid, "injury", injStatus, obs),
 				"player_id":          "nfl:" + sid,
-				"signal_type":        "injury",
-				"value":              map[string]any{"status": injStatus, "body_part": getStr(p, "injury_body_part"), "notes": getStr(p, "injury_notes")},
+				"signal_type":        colInjury,
+				"value": map[string]any{
+					colStatus:   injStatus,
+					"body_part": getStr(p, "injury_body_part"),
+					"notes":     getStr(p, "injury_notes"),
+				},
 				"source":             "Sleeper",
 				"source_url":         nil,
 				"observed_at":        obs,
-				"published_at":       nil,
+				colPublishedAt:       nil,
 				colConfidence:        "high",
-				"status":             "current",
-				"evidence_record_id": nil,
+				colStatus:            colCurrent,
+				colEvidenceRecordID:  nil,
 			}
 			appendJSONLFile(sigPath, rec)
 			sigCount++
@@ -432,11 +436,22 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 		source string
 		market int
 	}{
-		{"Dynasty Daddy", 14}, {srcFantasyCalc, 1}, {srcFantasyCalc, 2}, {srcFantasyCalc, 3}, {"KeepTradeCut", 0},
+		{"Dynasty Daddy", 14},
+		{srcFantasyCalc, 1},
+		{srcFantasyCalc, 2},
+		{srcFantasyCalc, 3},
+		{"KeepTradeCut", 0},
 	}
 	for _, src := range sources {
 		rk := p.common.RankingRows(ctx, watchIDs, src.source, src.market)
-		fmtCtx := map[int]string{1: "12t-1QB-PPR", 2: "12t-SF-PPR-TEP1.0", 3: "10t-SF-HalfPPR", 14: "Dynasty Daddy composite", 0: "KeepTradeCut composite"}[src.market]
+		fmtCtxMap := map[int]string{
+			1:  "12t-1QB-PPR",
+			2:  "12t-SF-PPR-TEP1.0",
+			3:  "10t-SF-HalfPPR",
+			14: "Dynasty Daddy composite",
+			0:  "KeepTradeCut composite",
+		}
+		fmtCtx := fmtCtxMap[src.market]
 		for sid, r := range rk {
 			obs := now
 			if v, ok := r["data_date"].(*time.Time); ok && v != nil {
@@ -454,7 +469,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 					"value":              *v,
 					"observed_at":        obs,
 					"source_url":         nil,
-					colConfidence:        "medium",
+					colConfidence:        colMedium,
 					"evidence_record_id": nil,
 				}
 				appendJSONLFile(valPath, rec)
@@ -493,8 +508,8 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 		appendJSONLFile(newsPath, map[string]any{
 			"evidence_record_id": rec["id"],
 			colCanonicalURL:      rec[colCanonicalURL],
-			"title":              rec["title"],
-			"published_at":       rec["published_at"],
+			colTitle:             rec[colTitle],
+			colPublishedAt:       rec[colPublishedAt],
 			"topic":              rec["topic"],
 			"publisher":          rec["publisher"],
 			"player_ids":         rec["player_ids"],

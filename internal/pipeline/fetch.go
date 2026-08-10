@@ -362,7 +362,8 @@ func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UU
 ) (updated bool, changed bool, err error) {
 	// Query existing content length
 	var existingTextLen int
-	if err := f.pool.QueryRow(ctx, "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1", *existingID).Scan(&existingTextLen); err != nil {
+	q := "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1"
+	if err := f.pool.QueryRow(ctx, q, *existingID).Scan(&existingTextLen); err != nil {
 		slog.Warn("query existing content length", "err", err)
 		existingTextLen = 0
 	}

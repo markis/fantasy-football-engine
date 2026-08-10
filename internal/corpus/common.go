@@ -201,9 +201,9 @@ func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string
 	}
 	defer rows.Close()
 	cols := []string{
-		"sleeper_player_id", "full_name", "first_name", "last_name", "search_full_name",
-		"position", "team", "team_abbr", colAge, "injury_status", "injury_body_part",
-		"injury_notes", "status", "active", "depth_chart_position", "depth_chart_order",
+		colSleeperPlayerID, colFullName, "first_name", "last_name", "search_full_name",
+		colPosition, colTeam, "team_abbr", colAge, colInjuryStatus, "injury_body_part",
+		"injury_notes", colStatus, "active", "depth_chart_position", "depth_chart_order",
 		"last_synced_at",
 	}
 	for rows.Next() {
@@ -410,8 +410,8 @@ func TopicFromTopics(topics []string) string {
 	for _, t := range topics {
 		tset[strings.ToLower(t)] = true
 	}
-	if tset["injury"] {
-		return "injury"
+	if tset[colInjury] {
+		return colInjury
 	}
 	if tset["transaction"] {
 		return "transaction"

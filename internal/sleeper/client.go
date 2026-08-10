@@ -250,7 +250,8 @@ func (c *Client) GetDraftPicks(ctx context.Context, draftID string) ([]map[strin
 // GetTrendingPlayers returns trending players.
 func (c *Client) GetTrendingPlayers(ctx context.Context, trendType string, lookbackHours, limit int) ([]map[string]any, error) {
 	var result []map[string]any
-	if err := c.get(ctx, fmt.Sprintf("players/nfl/trending/%s?lookback_hours=%d&limit=%d", trendType, lookbackHours, limit), &result); err != nil {
+	path := fmt.Sprintf("players/nfl/trending/%s?lookback_hours=%d&limit=%d", trendType, lookbackHours, limit)
+	if err := c.get(ctx, path, &result); err != nil {
 		return nil, err
 	}
 	return result, nil

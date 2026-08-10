@@ -19,6 +19,7 @@ const (
 	colGeneratedAt        = "generated_at"
 	colLeagues            = "leagues"
 	colPublishedAt        = "published_at"
+	colUpdatedAt          = "updated_at"
 	colMedium             = "medium"
 	colSleeperPlayerID    = "sleeper_player_id"
 	colTeam               = "team"

@@ -92,7 +92,7 @@ func projectPlayer(pid string, p map[string]any) []any {
 		"age", "years_exp", "birth_date", "height", "weight", "college", "number",
 		"depth_chart_position", "depth_chart_order",
 		"practice_participation", "practice_description",
-		"gsis_id", colEspnID, "rotowire_id", "rotoworld_id", "yahoo_id",
+		"gsis_id", colEspnID, colRotowireID, colRotoWorldID, colYahooID,
 		colSportradarID, "stats_id", "news_updated",
 	}
 

@@ -41,8 +41,9 @@ func (p *Publisher) gitCommitAndPush(ctx context.Context, result *PublishResult)
 	}
 
 	// Commit
-	msg := fmt.Sprintf("fantasy-corpus: refresh team state, evidence, and daily brief\n\nexport_time: %s\nchange_count: %d\nevidence_current: %d\nplayers: %d\n",
-		p.common.NowISO(), result.Changes, result.EvidenceCurrent, result.Players)
+	msgTmpl := "fantasy-corpus: refresh team state, evidence, and daily brief\n\n" +
+		"export_time: %s\nchange_count: %d\nevidence_current: %d\nplayers: %d\n"
+	msg := fmt.Sprintf(msgTmpl, p.common.NowISO(), result.Changes, result.EvidenceCurrent, result.Players)
 	commit, err := worktree.Commit(msg, &git.CommitOptions{
 		Author: &object.Signature{
 			Name:  p.common.gitAuthorName,
