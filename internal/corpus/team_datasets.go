@@ -16,7 +16,6 @@ import (
 	"github.com/markis/fantasy-football-engine/internal/models"
 )
 
-
 // anyToInt coerces a decoded-JSON value (float64, string, or int) to an int,
 // returning 0 if it can't be interpreted as a number.
 func anyToInt(v any) int {
@@ -158,13 +157,13 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 
 			slotRec := map[string]any{
 				colSleeperPlayerID: sid,
-				colFullName:         nilIfEmpty(fullName),
-				colPosition:         nilIfEmpty(pos),
-				"nfl_team":          nilIfEmpty(teamAbbr),
-				"slot":              slot,
-				"trade_value":       tradeValue,
-				colAge:              age,
-				colInjuryStatus:     nilIfEmpty(injuryStatus),
+				colFullName:        nilIfEmpty(fullName),
+				colPosition:        nilIfEmpty(pos),
+				"nfl_team":         nilIfEmpty(teamAbbr),
+				"slot":             slot,
+				"trade_value":      tradeValue,
+				colAge:             age,
+				colInjuryStatus:    nilIfEmpty(injuryStatus),
 			}
 
 			switch {
@@ -405,21 +404,21 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 				obs = v.UTC().Format("2006-01-02T15:04:05Z")
 			}
 			rec := map[string]any{
-				"signal_id":          SignalID("nfl:"+sid, "injury", injStatus, obs),
-				"player_id":          "nfl:" + sid,
-				"signal_type":        colInjury,
+				"signal_id":   SignalID("nfl:"+sid, "injury", injStatus, obs),
+				"player_id":   "nfl:" + sid,
+				"signal_type": colInjury,
 				"value": map[string]any{
 					colStatus:   injStatus,
 					"body_part": getStr(p, "injury_body_part"),
 					"notes":     getStr(p, "injury_notes"),
 				},
-				"source":             "Sleeper",
-				"source_url":         nil,
-				"observed_at":        obs,
-				colPublishedAt:       nil,
-				colConfidence:        "high",
-				colStatus:            colCurrent,
-				colEvidenceRecordID:  nil,
+				"source":            "Sleeper",
+				"source_url":        nil,
+				"observed_at":       obs,
+				colPublishedAt:      nil,
+				colConfidence:       "high",
+				colStatus:           colCurrent,
+				colEvidenceRecordID: nil,
 			}
 			appendJSONLFile(sigPath, rec)
 			sigCount++

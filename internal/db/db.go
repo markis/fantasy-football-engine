@@ -9,7 +9,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pgvector/pgvector-go"
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
@@ -29,9 +28,7 @@ func New(ctx context.Context, dsn string) (*Pool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
 	}
-	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		return pgxvec.RegisterTypes(ctx, conn)
-	}
+	cfg.AfterConnect = pgxvec.RegisterTypes
 	cfg.MaxConns = 20
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {

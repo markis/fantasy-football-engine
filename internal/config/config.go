@@ -227,9 +227,7 @@ func (c *Config) resolveSecrets() {
 
 // expandEnv replaces ${VAR} with the environment variable value.
 func expandEnv(s string) string {
-	return os.Expand(s, func(key string) string {
-		return os.Getenv(key)
-	})
+	return os.Expand(s, os.Getenv)
 }
 
 // passShow retrieves a secret from the pass password store.

@@ -19,7 +19,6 @@ import (
 	"github.com/markis/fantasy-football-engine/internal/sleeper"
 )
 
-
 // Common provides shared helpers for the corpus publisher.
 type Common struct {
 	pool           *db.Pool

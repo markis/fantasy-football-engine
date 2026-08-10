@@ -207,10 +207,10 @@ func (s *Server) registerTools() {
 		InputSchema: map[string]any{
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
-				"position":     map[string]any{"type": "string"},
-				"limit":        map[string]any{"type": "integer", "default": 15},
-				"source":       map[string]any{"type": "string", "default": "FantasyCalc"},
-				"market":       map[string]any{"type": "integer", "default": 14},
+				"position":     map[string]any{schemaType: schemaTypeString},
+				"limit":        map[string]any{schemaType: schemaTypeInteger, schemaDefault: 15},
+				"source":       map[string]any{schemaType: schemaTypeString, schemaDefault: "FantasyCalc"},
+				"market":       map[string]any{schemaType: schemaTypeInteger, schemaDefault: 14},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 		},
@@ -236,8 +236,8 @@ func (s *Server) registerTools() {
 		InputSchema: map[string]any{
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
-				"trend_type": map[string]any{"type": "string", "default": "add"},
-				"limit":      map[string]any{"type": "integer", "default": 25},
+				"trend_type": map[string]any{schemaType: schemaTypeString, schemaDefault: "add"},
+				paramLimit:   map[string]any{schemaType: schemaTypeInteger, schemaDefault: 25},
 			},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
@@ -254,8 +254,8 @@ func (s *Server) registerTools() {
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
 				paramLeagueID:  map[string]any{schemaType: schemaTypeString},
-				"position":     map[string]any{"type": "string"},
-				"limit":        map[string]any{"type": "integer", "default": 15},
+				paramPosition:  map[string]any{schemaType: schemaTypeString},
+				paramLimit:     map[string]any{schemaType: schemaTypeInteger, schemaDefault: 15},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 			schemaRequired: []string{paramLeagueID},
@@ -276,7 +276,7 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "get_nfl_state",
 		Description: "Get the current NFL state (week, season, season type).",
-		InputSchema: map[string]any{"type": "object"},
+		InputSchema: map[string]any{schemaType: schemaTypeObject},
 		Handler: func(ctx context.Context, _ map[string]any) (any, error) {
 			return s.query.GetNFLState(ctx)
 		},
@@ -290,7 +290,7 @@ func (s *Server) registerTools() {
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
 				paramLeagueID:  map[string]any{schemaType: schemaTypeString},
-				"user_id":      map[string]any{"type": "string", "default": "558115100726579200"},
+				"user_id":      map[string]any{schemaType: schemaTypeString, schemaDefault: "558115100726579200"},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 			schemaRequired: []string{paramLeagueID},
@@ -313,12 +313,12 @@ func (s *Server) registerTools() {
 		InputSchema: map[string]any{
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
-				"give":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-				"get":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"give":         map[string]any{schemaType: schemaTypeArray, schemaItems: map[string]any{schemaType: schemaTypeString}},
+				"get":          map[string]any{schemaType: schemaTypeArray, schemaItems: map[string]any{schemaType: schemaTypeString}},
 				paramLeagueID:  map[string]any{schemaType: schemaTypeString},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
-			"required": []string{"give", "get"},
+			schemaRequired: []string{"give", "get"},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			give := toStrSlice(args["give"])

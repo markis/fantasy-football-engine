@@ -126,9 +126,14 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 	}, nil
 }
 
+//nolint:nakedret,nonamedreturns // Named return values are necessary for clarity with multiple complex returns
 func (p *Publisher) buildWatchSet(
 	ctx context.Context,
-) (watchIDs []string, nameIndex map[string][]string, ownership map[string][][2]string) {
+) (
+	watchIDs []string,
+	nameIndex map[string][]string,
+	ownership map[string][][2]string,
+) {
 	watchIDsSet := make(map[string]bool)
 	ownership = make(map[string][][2]string)
 
@@ -155,14 +160,13 @@ func (p *Publisher) buildWatchSet(
 		}
 	}
 
-	ids := make([]string, 0, len(watchIDsSet))
+	watchIDs = make([]string, 0, len(watchIDsSet))
 	for id := range watchIDsSet {
-		ids = append(ids, id)
+		watchIDs = append(watchIDs, id)
 	}
-	playerRows := p.common.PlayerRows(ctx, ids)
+	playerRows := p.common.PlayerRows(ctx, watchIDs)
 	nameIndex = BuildNameIndex(playerRows)
-	watchIDs = ids
-	return watchIDs, nameIndex, ownership
+	return
 }
 
 func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameIndex map[string][]string) []map[string]any {
@@ -411,8 +415,8 @@ func (p *Publisher) factsForItem(ctx context.Context, itemID any) []map[string]a
 			confStr = *conf
 		}
 		claims = append(claims, map[string]any{
-			"id":         ClaimID(text),
-			"text":       text,
+			"id":          ClaimID(text),
+			"text":        text,
 			colConfidence: confStr,
 		})
 	}

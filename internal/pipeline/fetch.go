@@ -356,10 +356,12 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 }
 
 // updateExistingItem updates an existing news item if new content is longer.
+//
+//nolint:nonamedreturns // Multiple bool returns benefit from naming
 func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UUID,
 	link, cURL, cURLHash, title, author *string, published any,
 	contentHTML, contentText, summaryShort, cHash *string, sh *int64, rawDocID uuid.UUID, bodyStatus string,
-) (updated bool, changed bool, err error) {
+) (updated, changed bool, err error) {
 	// Query existing content length
 	var existingTextLen int
 	q := "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1"

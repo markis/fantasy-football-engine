@@ -55,6 +55,9 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 
 	// Process each of Markis's leagues
 	for _, lg := range markisLeagues {
+		if result.LeaguesSeen >= maxLeagues {
+			break
+		}
 		leagueID := fmt.Sprint(lg["league_id"])
 		if seenLeagues[leagueID] {
 			continue
@@ -196,14 +199,14 @@ func (s *LeaguemateSyncer) upsertSleeperUser(ctx context.Context, userID string,
 	displayName := ""
 	if user != nil {
 		displayName = fmt.Sprint(user["display_name"])
-		if displayName == "<nil>" {
+		if displayName == nilStr {
 			displayName = ""
 		}
 	}
 	avatar := ""
 	if user != nil {
 		avatar = fmt.Sprint(user["avatar"])
-		if avatar == "<nil>" {
+		if avatar == nilStr {
 			avatar = ""
 		}
 	}
@@ -233,7 +236,7 @@ func (s *LeaguemateSyncer) upsertLeagueManager(
 	if user != nil {
 		if meta, ok := user["metadata"].(map[string]any); ok {
 			teamName = fmt.Sprint(meta["team_name"])
-			if teamName == "<nil>" {
+			if teamName == nilStr {
 				teamName = ""
 			}
 		}
@@ -287,7 +290,7 @@ func toStringSlice(v any) []string {
 	result := make([]string, 0, len(arr))
 	for _, item := range arr {
 		s := fmt.Sprint(item)
-		if s != "" && s != "<nil>" {
+		if s != "" && s != nilStr {
 			result = append(result, s)
 		}
 	}

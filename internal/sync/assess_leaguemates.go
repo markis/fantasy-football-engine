@@ -197,7 +197,9 @@ Leagues: %d | Win%%: %.1f | Contender score: %d
 Trades total: %d | Last 30d: %d
 Picks acquired: %d | Picks traded: %d | Net 1sts: %d
 
-Based on these signals, describe their tendency (contender/rebuilder, pick-hoarder or win-now, overpayer or value-shopper) and how to approach trades with them. Be concise and direct. Output ONLY the dossier prose.`
+Based on these signals, describe their tendency (contender/rebuilder, pick-hoarder or win-now,
+overpayer or value-shopper) and how to approach trades with them. Be concise and direct.
+Output ONLY the dossier prose.`
 	prompt := fmt.Sprintf(promptTmpl,
 		s.DisplayName, s.Username, s.LeaguesCount, s.WinPct*100, s.ContenderScore,
 		s.TradeCount, s.TradeCount30d, s.PicksAcquired, s.PicksTraded, s.NetFirsts)

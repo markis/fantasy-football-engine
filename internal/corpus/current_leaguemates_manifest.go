@@ -14,7 +14,6 @@ import (
 	"github.com/markis/fantasy-football-engine/internal/models"
 )
 
-
 // renderCurrent renders current/ markdown briefs.
 func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[string]any, error) {
 	curDir := filepath.Join(targetDir, "current")
@@ -479,7 +478,12 @@ func countJSONLFile(targetDir, rel string) int {
 }
 
 // appendRookieDraftLines builds lines for rookie draft board by querying player rankings.
-func (p *Publisher) appendRookieDraftLines(rows interface{ Close(); Next() bool; Scan(...interface{}) error }, lines *[]string) {
+func (p *Publisher) appendRookieDraftLines(rows interface {
+	Close()
+	Next() bool
+	Scan(dest ...any) error
+}, lines *[]string,
+) {
 	defer rows.Close()
 	byPos := make(map[string][]string)
 	for rows.Next() {
@@ -493,10 +497,10 @@ func (p *Publisher) appendRookieDraftLines(rows interface{ Close(); Next() bool;
 		pos := derefStr(position, "?")
 		name := derefStr(fullName, "")
 		team := derefStr(teamAbbr, "")
-		ageStr := derefInt(age, "")
-		tvStr := derefInt(tradeValue, "")
-		orStr := derefInt(overallRank, "")
-		prStr := derefInt(positionRank, "")
+		ageStr := derefInt(age)
+		tvStr := derefInt(tradeValue)
+		orStr := derefInt(overallRank)
+		prStr := derefInt(positionRank)
 		byPos[pos] = append(byPos[pos], fmt.Sprintf("| %s | %s | %s | %s | %s | %s |", name, team, ageStr, tvStr, orStr, prStr))
 	}
 	for _, pos := range []string{"QB", "RB", "WR", "TE"} {
@@ -516,12 +520,12 @@ func derefStr(s *string, def string) string {
 	return def
 }
 
-// derefInt dereferences a pointer to int and converts to string, or returns default.
-func derefInt(i *int, def string) string {
+// derefInt dereferences a pointer to int and converts to string, or returns empty string.
+func derefInt(i *int) string {
 	if i != nil {
 		return strconv.Itoa(*i)
 	}
-	return def
+	return ""
 }
 
 // renderLeaguemateProfiles queries and renders leaguemate signal profiles.
@@ -539,7 +543,7 @@ func (p *Publisher) renderLeaguemateProfiles(ctx context.Context, dsDir string, 
 	}
 	defer rows.Close()
 	jpath := filepath.Join(dsDir, "leaguemate-profiles.jsonl")
-	if err := os.WriteFile(jpath, []byte(""), 0o600); err != nil { //nolint:gosec,G304 // paths are internal corpus paths
+	if err := os.WriteFile(jpath, []byte(""), 0o600); err != nil {
 		slog.Warn("failed to create leaguemate profiles file", "err", err)
 	}
 	profiles := 0
