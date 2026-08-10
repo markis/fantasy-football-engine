@@ -7,19 +7,23 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/markis/fantasy-football-engine/internal/models"
 )
 
-const evidenceWindowDays = 14
-const evidenceMaxRecords = 600
+const (
+	evidenceWindowDays = 14
+	evidenceMaxRecords = 600
+)
 
 // renderEvidence renders evidence/ from decision-relevant news items.
 func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir string) (map[string]interface{}, error) {
 	recDir := filepath.Join(targetDir, "evidence", "records")
-	if err := os.MkdirAll(recDir, 0755); err != nil {
+	if err := os.MkdirAll(recDir, 0o755); err != nil {
 		return nil, err
 	}
 
@@ -32,7 +36,7 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 	// Build current records
 	current := make(map[string]map[string]interface{})
 	for _, item := range items {
-		rec := p.buildEvidenceRecord(item, ownership)
+		rec := p.buildEvidenceRecord(ctx, item, ownership)
 		current[rec["id"].(string)] = rec
 	}
 
@@ -73,14 +77,10 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 	for _, rec := range current {
 		sortedRecs = append(sortedRecs, rec)
 	}
-	// Simple sort by published_at
-	for i := 0; i < len(sortedRecs); i++ {
-		for j := i + 1; j < len(sortedRecs); j++ {
-			if getStr(sortedRecs[i], "published_at") < getStr(sortedRecs[j], "published_at") {
-				sortedRecs[i], sortedRecs[j] = sortedRecs[j], sortedRecs[i]
-			}
-		}
-	}
+	// Sort by published_at, newest first.
+	sort.SliceStable(sortedRecs, func(i, j int) bool {
+		return getStr(sortedRecs[i], "published_at") > getStr(sortedRecs[j], "published_at")
+	})
 	for _, rec := range sortedRecs {
 		pub := getStr(rec, "published_at")
 		if len(pub) > 10 {
@@ -88,15 +88,17 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 		}
 		players := ""
 		if pids, ok := rec["player_ids"].([]string); ok {
+			var playersSb89 strings.Builder
 			for i, pid := range pids {
 				if i >= 4 {
 					break
 				}
 				if i > 0 {
-					players += ", "
+					playersSb89.WriteString(", ")
 				}
-				players += strings.TrimPrefix(pid, "nfl:")
+				playersSb89.WriteString(strings.TrimPrefix(pid, "nfl:"))
 			}
+			players += playersSb89.String()
 		}
 		title := getStr(rec, "title")
 		if len(title) > 60 {
@@ -170,12 +172,15 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, n
 	}
 	defer rows.Close()
 
-	cols := []string{"id", "canonical_url", "url", "title", "summary_short", "content_hash",
-		"entities", "topics", "author", "published_at", "fetched_at", "updated_at", "news_story"}
+	cols := []string{
+		"id", "canonical_url", "url", "title", "summary_short", "content_hash",
+		"entities", "topics", "author", "published_at", "fetched_at", "updated_at", "news_story",
+	}
 	var result []map[string]interface{}
 	seenURLs := make(map[string]bool)
 	for rows.Next() {
-		var id, canonicalURL, url, title, summaryShort, contentHash, author, newsStory interface{}
+		var id, canonicalURL, url, contentHash interface{}
+		var title, summaryShort, author, newsStory *string
 		var entities, topics []string
 		var publishedAt, fetchedAt, updatedAt *time.Time
 		if err := rows.Scan(&id, &canonicalURL, &url, &title, &summaryShort, &contentHash,
@@ -183,19 +188,19 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, n
 			continue
 		}
 		d := map[string]interface{}{
-			"id":             id,
-			"canonical_url":  canonicalURL,
-			"url":            url,
-			"title":          title,
-			"summary_short":  summaryShort,
-			"content_hash":   contentHash,
-			"entities":       entities,
-			"topics":         topics,
-			"author":         author,
-			"published_at":   publishedAt,
-			"fetched_at":     fetchedAt,
-			"updated_at":     updatedAt,
-			"news_story":     newsStory,
+			"id":            id,
+			"canonical_url": canonicalURL,
+			"url":           url,
+			"title":         title,
+			"summary_short": summaryShort,
+			"content_hash":  contentHash,
+			"entities":      entities,
+			"topics":        topics,
+			"author":        author,
+			"published_at":  publishedAt,
+			"fetched_at":    fetchedAt,
+			"updated_at":    updatedAt,
+			"news_story":    newsStory,
 		}
 		_ = cols
 		hits := MatchEntitiesToPlayers(entities, nameIndex)
@@ -222,7 +227,7 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, watchIDs []string, n
 	return result
 }
 
-func (p *Publisher) buildEvidenceRecord(item map[string]interface{}, ownership map[string][][2]string) map[string]interface{} {
+func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]interface{}, ownership map[string][][2]string) map[string]interface{} {
 	urlStr := fmt.Sprint(item["canonical_url"])
 	if urlStr == "<nil>" || urlStr == "" {
 		urlStr = fmt.Sprint(item["url"])
@@ -261,12 +266,13 @@ func (p *Publisher) buildEvidenceRecord(item map[string]interface{}, ownership m
 		playerIDs = append(playerIDs, "nfl:"+sid)
 	}
 
-	// Team IDs (heuristic: 2-3 letter all-caps)
+	// Team IDs: entities store full team names (e.g. "Philadelphia Eagles"),
+	// so resolve each against the canonical name->abbreviation table.
 	entities := item["entities"].([]string)
-	var teamIDs []string
+	teamIDs := make([]string, 0, len(entities))
 	for _, e := range entities {
-		if len(e) >= 2 && len(e) <= 3 && e == strings.ToUpper(e) {
-			teamIDs = append(teamIDs, "nfl:"+e)
+		if abbr, ok := models.TeamAbbrForName(e); ok {
+			teamIDs = append(teamIDs, "nfl:"+abbr)
 		}
 	}
 
@@ -289,7 +295,7 @@ func (p *Publisher) buildEvidenceRecord(item map[string]interface{}, ownership m
 	topics := item["topics"].([]string)
 	topic := TopicFromTopics(topics)
 
-	publishedAt := ""
+	var publishedAt interface{}
 	if v, ok := item["published_at"].(*time.Time); ok && v != nil {
 		publishedAt = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
@@ -300,17 +306,13 @@ func (p *Publisher) buildEvidenceRecord(item map[string]interface{}, ownership m
 	if fetchedAt == "" {
 		fetchedAt = p.common.NowISO()
 	}
-	updatedAt := ""
+	var updatedAt interface{}
 	if v, ok := item["updated_at"].(*time.Time); ok && v != nil {
 		updatedAt = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
 
 	// Facts
-	var claims []map[string]interface{}
-	facts := p.factsForItem(item["id"])
-	for _, fact := range facts {
-		claims = append(claims, fact)
-	}
+	claims := p.factsForItem(ctx, item["id"])
 
 	// Owner reasons
 	var ownerReasons []string
@@ -366,21 +368,21 @@ func (p *Publisher) buildEvidenceRecord(item map[string]interface{}, ownership m
 			"relevant_to_pick_value":   false,
 			"reason":                   reason,
 		},
-		"status":        "current",
-		"content_hash":  ContentHash(summary),
-		"supersedes":    []interface{}{},
+		"status":       "current",
+		"content_hash": ContentHash(summary),
+		"supersedes":   []interface{}{},
 	}
 }
 
-func (p *Publisher) factsForItem(itemID interface{}) []map[string]interface{} {
-	rows, err := p.common.pool.Query(context.Background(),
+func (p *Publisher) factsForItem(ctx context.Context, itemID interface{}) []map[string]interface{} {
+	claims := make([]map[string]interface{}, 0)
+	rows, err := p.common.pool.Query(ctx,
 		"SELECT fact_text, confidence FROM fact WHERE news_item_id = $1 ORDER BY occurred_at DESC",
 		itemID)
 	if err != nil {
-		return nil
+		return claims
 	}
 	defer rows.Close()
-	var claims []map[string]interface{}
 	for rows.Next() {
 		var text string
 		var conf *string
@@ -432,6 +434,20 @@ func getStr(m map[string]interface{}, key string) string {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return ""
+	}
+	// fmt.Sprint prints the hex address for a non-nil *string/*int rather
+	// than the pointed-to value, so those need an explicit dereference.
+	switch p := v.(type) {
+	case *string:
+		if p == nil {
+			return ""
+		}
+		return *p
+	case *int:
+		if p == nil {
+			return ""
+		}
+		return strconv.Itoa(*p)
 	}
 	s := fmt.Sprint(v)
 	if s == "<nil>" {

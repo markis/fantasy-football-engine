@@ -2,13 +2,20 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"time"
 
 	"github.com/markis/fantasy-football-engine/internal/config"
 	"github.com/robfig/cron/v3"
+)
+
+var (
+	errStepNotRegistered = errors.New("step not registered")
+	errStepPanic         = errors.New("panic in step")
 )
 
 // StepFunc is a function that runs a pipeline step.
@@ -20,15 +27,16 @@ type Scheduler struct {
 	steps   map[string]StepFunc
 	mu      sync.RWMutex
 	status  map[string]JobStatus
+	running map[string]bool
 }
 
 // JobStatus tracks the last run of a job.
 type JobStatus struct {
-	Name       string    `json:"name"`
-	LastRun    time.Time `json:"last_run"`
-	LastStatus string    `json:"last_status"` // ok | error
-	LastDuration string  `json:"last_duration"`
-	NextRun    time.Time `json:"next_run"`
+	Name         string    `json:"name"`
+	LastRun      time.Time `json:"last_run"`
+	LastStatus   string    `json:"last_status"` // ok | error
+	LastDuration string    `json:"last_duration"`
+	NextRun      time.Time `json:"next_run"`
 }
 
 // New creates a new scheduler.
@@ -39,9 +47,10 @@ func New(tz string) (*Scheduler, error) {
 	}
 	c := cron.New(cron.WithLocation(loc), cron.WithSeconds())
 	s := &Scheduler{
-		cron:   c,
-		steps:  make(map[string]StepFunc),
-		status: make(map[string]JobStatus),
+		cron:    c,
+		steps:   make(map[string]StepFunc),
+		status:  make(map[string]JobStatus),
+		running: make(map[string]bool),
 	}
 	return s, nil
 }
@@ -59,7 +68,7 @@ func (s *Scheduler) AddJob(job config.JobConfig) error {
 	stepFn, ok := s.steps[job.Step]
 	s.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf("step %s not registered", job.Step)
+		return fmt.Errorf("%w: %s", errStepNotRegistered, job.Step)
 	}
 
 	_, err := s.cron.AddFunc(job.Schedule, func() {
@@ -73,12 +82,26 @@ func (s *Scheduler) AddJob(job config.JobConfig) error {
 }
 
 func (s *Scheduler) runJob(job config.JobConfig, fn StepFunc) {
+	s.mu.Lock()
+	if s.running[job.Name] {
+		s.mu.Unlock()
+		slog.Warn("cron job already running — skipping this trigger", "name", job.Name)
+		return
+	}
+	s.running[job.Name] = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.running, job.Name)
+		s.mu.Unlock()
+	}()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 	defer cancel()
 
 	start := time.Now()
 	slog.Info("running cron job", "name", job.Name, "step", job.Step)
-	err := fn(ctx, job)
+	err := runStep(ctx, job, fn)
 	duration := time.Since(start)
 
 	status := "ok"
@@ -97,6 +120,19 @@ func (s *Scheduler) runJob(job config.JobConfig, fn StepFunc) {
 		LastDuration: duration.String(),
 	}
 	s.mu.Unlock()
+}
+
+// runStep runs fn and recovers from a panic, converting it into an error so
+// one bad step can't take down the whole scheduler (and the daemon along
+// with it — cron dispatches jobs on unrecovered goroutines).
+func runStep(ctx context.Context, job config.JobConfig, fn StepFunc) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("panic in cron step", "name", job.Name, "step", job.Step, "panic", r, "stack", string(debug.Stack()))
+			err = fmt.Errorf("%w (%s): %v", errStepPanic, job.Step, r)
+		}
+	}()
+	return fn(ctx, job)
 }
 
 // Start starts the cron scheduler.
@@ -123,13 +159,19 @@ func (s *Scheduler) GetStatus() []JobStatus {
 	return result
 }
 
-// TriggerStep manually triggers a step.
+// TriggerStep manually triggers a step. The step runs in the background
+// (it may take up to an hour), independent of the caller's request
+// lifetime — but if the caller's context is already canceled, the step is
+// never started.
 func (s *Scheduler) TriggerStep(ctx context.Context, step string, job config.JobConfig) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("trigger step %s: %w", step, err)
+	}
 	s.mu.RLock()
 	fn, ok := s.steps[step]
 	s.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf("step %s not registered", step)
+		return fmt.Errorf("%w: %s", errStepNotRegistered, step)
 	}
 	job.Step = step
 	go s.runJob(job, fn)

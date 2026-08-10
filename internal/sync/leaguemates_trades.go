@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/markis/fantasy-football-engine/internal/db"
@@ -25,9 +25,9 @@ func NewLeaguemateTradesSyncer(pool *db.Pool, sleeperClient *sleeper.Client) *Le
 
 // TradesSyncResult is the result of a trades sync.
 type TradesSyncResult struct {
-	TradesStored int    `json:"trades_stored"`
-	LeaguesScanned int  `json:"leagues_scanned"`
-	Status       string `json:"status"`
+	TradesStored   int    `json:"trades_stored"`
+	LeaguesScanned int    `json:"leagues_scanned"`
+	Status         string `json:"status"`
 }
 
 // Sync stores completed trades from mapped leagues.
@@ -41,20 +41,21 @@ func (s *LeaguemateTradesSyncer) Sync(ctx context.Context, maxWeeks int) (*Trade
 	watchSet := s.watchSet(ctx)
 
 	// Get all mapped leagues
-	rows, err := s.pool.Query(ctx, "SELECT league_id, status FROM league")
+	rows, err := s.pool.Query(ctx, "SELECT league_id, status, is_markis_league FROM league")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
 	type leagueInfo struct {
-		id     string
-		status string
+		id             string
+		status         string
+		isMarkisLeague bool
 	}
 	var leagues []leagueInfo
 	for rows.Next() {
 		var li leagueInfo
-		if err := rows.Scan(&li.id, &li.status); err != nil {
+		if err := rows.Scan(&li.id, &li.status, &li.isMarkisLeague); err != nil {
 			continue
 		}
 		leagues = append(leagues, li)
@@ -71,10 +72,7 @@ func (s *LeaguemateTradesSyncer) Sync(ctx context.Context, maxWeeks int) (*Trade
 		// Determine scan range
 		var scanWeeks []int
 		if currentWeek > 0 {
-			lo := currentWeek - maxWeeks + 1
-			if lo < 1 {
-				lo = 1
-			}
+			lo := max(currentWeek-maxWeeks+1, 1)
 			for w := currentWeek; w >= lo; w-- {
 				scanWeeks = append(scanWeeks, w)
 			}
@@ -97,8 +95,9 @@ func (s *LeaguemateTradesSyncer) Sync(ctx context.Context, maxWeeks int) (*Trade
 				if fmt.Sprint(txn["status"]) != "complete" {
 					continue
 				}
-				s.storeTrade(ctx, txn, lg.id, watchSet)
-				result.TradesStored++
+				if s.storeTrade(ctx, txn, lg.id, lg.isMarkisLeague, watchSet) {
+					result.TradesStored++
+				}
 			}
 		}
 		result.LeaguesScanned++
@@ -108,33 +107,29 @@ func (s *LeaguemateTradesSyncer) Sync(ctx context.Context, maxWeeks int) (*Trade
 	return result, nil
 }
 
-func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]interface{}, leagueID string, watchSet map[string]bool) {
+func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]any, leagueID string, isMarkisLeague bool, watchSet map[string]bool) bool {
 	txnID := fmt.Sprint(txn["transaction_id"])
 	if txnID == "" || txnID == "<nil>" {
-		return
+		return false
 	}
 
 	raw, _ := json.Marshal(txn)
 
-	// Check if Markis's league
-	var isMarkisLeague bool
-	_ = s.pool.QueryRow(ctx, "SELECT is_markis_league FROM league WHERE league_id = $1", leagueID).Scan(&isMarkisLeague)
-
 	// Check if involves watch set
 	involvesWatchSet := false
-	adds, _ := txn["adds"].(map[string]interface{})
-	drops, _ := txn["drops"].(map[string]interface{})
-	draftPicks, _ := txn["draft_picks"].([]interface{})
+	adds, _ := txn["adds"].(map[string]any)
+	drops, _ := txn["drops"].(map[string]any)
+	draftPicks, _ := txn["draft_picks"].([]any)
 
 	for pid := range adds {
-		if watchSet[fmt.Sprint(pid)] {
+		if watchSet[pid] {
 			involvesWatchSet = true
 			break
 		}
 	}
 	if !involvesWatchSet {
 		for pid := range drops {
-			if watchSet[fmt.Sprint(pid)] {
+			if watchSet[pid] {
 				involvesWatchSet = true
 				break
 			}
@@ -157,37 +152,43 @@ func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]
 		isMarkisLeague, involvesWatchSet, raw)
 	if err != nil {
 		slog.Warn("store trade", "id", txnID, "err", err)
-		return
+		return false
 	}
 
-	// Delete + reinsert assets
-	_, _ = s.pool.Exec(ctx, "DELETE FROM leaguemate_trade_asset WHERE transaction_id = $1", txnID)
+	// Delete + reinsert assets. There's no unique constraint on
+	// leaguemate_trade_asset (dedup relies on this delete always running
+	// before the inserts below), so a failed delete must abort rather than
+	// fall through into inserting a second, duplicate set of rows.
+	if _, err := s.pool.Exec(ctx, "DELETE FROM leaguemate_trade_asset WHERE transaction_id = $1", txnID); err != nil {
+		slog.Warn("delete trade assets", "id", txnID, "err", err)
+		return false
+	}
 
 	// Player assets from adds/drops
 	for pid, toRoster := range adds {
 		fromRoster := drops[pid]
-		isWatch := watchSet[fmt.Sprint(pid)]
+		isWatch := watchSet[pid]
 		_, _ = s.pool.Exec(ctx, `
 			INSERT INTO leaguemate_trade_asset (id, transaction_id, league_id, asset_type,
 				sleeper_player_id, from_roster_id, to_roster_id, is_watch_set)
 			VALUES ($1, $2, $3, 'player', $4, $5, $6, $7)
-		`, uuid.New(), txnID, leagueID, fmt.Sprint(pid), toInt(fromRoster), toInt(toRoster), isWatch)
+		`, uuid.New(), txnID, leagueID, pid, toInt(fromRoster), toInt(toRoster), isWatch)
 	}
 	for pid, fromRoster := range drops {
 		if _, ok := adds[pid]; ok {
 			continue // already handled
 		}
-		isWatch := watchSet[fmt.Sprint(pid)]
+		isWatch := watchSet[pid]
 		_, _ = s.pool.Exec(ctx, `
 			INSERT INTO leaguemate_trade_asset (id, transaction_id, league_id, asset_type,
 				sleeper_player_id, from_roster_id, to_roster_id, is_watch_set)
 			VALUES ($1, $2, $3, 'player', $4, $5, NULL, $6)
-		`, uuid.New(), txnID, leagueID, fmt.Sprint(pid), toInt(fromRoster), isWatch)
+		`, uuid.New(), txnID, leagueID, pid, toInt(fromRoster), isWatch)
 	}
 
 	// Pick assets
 	for _, pick := range draftPicks {
-		pm, ok := pick.(map[string]interface{})
+		pm, ok := pick.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -199,6 +200,8 @@ func (s *LeaguemateTradesSyncer) storeTrade(ctx context.Context, txn map[string]
 			nilIfEmpty(fmt.Sprint(pm["season"])), toInt(pm["round"]),
 			toInt(pm["roster_id"]), toInt(pm["previous_owner_id"]), toInt(pm["owner_id"]))
 	}
+
+	return true
 }
 
 func (s *LeaguemateTradesSyncer) watchSet(ctx context.Context) map[string]bool {
@@ -223,11 +226,11 @@ func (s *LeaguemateTradesSyncer) watchSet(ctx context.Context) map[string]bool {
 	return result
 }
 
-func toIntSlice(v interface{}) []int {
+func toIntSlice(v any) []int {
 	if v == nil {
 		return []int{}
 	}
-	arr, ok := v.([]interface{})
+	arr, ok := v.([]any)
 	if !ok {
 		return []int{}
 	}
@@ -241,7 +244,7 @@ func toIntSlice(v interface{}) []int {
 	return result
 }
 
-func epochMsToTime(v interface{}) interface{} {
+func epochMsToTime(v any) any {
 	if v == nil {
 		return nil
 	}
@@ -252,11 +255,6 @@ func epochMsToTime(v interface{}) interface{} {
 	return epochMsToTimeVal(*n)
 }
 
-func epochMsToTimeVal(ms int) interface{} {
-	// Return as time.Time — pgx will adapt it
-	// Use a helper to avoid import issues
-	return json.Number(fmt.Sprint(ms))
+func epochMsToTimeVal(ms int) any {
+	return time.UnixMilli(int64(ms)).UTC()
 }
-
-// Ensure strings import is used
-var _ = strings.TrimSpace

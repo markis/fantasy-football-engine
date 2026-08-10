@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/markis/fantasy-football-engine/internal/db"
@@ -25,9 +26,9 @@ func NewPlayerSyncer(pool *db.Pool, sleeperClient *sleeper.Client) *PlayerSyncer
 
 // PlayerSyncResult is the result of a player sync.
 type PlayerSyncResult struct {
-	Synced     int               `json:"synced"`
-	ByPosition map[string]int    `json:"by_position"`
-	Status     string            `json:"status"`
+	Synced     int            `json:"synced"`
+	ByPosition map[string]int `json:"by_position"`
+	Status     string         `json:"status"`
 }
 
 // Sync fetches the full player dump and upserts into the player table.
@@ -98,56 +99,62 @@ func projectPlayer(pid string, p map[string]interface{}) []interface{} {
 	}
 
 	vals := make([]interface{}, len(cols))
+	colIndex := make(map[string]int, len(cols))
 	for i, col := range cols {
 		vals[i] = p[col]
+		colIndex[col] = i
 	}
 
 	// Convert numeric IDs to strings
-	for _, idx := range []int{27, 28, 29, 30, 32} { // espn_id, rotowire_id, rotoworld_id, yahoo_id, stats_id
+	for _, name := range []string{"espn_id", "rotowire_id", "rotoworld_id", "yahoo_id", "sportradar_id", "stats_id"} {
+		idx := colIndex[name]
 		if vals[idx] != nil {
 			vals[idx] = fmt.Sprint(vals[idx])
 		}
 	}
 
 	// Convert news_updated epoch ms to timestamp
-	if vals[33] != nil {
-		switch v := vals[33].(type) {
+	newsUpdatedIdx := colIndex["news_updated"]
+	if vals[newsUpdatedIdx] != nil {
+		switch v := vals[newsUpdatedIdx].(type) {
 		case float64:
 			ts := time.UnixMilli(int64(v)).UTC()
-			vals[33] = ts
+			vals[newsUpdatedIdx] = ts
 		case json.Number:
 			if n, err := v.Int64(); err == nil {
-				vals[33] = time.UnixMilli(n).UTC()
+				vals[newsUpdatedIdx] = time.UnixMilli(n).UTC()
 			}
 		}
 	}
 
 	// fantasy_positions as string array
-	if vals[5] != nil {
-		switch v := vals[5].(type) {
+	fantasyPositionsIdx := colIndex["fantasy_positions"]
+	if vals[fantasyPositionsIdx] != nil {
+		switch v := vals[fantasyPositionsIdx].(type) {
 		case []interface{}:
 			arr := make([]string, 0, len(v))
 			for _, item := range v {
 				arr = append(arr, fmt.Sprint(item))
 			}
-			vals[5] = arr
+			vals[fantasyPositionsIdx] = arr
 		}
 	}
 
 	// active as bool
-	if vals[9] != nil {
-		switch v := vals[9].(type) {
+	activeIdx := colIndex["active"]
+	if vals[activeIdx] != nil {
+		switch v := vals[activeIdx].(type) {
 		case bool:
-			vals[9] = v
+			vals[activeIdx] = v
 		case float64:
-			vals[9] = v != 0
+			vals[activeIdx] = v != 0
 		case string:
-			vals[9] = v == "true" || v == "True"
+			vals[activeIdx] = v == "true" || v == "True"
 		default:
-			vals[9] = false
+			vals[activeIdx] = false
 		}
 	} else {
-		vals[9] = false
+		vals[activeIdx] = false
 	}
 
 	// Prepend sleeper_player_id
@@ -161,8 +168,8 @@ func projectPlayer(pid string, p map[string]interface{}) []interface{} {
 
 // pgxBatch accumulates player rows and executes them in batches.
 type pgxBatch struct {
-	pool   *db.Pool
-	rows   [][]interface{}
+	pool *db.Pool
+	rows [][]interface{}
 }
 
 func (b *pgxBatch) add(row []interface{}) {
@@ -187,26 +194,32 @@ func (b *pgxBatch) flush(ctx context.Context) error {
 
 	// Build the SQL
 	placeholders := ""
+	var placeholdersSb196 strings.Builder
 	for i := range cols {
 		if i > 0 {
-			placeholders += ", "
+			placeholdersSb196.WriteString(", ")
 		}
-		placeholders += "$" + strconv.Itoa(i+2)
+		placeholdersSb196.WriteString("$" + strconv.Itoa(i+2))
 	}
+	placeholders += placeholdersSb196.String()
 	colNames := ""
+	var colNamesSb203 strings.Builder
 	for i, c := range cols {
 		if i > 0 {
-			colNames += ", "
+			colNamesSb203.WriteString(", ")
 		}
-		colNames += c
+		colNamesSb203.WriteString(c)
 	}
+	colNames += colNamesSb203.String()
 	updates := ""
+	var updatesSb210 strings.Builder
 	for i, c := range cols {
 		if i > 0 {
-			updates += ", "
+			updatesSb210.WriteString(", ")
 		}
-		updates += c + " = EXCLUDED." + c
+		updatesSb210.WriteString(c + " = EXCLUDED." + c)
 	}
+	updates += updatesSb210.String()
 
 	sql := fmt.Sprintf(`
 		INSERT INTO player (sleeper_player_id, %s, last_synced_at)

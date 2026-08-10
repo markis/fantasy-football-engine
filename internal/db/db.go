@@ -81,26 +81,37 @@ func (p *Pool) RunMigrations(ctx context.Context) error {
 		return entries[i].Name() < entries[j].Name()
 	})
 
-	// If the DB already has tables (in-place upgrade), mark all existing
-	// migrations as applied without running them. This prevents re-running
+	// If the DB already has tables but no migration tracking history yet,
+	// this is the first run after tracking was introduced on a pre-existing
+	// database: backfill all currently-shipped migrations as already applied
+	// (they predate tracking) without running them, so we don't re-run
 	// CREATE TABLE IF NOT EXISTS / ALTER TABLE ADD COLUMN IF NOT EXISTS
-	// statements that are idempotent but noisy.
+	// statements that are idempotent but noisy. Any migration added after
+	// this backfill will have no row in schema_migrations and will be
+	// applied normally by the loop below on a later run.
 	if existingTable {
-		for _, e := range entries {
-			version := strings.TrimSuffix(e.Name(), ".sql")
-			_, err := p.Exec(ctx, `
-				INSERT INTO schema_migrations (version) VALUES ($1)
-				ON CONFLICT (version) DO NOTHING
-			`, version)
-			if err != nil {
-				return fmt.Errorf("mark migration %s: %w", version, err)
-			}
+		var trackedCount int
+		if err := p.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&trackedCount); err != nil {
+			return fmt.Errorf("count tracked migrations: %w", err)
 		}
-		slog.Info("existing database detected — all migrations marked as applied (in-place upgrade)")
-		return nil
+		if trackedCount == 0 {
+			for _, e := range entries {
+				version := strings.TrimSuffix(e.Name(), ".sql")
+				_, err := p.Exec(ctx, `
+					INSERT INTO schema_migrations (version) VALUES ($1)
+					ON CONFLICT (version) DO NOTHING
+				`, version)
+				if err != nil {
+					return fmt.Errorf("mark migration %s: %w", version, err)
+				}
+			}
+			slog.Info("existing database detected — backfilling pre-tracking migrations as applied")
+			return nil
+		}
 	}
 
-	// Fresh DB: apply migrations in order.
+	// Fresh DB, or existing DB with tracking already bootstrapped: apply any
+	// pending migrations in order.
 	for _, e := range entries {
 		version := strings.TrimSuffix(e.Name(), ".sql")
 		var already bool
@@ -140,8 +151,15 @@ func NewVector(vals []float32) Vector {
 	return pgvector.NewVector(vals)
 }
 
-var dsnRedactor = regexp.MustCompile(`(password|passwd|pwd)=([^ ]+)`)
+// dsnKeyValueRedactor matches libpq key=value style credentials, e.g.
+// "password=secret".
+var dsnKeyValueRedactor = regexp.MustCompile(`(password|passwd|pwd)=([^ ]+)`)
+
+// dsnURLRedactor matches the password in a postgres:// URL DSN, e.g.
+// "postgres://user:secret@host/db".
+var dsnURLRedactor = regexp.MustCompile(`(://[^:/?#@]+):([^@/?#]+)@`)
 
 func redactDSN(dsn string) string {
-	return dsnRedactor.ReplaceAllString(dsn, "${1}=***")
+	dsn = dsnURLRedactor.ReplaceAllString(dsn, "${1}:***@")
+	return dsnKeyValueRedactor.ReplaceAllString(dsn, "${1}=***")
 }

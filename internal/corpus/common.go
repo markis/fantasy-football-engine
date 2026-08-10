@@ -22,13 +22,13 @@ import (
 
 // Common provides shared helpers for the corpus publisher.
 type Common struct {
-	pool          *db.Pool
-	sleeper       *sleeper.Client
-	corpus        string
-	staging       string
-	gitAuthorName string
+	pool           *db.Pool
+	sleeper        *sleeper.Client
+	corpus         string
+	staging        string
+	gitAuthorName  string
 	gitAuthorEmail string
-	gitPAT        string
+	gitPAT         string
 }
 
 // New creates a new Common helper.
@@ -79,15 +79,15 @@ func ClaimID(text string) string {
 }
 
 func SignalID(playerID, stype, value, observedAt string) string {
-	return "signal:" + SHA256(playerID+"|"+stype+"|"+value+"|"+observedAt)[:16]
+	return "signal:" + SHA256(playerID + "|" + stype + "|" + value + "|" + observedAt)[:16]
 }
 
 func ValuationID(playerID, source, vtype, fmtCtx, observedAt string) string {
-	return "valuation:" + SHA256(playerID+"|"+source+"|"+vtype+"|"+fmtCtx+"|"+observedAt)[:16]
+	return "valuation:" + SHA256(playerID + "|" + source + "|" + vtype + "|" + fmtCtx + "|" + observedAt)[:16]
 }
 
 func ChangeID(ts, entityID, op string) string {
-	return "change:" + SHA256(ts+"|"+entityID+"|"+op)[:16]
+	return "change:" + SHA256(ts + "|" + entityID + "|" + op)[:16]
 }
 
 func ContentHash(text string) string {
@@ -132,31 +132,31 @@ func ISOOrNone(s string) string {
 
 // --- Sleeper fetch (with cache) ---
 
-func (c *Common) SleeperGet(ctx context.Context, path string) (interface{}, error) {
+func (c *Common) SleeperGet(ctx context.Context, path string) (any, error) {
 	return c.sleeper.GetRaw(ctx, path)
 }
 
-func (c *Common) LeagueRosters(ctx context.Context, leagueID string) ([]map[string]interface{}, error) {
+func (c *Common) LeagueRosters(ctx context.Context, leagueID string) ([]map[string]any, error) {
 	return c.sleeper.GetLeagueRosters(ctx, leagueID)
 }
 
-func (c *Common) LeagueUsers(ctx context.Context, leagueID string) ([]map[string]interface{}, error) {
+func (c *Common) LeagueUsers(ctx context.Context, leagueID string) ([]map[string]any, error) {
 	return c.sleeper.GetLeagueUsers(ctx, leagueID)
 }
 
-func (c *Common) LeagueInfo(ctx context.Context, leagueID string) (map[string]interface{}, error) {
+func (c *Common) LeagueInfo(ctx context.Context, leagueID string) (map[string]any, error) {
 	return c.sleeper.GetLeagueInfo(ctx, leagueID)
 }
 
-func (c *Common) LeagueTradedPicks(ctx context.Context, leagueID string) ([]map[string]interface{}, error) {
+func (c *Common) LeagueTradedPicks(ctx context.Context, leagueID string) ([]map[string]any, error) {
 	return c.sleeper.GetLeagueTradedPicks(ctx, leagueID)
 }
 
-func (c *Common) LeagueTransactions(ctx context.Context, leagueID string, week int) ([]map[string]interface{}, error) {
+func (c *Common) LeagueTransactions(ctx context.Context, leagueID string, week int) ([]map[string]any, error) {
 	return c.sleeper.GetLeagueTransactions(ctx, leagueID, week)
 }
 
-func (c *Common) MyRoster(rosters []map[string]interface{}) map[string]interface{} {
+func (c *Common) MyRoster(rosters []map[string]any) map[string]any {
 	for _, r := range rosters {
 		if fmt.Sprint(r["owner_id"]) == models.MarkisUserID {
 			return r
@@ -165,7 +165,7 @@ func (c *Common) MyRoster(rosters []map[string]interface{}) map[string]interface
 	return nil
 }
 
-func (c *Common) AllRosterPlayerIDs(rosters []map[string]interface{}) []string {
+func (c *Common) AllRosterPlayerIDs(rosters []map[string]any) []string {
 	ids := make(map[string]bool)
 	for _, r := range rosters {
 		for _, p := range toStringSlice(r["players"]) {
@@ -183,8 +183,8 @@ func (c *Common) AllRosterPlayerIDs(rosters []map[string]interface{}) []string {
 
 // --- Player/ranking queries ---
 
-func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string]map[string]interface{} {
-	result := make(map[string]map[string]interface{})
+func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string]map[string]any {
+	result := make(map[string]map[string]any)
 	if len(sleeperIDs) == 0 {
 		return result
 	}
@@ -200,12 +200,14 @@ func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string
 		return result
 	}
 	defer rows.Close()
-	cols := []string{"sleeper_player_id", "full_name", "first_name", "last_name", "search_full_name",
+	cols := []string{
+		"sleeper_player_id", "full_name", "first_name", "last_name", "search_full_name",
 		"position", "team", "team_abbr", "age", "injury_status", "injury_body_part",
 		"injury_notes", "status", "active", "depth_chart_position", "depth_chart_order",
-		"last_synced_at"}
+		"last_synced_at",
+	}
 	for rows.Next() {
-		vals := make(map[string]interface{})
+		vals := make(map[string]any)
 		var sleeperID string
 		var fullName, firstName, lastName, searchName, position, team, teamAbbr,
 			injuryStatus, injuryBodyPart, injuryNotes, status, dcPos *string
@@ -219,6 +221,8 @@ func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string
 		}
 		vals["sleeper_player_id"] = sleeperID
 		vals["full_name"] = fullName
+		vals["last_name"] = lastName
+		vals["search_full_name"] = searchName
 		vals["position"] = position
 		vals["team"] = team
 		vals["team_abbr"] = teamAbbr
@@ -237,8 +241,8 @@ func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string
 	return result
 }
 
-func (c *Common) RankingRows(ctx context.Context, sleeperIDs []string, source string, market int) map[string]map[string]interface{} {
-	result := make(map[string]map[string]interface{})
+func (c *Common) RankingRows(ctx context.Context, sleeperIDs []string, source string, market int) map[string]map[string]any {
+	result := make(map[string]map[string]any)
 	if len(sleeperIDs) == 0 {
 		return result
 	}
@@ -267,7 +271,7 @@ func (c *Common) RankingRows(ctx context.Context, sleeperIDs []string, source st
 			&avgADP, &lastMonthValue, &lastMonthValueSF, &snapshotDate, &dataDate); err != nil {
 			continue
 		}
-		vals := map[string]interface{}{
+		vals := map[string]any{
 			"sleeper_player_id":   sleeperID,
 			"trade_value":         tradeValue,
 			"sf_trade_value":      sfTradeValue,
@@ -289,9 +293,11 @@ func (c *Common) RankingRows(ctx context.Context, sleeperIDs []string, source st
 
 // --- Name matching ---
 
-var nameNormalizer = regexp.MustCompile(`[^a-z0-9 ]`)
-var suffixRe = regexp.MustCompile(`\s+(jr|sr|ii|iii|iv)\b`)
-var multiSpaceRe = regexp.MustCompile(`\s+`)
+var (
+	nameNormalizer = regexp.MustCompile(`[^a-z0-9 ]`)
+	suffixRe       = regexp.MustCompile(`\s+(jr|sr|ii|iii|iv)\b`)
+	multiSpaceRe   = regexp.MustCompile(`\s+`)
+)
 
 func NormalizeName(n string) string {
 	n = strings.ToLower(n)
@@ -301,7 +307,7 @@ func NormalizeName(n string) string {
 	return strings.TrimSpace(n)
 }
 
-func BuildNameIndex(playerRows map[string]map[string]interface{}) map[string][]string {
+func BuildNameIndex(playerRows map[string]map[string]any) map[string][]string {
 	idx := make(map[string][]string)
 	for sid, p := range playerRows {
 		for _, k := range []string{"full_name", "search_full_name", "last_name"} {
@@ -338,8 +344,8 @@ func MatchEntitiesToPlayers(entities []string, nameIndex map[string][]string) []
 
 // --- File IO ---
 
-func WriteJSON(path string, obj interface{}) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+func WriteJSON(path string, obj any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(obj, "", "  ")
@@ -347,18 +353,18 @@ func WriteJSON(path string, obj interface{}) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0644)
+	return os.WriteFile(path, data, 0o644)
 }
 
 func WriteText(path, text string) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(strings.TrimRight(text, "\n")+"\n"), 0644)
+	return os.WriteFile(path, []byte(strings.TrimRight(text, "\n")+"\n"), 0o644)
 }
 
-func AppendJSONL(path string, obj interface{}) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+func AppendJSONL(path string, obj any) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
 	data, err := json.Marshal(obj)
@@ -366,7 +372,7 @@ func AppendJSONL(path string, obj interface{}) error {
 		return err
 	}
 	data = append(data, '\n')
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -375,7 +381,7 @@ func AppendJSONL(path string, obj interface{}) error {
 	return err
 }
 
-func ReadJSONL(path string) ([]map[string]interface{}, error) {
+func ReadJSONL(path string) ([]map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -383,13 +389,13 @@ func ReadJSONL(path string) ([]map[string]interface{}, error) {
 		}
 		return nil, err
 	}
-	var result []map[string]interface{}
-	for _, line := range strings.Split(string(data), "\n") {
+	var result []map[string]any
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		var obj map[string]interface{}
+		var obj map[string]any
 		if err := json.Unmarshal([]byte(line), &obj); err == nil {
 			result = append(result, obj)
 		}
@@ -433,11 +439,11 @@ func TopicFromTopics(topics []string) string {
 
 // --- Helper ---
 
-func toStringSlice(v interface{}) []string {
+func toStringSlice(v any) []string {
 	if v == nil {
 		return nil
 	}
-	arr, ok := v.([]interface{})
+	arr, ok := v.([]any)
 	if !ok {
 		return nil
 	}

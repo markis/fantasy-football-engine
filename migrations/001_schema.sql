@@ -146,10 +146,9 @@ CREATE INDEX IF NOT EXISTS idx_player_team ON player(team);
 CREATE INDEX IF NOT EXISTS idx_player_active ON player(active) WHERE active = true;
 CREATE INDEX IF NOT EXISTS idx_player_status ON player(status);
 
--- Player updated_at trigger
-DROP TRIGGER IF EXISTS player_updated_at ON player;
-CREATE TRIGGER player_updated_at BEFORE UPDATE ON player
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+-- Player updated_at trigger: set up in 002_pipeline.sql, which is where
+-- set_updated_at() is defined (it must exist before the trigger can
+-- reference it).
 
 -- Player ranking table (Dynasty Daddy — synced daily by sync_rankings.py)
 -- Stores BOTH 1QB (trade_value/overall_rank) and Superflex
@@ -217,9 +216,8 @@ CREATE INDEX IF NOT EXISTS idx_player_ranking_pos_rank ON player_ranking(positio
 CREATE INDEX IF NOT EXISTS idx_player_ranking_sf ON player_ranking(sf_overall_rank);
 CREATE INDEX IF NOT EXISTS idx_player_ranking_player ON player_ranking(player_id);
 
-DROP TRIGGER IF EXISTS player_ranking_updated_at ON player_ranking;
-CREATE TRIGGER player_ranking_updated_at BEFORE UPDATE ON player_ranking
-    FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+-- player_ranking_updated_at trigger: set up in 002_pipeline.sql alongside
+-- set_updated_at().
 
 -- Vector indexes (ivfflat for cosine similarity)
 CREATE INDEX IF NOT EXISTS idx_news_item_embedding

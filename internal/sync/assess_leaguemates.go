@@ -9,6 +9,7 @@ import (
 
 	"github.com/markis/fantasy-football-engine/internal/db"
 	"github.com/markis/fantasy-football-engine/internal/llm"
+	"github.com/markis/fantasy-football-engine/internal/models"
 )
 
 // LeaguemateAssessor computes tendency signals and LLM dossiers.
@@ -35,9 +36,12 @@ func (a *LeaguemateAssessor) Assess(ctx context.Context, batch int) (*AssessResu
 	}
 	result := &AssessResult{Status: "ok"}
 
-	// Get current ISO week (anchored to Monday)
+	// Get current ISO week (anchored to Monday). time.Weekday is Sunday=0..
+	// Saturday=6, so "days since Monday" needs a +6 %7 rotation — a bare
+	// -Weekday()+1 lands a week early on Sundays.
 	now := time.Now().UTC()
-	isoWeekStart := now.AddDate(0, 0, -int(now.Weekday())+1) // Monday
+	daysSinceMonday := (int(now.Weekday()) + 6) % 7
+	isoWeekStart := now.AddDate(0, 0, -daysSinceMonday)
 	snapshotDate := isoWeekStart
 
 	// Get leaguemates not yet snapshotted for this week
@@ -51,7 +55,7 @@ func (a *LeaguemateAssessor) Assess(ctx context.Context, batch int) (*AssessResu
 			WHERE ls.user_id = lm.user_id AND ls.snapshot_date = $2
 		)
 		LIMIT $3
-	`, "558115100726579200", snapshotDate, batch)
+	`, models.MarkisUserID, snapshotDate, batch)
 	if err != nil {
 		return nil, fmt.Errorf("query leaguemates for assessment: %w", err)
 	}
@@ -67,7 +71,11 @@ func (a *LeaguemateAssessor) Assess(ctx context.Context, batch int) (*AssessResu
 	}
 
 	for _, uid := range userIDs {
-		signals := a.computeSignals(ctx, uid)
+		signals, err := a.computeSignals(ctx, uid)
+		if err != nil {
+			slog.Warn("compute leaguemate signals", "user", uid, "err", err)
+			continue
+		}
 		dossier := a.generateDossier(ctx, signals)
 		a.snapshotSignal(ctx, snapshotDate, uid, signals, dossier)
 		result.Assessed++
@@ -95,57 +103,67 @@ type leaguemateSignals struct {
 	RecentTrades   string
 }
 
-func (a *LeaguemateAssessor) computeSignals(ctx context.Context, userID string) *leaguemateSignals {
+func (a *LeaguemateAssessor) computeSignals(ctx context.Context, userID string) (*leaguemateSignals, error) {
 	s := &leaguemateSignals{PositionBias: make(map[string]int)}
 
 	// Get username/display_name
-	_ = a.pool.QueryRow(ctx,
+	if err := a.pool.QueryRow(ctx,
 		"SELECT COALESCE(username, ''), COALESCE(display_name, '') FROM sleeper_user WHERE user_id = $1",
-		userID).Scan(&s.Username, &s.DisplayName)
+		userID).Scan(&s.Username, &s.DisplayName); err != nil {
+		return nil, fmt.Errorf("query username: %w", err)
+	}
 
 	// League count
-	_ = a.pool.QueryRow(ctx,
-		"SELECT count(DISTINCT league_id) FROM league_manager WHERE user_id = $1", userID).Scan(&s.LeaguesCount)
+	if err := a.pool.QueryRow(ctx,
+		"SELECT count(DISTINCT league_id) FROM league_manager WHERE user_id = $1", userID).Scan(&s.LeaguesCount); err != nil {
+		return nil, fmt.Errorf("query leagues count: %w", err)
+	}
 
 	// Win pct
 	var wins, losses, ties int
-	_ = a.pool.QueryRow(ctx,
+	if err := a.pool.QueryRow(ctx,
 		"SELECT COALESCE(sum(wins), 0), COALESCE(sum(losses), 0), COALESCE(sum(ties), 0) FROM league_manager WHERE user_id = $1",
-		userID).Scan(&wins, &losses, &ties)
+		userID).Scan(&wins, &losses, &ties); err != nil {
+		return nil, fmt.Errorf("query win/loss: %w", err)
+	}
 	total := wins + losses + ties
 	if total > 0 {
 		s.WinPct = float32(wins) / float32(total)
 	}
 
 	// Contender score: based on win pct + roster value
-	s.ContenderScore = int(s.WinPct * 100)
-	if s.ContenderScore > 100 {
-		s.ContenderScore = 100
-	}
+	s.ContenderScore = min(int(s.WinPct*100), 100)
 
-	// Trade counts
-	_ = a.pool.QueryRow(ctx, `
+	// Trade counts. roster_id is only unique within a league (per
+	// migrations/004_leaguemates_tier2.sql), so the roster_id lookup must be
+	// correlated on a.league_id — otherwise it also matches unrelated
+	// managers who happen to hold the same roster_id in a different league.
+	if err := a.pool.QueryRow(ctx, `
 		SELECT count(*), count(*) FILTER (WHERE created_at > now() - interval '30 days')
 		FROM leaguemate_transaction t
 		JOIN leaguemate_trade_asset a ON a.transaction_id = t.transaction_id
 		WHERE t.type = 'trade' AND t.status = 'complete'
-		AND (a.from_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1)
-		     OR a.to_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1))
-	`, userID).Scan(&s.TradeCount, &s.TradeCount30d)
+		AND (a.from_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id)
+		     OR a.to_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id))
+	`, userID).Scan(&s.TradeCount, &s.TradeCount30d); err != nil {
+		return nil, fmt.Errorf("query trade counts: %w", err)
+	}
 
 	// Picks
-	_ = a.pool.QueryRow(ctx, `
+	if err := a.pool.QueryRow(ctx, `
 		SELECT
-			count(*) FILTER (WHERE a.asset_type = 'pick' AND a.to_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1)),
-			count(*) FILTER (WHERE a.asset_type = 'pick' AND a.from_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1)),
-			count(*) FILTER (WHERE a.asset_type = 'pick' AND a.pick_round = 1 AND a.to_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1))
-			- count(*) FILTER (WHERE a.asset_type = 'pick' AND a.pick_round = 1 AND a.from_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1))
+			count(*) FILTER (WHERE a.asset_type = 'pick' AND a.to_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id)),
+			count(*) FILTER (WHERE a.asset_type = 'pick' AND a.from_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id)),
+			count(*) FILTER (WHERE a.asset_type = 'pick' AND a.pick_round = 1 AND a.to_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id))
+			- count(*) FILTER (WHERE a.asset_type = 'pick' AND a.pick_round = 1 AND a.from_roster_id IN (SELECT roster_id FROM league_manager WHERE user_id = $1 AND league_id = a.league_id))
 		FROM leaguemate_transaction t
 		JOIN leaguemate_trade_asset a ON a.transaction_id = t.transaction_id
 		WHERE t.type = 'trade' AND t.status = 'complete'
-	`, userID).Scan(&s.PicksAcquired, &s.PicksTraded, &s.NetFirsts)
+	`, userID).Scan(&s.PicksAcquired, &s.PicksTraded, &s.NetFirsts); err != nil {
+		return nil, fmt.Errorf("query pick counts: %w", err)
+	}
 
-	return s
+	return s, nil
 }
 
 func (a *LeaguemateAssessor) generateDossier(ctx context.Context, s *leaguemateSignals) string {

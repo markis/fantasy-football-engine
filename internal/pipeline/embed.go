@@ -13,9 +13,9 @@ import (
 
 // Embedder generates and stores embeddings for news items.
 type Embedder struct {
-	pool      *db.Pool
+	pool        *db.Pool
 	embedClient *embed.Client
-	batchSize int
+	batchSize   int
 }
 
 // NewEmbedder creates a new embedder.
@@ -25,9 +25,9 @@ func NewEmbedder(pool *db.Pool, embedClient *embed.Client, batchSize int) *Embed
 
 // EmbedResult is the result of embedding items in batch.
 type EmbedResult struct {
-	Embedded int `json:"embedded"`
-	Errors   int `json:"errors"`
-	Total    int `json:"total"`
+	Embedded int    `json:"embedded"`
+	Errors   int    `json:"errors"`
+	Total    int    `json:"total"`
 	Status   string `json:"status"`
 }
 
@@ -46,8 +46,8 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 	defer rows.Close()
 
 	type item struct {
-		id    uuid.UUID
-		text  string
+		id   uuid.UUID
+		text string
 	}
 	var items []item
 	for rows.Next() {
@@ -76,10 +76,7 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 		bs = 32
 	}
 	for i := 0; i < len(items); i += bs {
-		end := i + bs
-		if end > len(items) {
-			end = len(items)
-		}
+		end := min(i+bs, len(items))
 		batch := items[i:end]
 		texts := make([]string, len(batch))
 		for j, it := range batch {
@@ -91,6 +88,11 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 			slog.Warn("embed batch error", "err", err, "batch_start", i)
 			result.Errors += len(batch)
 			continue
+		}
+
+		if len(vecs) < len(batch) {
+			slog.Warn("embed batch returned fewer vectors than requested",
+				"requested", len(batch), "received", len(vecs), "batch_start", i)
 		}
 
 		for j, vec := range vecs {
@@ -107,6 +109,9 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 			} else {
 				result.Embedded++
 			}
+		}
+		if len(vecs) < len(batch) {
+			result.Errors += len(batch) - len(vecs)
 		}
 	}
 

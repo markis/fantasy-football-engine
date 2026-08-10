@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -13,6 +14,8 @@ import (
 	"github.com/markis/fantasy-football-engine/internal/sleeper"
 	"github.com/pgvector/pgvector-go"
 )
+
+var errRosterNotFound = errors.New("roster not found")
 
 // Service provides query implementations backing the MCP tools.
 type Service struct {
@@ -27,7 +30,7 @@ func New(pool *db.Pool, embedClient *embed.Client, sleeperClient *sleeper.Client
 }
 
 // SearchNews performs semantic search over news_item embeddings.
-func (s *Service) SearchNews(ctx context.Context, query string, limit int, days *int, relevantOnly bool) ([]map[string]interface{}, error) {
+func (s *Service) SearchNews(ctx context.Context, query string, limit int, days *int, relevantOnly bool) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -44,16 +47,17 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 		       ni.content_text, ni.news_story
 		FROM news_item ni JOIN source s ON s.id = ni.source_id
 		WHERE ni.embedding IS NOT NULL`
-	params := []interface{}{v}
-	paramIdx := 2
+	params := []any{v}
 	if days != nil {
-		sql += fmt.Sprintf(" AND ni.published_at >= now() - interval '%d days'", *days)
+		d := max(*days, 0)
+		params = append(params, d)
+		sql += fmt.Sprintf(" AND ni.published_at >= now() - make_interval(days => $%d)", len(params))
 	}
 	if relevantOnly {
 		sql += " AND ni.is_relevant = true"
 	}
-	sql += fmt.Sprintf(" ORDER BY ni.embedding <=> $1::vector LIMIT $%d", paramIdx)
 	params = append(params, limit)
+	sql += fmt.Sprintf(" ORDER BY ni.embedding <=> $1::vector LIMIT $%d", len(params))
 
 	rows, err := s.pool.Query(ctx, sql, params...)
 	if err != nil {
@@ -61,7 +65,7 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 	}
 	defer rows.Close()
 
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id uuid.UUID
 		var title, url, sourceName, contentText, newsStory *string
@@ -70,12 +74,12 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 		if err := rows.Scan(&id, &title, &url, &publishedAt, &sourceName, &similarity, &contentText, &newsStory); err != nil {
 			continue
 		}
-		item := map[string]interface{}{
-			"id":          id.String(),
-			"title":       ptrStr(title),
-			"url":         ptrStr(url),
-			"similarity":  similarity,
-			"source":      ptrStr(sourceName),
+		item := map[string]any{
+			"id":         id.String(),
+			"title":      ptrStr(title),
+			"url":        ptrStr(url),
+			"similarity": similarity,
+			"source":     ptrStr(sourceName),
 		}
 		if publishedAt != nil {
 			item["published_at"] = publishedAt.UTC().Format(time.RFC3339)
@@ -89,7 +93,7 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 }
 
 // GetStories returns top story clusters by time window.
-func (s *Service) GetStories(ctx context.Context, hours, limit int) ([]map[string]interface{}, error) {
+func (s *Service) GetStories(ctx context.Context, hours, limit int) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 5
 	}
@@ -102,35 +106,19 @@ func (s *Service) GetStories(ctx context.Context, hours, limit int) ([]map[strin
 		       count(ni.id) AS item_count
 		FROM story_cluster sc
 		JOIN news_item ni ON ni.cluster_id = sc.id
-		WHERE ni.published_at >= now() - interval '%d hours'
+		WHERE ni.published_at >= now() - make_interval(hours => $1)
 		  AND ni.is_relevant = true AND ni.is_news = true
 		GROUP BY sc.id, sc.representative_title, sc.importance_score,
 		         sc.first_seen_at, sc.last_seen_at
 		ORDER BY sc.importance_score DESC NULLS LAST, count(ni.id) DESC
-		LIMIT $1
+		LIMIT $2
 	`, hours, limit)
 	if err != nil {
-		// Fallback: just use a simpler query without the interval formatting
-		rows, err = s.pool.Query(ctx, fmt.Sprintf(`
-			SELECT sc.id, sc.representative_title, sc.importance_score,
-			       sc.first_seen_at, sc.last_seen_at,
-			       count(ni.id) AS item_count
-			FROM story_cluster sc
-			JOIN news_item ni ON ni.cluster_id = sc.id
-			WHERE ni.published_at >= now() - interval '%d hours'
-			  AND ni.is_relevant = true AND ni.is_news = true
-			GROUP BY sc.id, sc.representative_title, sc.importance_score,
-			         sc.first_seen_at, sc.last_seen_at
-			ORDER BY sc.importance_score DESC NULLS LAST, count(ni.id) DESC
-			LIMIT %d
-		`, hours, limit))
-		if err != nil {
-			return nil, err
-		}
+		return nil, err
 	}
 	defer rows.Close()
 
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id uuid.UUID
 		var repTitle *string
@@ -140,7 +128,7 @@ func (s *Service) GetStories(ctx context.Context, hours, limit int) ([]map[strin
 		if err := rows.Scan(&id, &repTitle, &importance, &firstSeen, &lastSeen, &itemCount); err != nil {
 			continue
 		}
-		item := map[string]interface{}{
+		item := map[string]any{
 			"id":            id.String(),
 			"title":         ptrStr(repTitle),
 			"item_count":    itemCount,
@@ -156,7 +144,7 @@ func (s *Service) GetStories(ctx context.Context, hours, limit int) ([]map[strin
 }
 
 // SearchFacts performs semantic search over extracted facts.
-func (s *Service) SearchFacts(ctx context.Context, query string, limit int) ([]map[string]interface{}, error) {
+func (s *Service) SearchFacts(ctx context.Context, query string, limit int) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -179,7 +167,7 @@ func (s *Service) SearchFacts(ctx context.Context, query string, limit int) ([]m
 	}
 	defer rows.Close()
 
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id uuid.UUID
 		var factText string
@@ -189,7 +177,7 @@ func (s *Service) SearchFacts(ctx context.Context, query string, limit int) ([]m
 		if err := rows.Scan(&id, &factText, &confidence, &occurredAt, &similarity); err != nil {
 			continue
 		}
-		item := map[string]interface{}{
+		item := map[string]any{
 			"id":          id.String(),
 			"fact_text":   factText,
 			"similarity":  similarity,
@@ -204,7 +192,7 @@ func (s *Service) SearchFacts(ctx context.Context, query string, limit int) ([]m
 }
 
 // GetRecentNews returns the latest N news items.
-func (s *Service) GetRecentNews(ctx context.Context, limit int, relevantOnly bool) ([]map[string]interface{}, error) {
+func (s *Service) GetRecentNews(ctx context.Context, limit int, relevantOnly bool) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -221,7 +209,7 @@ func (s *Service) GetRecentNews(ctx context.Context, limit int, relevantOnly boo
 	}
 	defer rows.Close()
 
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var id uuid.UUID
 		var title, url, newsStory, sourceName *string
@@ -230,7 +218,7 @@ func (s *Service) GetRecentNews(ctx context.Context, limit int, relevantOnly boo
 		if err := rows.Scan(&id, &title, &url, &publishedAt, &newsStory, &sourceName, &isRelevant); err != nil {
 			continue
 		}
-		item := map[string]interface{}{
+		item := map[string]any{
 			"id":          id.String(),
 			"title":       ptrStr(title),
 			"url":         ptrStr(url),
@@ -249,7 +237,7 @@ func (s *Service) GetRecentNews(ctx context.Context, limit int, relevantOnly boo
 }
 
 // SearchPlayers searches the player table by name.
-func (s *Service) SearchPlayers(ctx context.Context, query string, position *string, limit int) ([]map[string]interface{}, error) {
+func (s *Service) SearchPlayers(ctx context.Context, query string, position *string, limit int) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 25
 	}
@@ -258,7 +246,7 @@ func (s *Service) SearchPlayers(ctx context.Context, query string, position *str
 		       age, status, active, injury_status, depth_chart_position
 		FROM player WHERE lower(full_name) LIKE $1 OR lower(search_full_name) LIKE $1
 		       OR lower(last_name) LIKE $1`
-	params := []interface{}{q}
+	params := []any{q}
 	if position != nil && *position != "" {
 		sql += " AND position = $2"
 		params = append(params, *position)
@@ -270,7 +258,7 @@ func (s *Service) SearchPlayers(ctx context.Context, query string, position *str
 	}
 	defer rows.Close()
 
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var sleeperID string
 		var fullName, pos, team, teamAbbr, status, injStatus, dcPos *string
@@ -279,12 +267,12 @@ func (s *Service) SearchPlayers(ctx context.Context, query string, position *str
 		if err := rows.Scan(&sleeperID, &fullName, &pos, &team, &teamAbbr, &age, &status, &active, &injStatus, &dcPos); err != nil {
 			continue
 		}
-		item := map[string]interface{}{
-			"player_id":             sleeperID,
-			"full_name":             ptrStr(fullName),
-			"position":              ptrStr(pos),
-			"team":                  ptrStr(teamAbbr),
-			"active":                active,
+		item := map[string]any{
+			"player_id": sleeperID,
+			"full_name": ptrStr(fullName),
+			"position":  ptrStr(pos),
+			"team":      ptrStr(teamAbbr),
+			"active":    active,
 		}
 		if age != nil {
 			item["age"] = *age
@@ -298,7 +286,7 @@ func (s *Service) SearchPlayers(ctx context.Context, query string, position *str
 }
 
 // GetPlayer returns full player profile.
-func (s *Service) GetPlayer(ctx context.Context, playerID string) (map[string]interface{}, error) {
+func (s *Service) GetPlayer(ctx context.Context, playerID string) (map[string]any, error) {
 	var sleeperID, fullName, pos, team, teamAbbr, status, injStatus, injBodyPart, injNotes *string
 	var age, yearsExp *int
 	var active bool
@@ -311,12 +299,12 @@ func (s *Service) GetPlayer(ctx context.Context, playerID string) (map[string]in
 	if err != nil {
 		return nil, err
 	}
-	item := map[string]interface{}{
-		"player_id":  playerID,
-		"full_name":  ptrStr(fullName),
-		"position":   ptrStr(pos),
-		"team":       ptrStr(teamAbbr),
-		"active":     active,
+	item := map[string]any{
+		"player_id": playerID,
+		"full_name": ptrStr(fullName),
+		"position":  ptrStr(pos),
+		"team":      ptrStr(teamAbbr),
+		"active":    active,
 	}
 	if age != nil {
 		item["age"] = *age
@@ -331,7 +319,7 @@ func (s *Service) GetPlayer(ctx context.Context, playerID string) (map[string]in
 }
 
 // GetRankings returns dynasty trade values.
-func (s *Service) GetRankings(ctx context.Context, position *string, limit int, source string, market int, superflex bool) ([]map[string]interface{}, error) {
+func (s *Service) GetRankings(ctx context.Context, position *string, limit int, source string, market int, superflex bool) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 15
 	}
@@ -357,7 +345,7 @@ func (s *Service) GetRankings(ctx context.Context, position *string, limit int, 
 		FROM player p JOIN player_ranking r ON r.player_id = p.id
 		WHERE r.source = $1 AND r.market = $2
 	`, valueCol, overallCol, posRankCol)
-	params := []interface{}{source, market}
+	params := []any{source, market}
 	if position != nil && *position != "" {
 		sql += " AND p.position = $3"
 		params = append(params, *position)
@@ -370,7 +358,7 @@ func (s *Service) GetRankings(ctx context.Context, position *string, limit int, 
 	}
 	defer rows.Close()
 
-	var result []map[string]interface{}
+	var result []map[string]any
 	for rows.Next() {
 		var sleeperID string
 		var fullName, pos, teamAbbr *string
@@ -378,11 +366,11 @@ func (s *Service) GetRankings(ctx context.Context, position *string, limit int, 
 		if err := rows.Scan(&sleeperID, &fullName, &pos, &teamAbbr, &tradeValue, &overallRank, &posRank); err != nil {
 			continue
 		}
-		item := map[string]interface{}{
-			"player_id":    sleeperID,
-			"full_name":    ptrStr(fullName),
-			"position":     ptrStr(pos),
-			"team":         ptrStr(teamAbbr),
+		item := map[string]any{
+			"player_id": sleeperID,
+			"full_name": ptrStr(fullName),
+			"position":  ptrStr(pos),
+			"team":      ptrStr(teamAbbr),
 		}
 		if tradeValue != nil {
 			item["trade_value"] = *tradeValue
@@ -399,12 +387,12 @@ func (s *Service) GetRankings(ctx context.Context, position *string, limit int, 
 }
 
 // GetNFLState returns the current NFL state.
-func (s *Service) GetNFLState(ctx context.Context) (map[string]interface{}, error) {
-	return s.sleeper.GetLeagueInfo(ctx, "state/nfl")
+func (s *Service) GetNFLState(ctx context.Context) (*models.NFLState, error) {
+	return s.sleeper.GetNFLState(ctx)
 }
 
 // GetStudyMaterial returns a digest for agent self-study.
-func (s *Service) GetStudyMaterial(ctx context.Context, hours int) (map[string]interface{}, error) {
+func (s *Service) GetStudyMaterial(ctx context.Context, hours int) (map[string]any, error) {
 	if hours <= 0 {
 		hours = 24
 	}
@@ -419,24 +407,24 @@ func (s *Service) GetStudyMaterial(ctx context.Context, hours int) (map[string]i
 
 	var md strings.Builder
 	md.WriteString("# Self-Study Material\n\n")
-	md.WriteString(fmt.Sprintf("_Generated for the last %d hours._\n\n", hours))
+	fmt.Fprintf(&md, "_Generated for the last %d hours._\n\n", hours)
 
 	md.WriteString("## Top Stories\n\n")
 	for _, story := range stories {
-		md.WriteString(fmt.Sprintf("### %s\n", story["title"]))
-		md.WriteString(fmt.Sprintf("- Items: %v | Importance: %v\n\n",
-			story["item_count"], story["importance_score"]))
+		fmt.Fprintf(&md, "### %s\n", story["title"])
+		fmt.Fprintf(&md, "- Items: %v | Importance: %v\n\n",
+			story["item_count"], story["importance_score"])
 	}
 
 	md.WriteString("## Recent News\n\n")
 	for _, news := range recentNews {
-		md.WriteString(fmt.Sprintf("- **%s** (%s)\n", news["title"], news["source"]))
+		fmt.Fprintf(&md, "- **%s** (%s)\n", news["title"], news["source"])
 		if story, ok := news["story"].(string); ok && story != "" {
-			md.WriteString(fmt.Sprintf("  > %s\n", story))
+			fmt.Fprintf(&md, "  > %s\n", story)
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"digest":      md.String(),
 		"stories":     stories,
 		"recent_news": recentNews,
@@ -444,7 +432,7 @@ func (s *Service) GetStudyMaterial(ctx context.Context, hours int) (map[string]i
 }
 
 // GetTrendingPlayers returns trending players from Sleeper.
-func (s *Service) GetTrendingPlayers(ctx context.Context, trendType string, limit int) ([]map[string]interface{}, error) {
+func (s *Service) GetTrendingPlayers(ctx context.Context, trendType string, limit int) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 25
 	}
@@ -455,7 +443,7 @@ func (s *Service) GetTrendingPlayers(ctx context.Context, trendType string, limi
 }
 
 // GetFreeAgents returns top ranked free agents in a league.
-func (s *Service) GetFreeAgents(ctx context.Context, leagueID string, position *string, limit int, superflex bool) ([]map[string]interface{}, error) {
+func (s *Service) GetFreeAgents(ctx context.Context, leagueID string, position *string, limit int, superflex bool) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 15
 	}
@@ -478,17 +466,14 @@ func (s *Service) GetFreeAgents(ctx context.Context, leagueID string, position *
 		}
 	}
 
-	valueCol := "r.trade_value"
-	if superflex {
-		valueCol = "r.sf_trade_value"
-	}
+	valueCol := tradeValueColumn(superflex)
 
 	sql := fmt.Sprintf(`
 		SELECT p.sleeper_player_id, p.full_name, p.position, p.team_abbr, %s
 		FROM player p JOIN player_ranking r ON r.player_id = p.id
 		WHERE r.source = 'Dynasty Daddy' AND r.market = 14
 	`, valueCol)
-	params := []interface{}{}
+	params := []any{}
 	if position != nil && *position != "" {
 		sql += " AND p.position = $1"
 		params = append(params, *position)
@@ -501,7 +486,7 @@ func (s *Service) GetFreeAgents(ctx context.Context, leagueID string, position *
 	}
 	defer rows.Close()
 
-	var result []map[string]interface{}
+	var result []map[string]any
 	count := 0
 	for rows.Next() {
 		var sleeperID string
@@ -513,11 +498,11 @@ func (s *Service) GetFreeAgents(ctx context.Context, leagueID string, position *
 		if owned[sleeperID] {
 			continue
 		}
-		item := map[string]interface{}{
-			"player_id":    sleeperID,
-			"full_name":    ptrStr(fullName),
-			"position":     ptrStr(pos),
-			"team":         ptrStr(teamAbbr),
+		item := map[string]any{
+			"player_id": sleeperID,
+			"full_name": ptrStr(fullName),
+			"position":  ptrStr(pos),
+			"team":      ptrStr(teamAbbr),
 		}
 		if tradeValue != nil {
 			item["trade_value"] = *tradeValue
@@ -532,17 +517,19 @@ func (s *Service) GetFreeAgents(ctx context.Context, leagueID string, position *
 }
 
 // EvaluateTrade returns structured data for a trade proposal.
-func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []string, leagueID string, superflex bool) (map[string]interface{}, error) {
+func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []string, leagueID string, superflex bool) (map[string]any, error) {
+	lf, hasLF := models.LeagueFormats[leagueID]
 	source := "Dynasty Daddy"
 	market := 14
-
-	valueCol := "r.trade_value"
-	if superflex {
-		valueCol = "r.sf_trade_value"
+	if hasLF && lf.Market != nil {
+		source = "FantasyCalc"
+		market = *lf.Market
 	}
 
-	valuePlayers := func(names []string) ([]map[string]interface{}, int) {
-		var items []map[string]interface{}
+	valueCol := tradeValueColumn(superflex)
+
+	valuePlayers := func(names []string) ([]map[string]any, int) {
+		var items []map[string]any
 		total := 0
 		for _, name := range names {
 			name = strings.TrimSpace(name)
@@ -562,7 +549,7 @@ func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []strin
 				ORDER BY %s DESC NULLS LAST LIMIT 1
 			`, valueCol, valueCol), source, market, q).Scan(&sleeperID, &fullName, &tradeValue)
 			if err != nil {
-				items = append(items, map[string]interface{}{"name": name, "found": false})
+				items = append(items, map[string]any{"name": name, "found": false})
 				continue
 			}
 			val := 0
@@ -570,11 +557,11 @@ func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []strin
 				val = *tradeValue
 				total += val
 			}
-			items = append(items, map[string]interface{}{
-				"player_id":    sleeperID,
-				"full_name":    ptrStr(fullName),
-				"trade_value":  val,
-				"found":        true,
+			items = append(items, map[string]any{
+				"player_id":   sleeperID,
+				"full_name":   ptrStr(fullName),
+				"trade_value": val,
+				"found":       true,
 			})
 		}
 		return items, total
@@ -591,7 +578,7 @@ func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []strin
 		recommendation = "good deal for you"
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"give":           giveItems,
 		"get":            getItems,
 		"give_total":     giveTotal,
@@ -603,14 +590,14 @@ func (s *Service) EvaluateTrade(ctx context.Context, giveNames, getNames []strin
 }
 
 // EvaluateRoster returns structured roster data.
-func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, superflex bool) (map[string]interface{}, error) {
+func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, superflex bool) (map[string]any, error) {
 	rosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
 	if err != nil {
 		return nil, err
 	}
 
 	// Find user's roster
-	var myRoster map[string]interface{}
+	var myRoster map[string]any
 	for _, r := range rosters {
 		if fmt.Sprint(r["owner_id"]) == userID {
 			myRoster = r
@@ -618,62 +605,92 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 		}
 	}
 	if myRoster == nil {
-		return nil, fmt.Errorf("roster not found for user %s in league %s", userID, leagueID)
+		return nil, fmt.Errorf("%w for user %s in league %s", errRosterNotFound, userID, leagueID)
 	}
 
 	players := toStringSlice(myRoster["players"])
 	lf, hasLF := models.LeagueFormats[leagueID]
 	source := "Dynasty Daddy"
 	market := 14
-	if hasLF && lf.Market != nil && source == "FantasyCalc" {
+	if hasLF && lf.Market != nil {
+		source = "FantasyCalc"
 		market = *lf.Market
 	}
 
-	valueCol := "r.trade_value"
-	if superflex {
-		valueCol = "r.sf_trade_value"
+	valueCol := tradeValueColumn(superflex)
+
+	// One batched query instead of one QueryRow per roster player — the
+	// LEFT JOIN still means an unranked player gets a row with a nil
+	// trade_value, and a player_id absent from the player table entirely
+	// (checked below via the `found` map) still reports found:false.
+	type rosterRow struct {
+		fullName, pos, teamAbbr *string
+		age                     *int
+		tradeValue              *int
+	}
+	found := make(map[string]rosterRow, len(players))
+	if len(players) > 0 {
+		rows, err := s.pool.Query(ctx, fmt.Sprintf(`
+			SELECT p.sleeper_player_id, p.full_name, p.position, p.team_abbr, p.age, %s
+			FROM player p LEFT JOIN player_ranking r ON r.player_id = p.id AND r.source = $1 AND r.market = $2
+			WHERE p.sleeper_player_id = ANY($3)
+		`, valueCol), source, market, players)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var sid string
+			var r rosterRow
+			if err := rows.Scan(&sid, &r.fullName, &r.pos, &r.teamAbbr, &r.age, &r.tradeValue); err != nil {
+				continue
+			}
+			found[sid] = r
+		}
 	}
 
-	var rosterItems []map[string]interface{}
+	var rosterItems []map[string]any
 	totalValue := 0
 	for _, sid := range players {
-		var fullName, pos, teamAbbr *string
-		var tradeValue *int
-		var age *int
-		err := s.pool.QueryRow(ctx, fmt.Sprintf(`
-			SELECT p.full_name, p.position, p.team_abbr, p.age, %s
-			FROM player p LEFT JOIN player_ranking r ON r.player_id = p.id AND r.source = $1 AND r.market = $2
-			WHERE p.sleeper_player_id = $3
-		`, valueCol), source, market, sid).Scan(&fullName, &pos, &teamAbbr, &age, &tradeValue)
-		if err != nil {
-			rosterItems = append(rosterItems, map[string]interface{}{"player_id": sid, "found": false})
+		r, ok := found[sid]
+		if !ok {
+			rosterItems = append(rosterItems, map[string]any{"player_id": sid, "found": false})
 			continue
 		}
 		val := 0
-		if tradeValue != nil {
-			val = *tradeValue
+		if r.tradeValue != nil {
+			val = *r.tradeValue
 			totalValue += val
 		}
-		item := map[string]interface{}{
-			"player_id":    sid,
-			"full_name":    ptrStr(fullName),
-			"position":     ptrStr(pos),
-			"team":         ptrStr(teamAbbr),
-			"trade_value":  val,
+		item := map[string]any{
+			"player_id":   sid,
+			"full_name":   ptrStr(r.fullName),
+			"position":    ptrStr(r.pos),
+			"team":        ptrStr(r.teamAbbr),
+			"trade_value": val,
 		}
-		if age != nil {
-			item["age"] = *age
+		if r.age != nil {
+			item["age"] = *r.age
 		}
 		rosterItems = append(rosterItems, item)
 	}
 
-	return map[string]interface{}{
-		"league_id":     leagueID,
-		"user_id":       userID,
-		"roster":        rosterItems,
-		"total_value":   totalValue,
-		"player_count":  len(rosterItems),
+	return map[string]any{
+		"league_id":    leagueID,
+		"user_id":      userID,
+		"roster":       rosterItems,
+		"total_value":  totalValue,
+		"player_count": len(rosterItems),
 	}, nil
+}
+
+// tradeValueColumn returns the player_ranking trade-value column to use
+// for a superflex vs. standard query.
+func tradeValueColumn(superflex bool) string {
+	if superflex {
+		return "r.sf_trade_value"
+	}
+	return "r.trade_value"
 }
 
 func ptrStr(s *string) string {
@@ -683,11 +700,11 @@ func ptrStr(s *string) string {
 	return *s
 }
 
-func toStringSlice(v interface{}) []string {
+func toStringSlice(v any) []string {
 	if v == nil {
 		return nil
 	}
-	arr, ok := v.([]interface{})
+	arr, ok := v.([]any)
 	if !ok {
 		return nil
 	}

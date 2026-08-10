@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/markis/fantasy-football-engine/internal/config"
 	"github.com/markis/fantasy-football-engine/internal/corpus"
@@ -63,7 +65,7 @@ func main() {
 	// Initialize pipeline components
 	rssFetcher := pipeline.NewRSSFetcher(pool)
 	bodyFetcher := pipeline.NewBodyFetcher(pool)
-	enricher := pipeline.NewEnricher(pool, llmClient)
+	enricher := pipeline.NewEnricher(pool, llmClient, cfg.LLM.MaxConcurrency)
 	embedder := pipeline.NewEmbedder(pool, embedClient, cfg.Embeddings.BatchSize)
 	dedupChecker := pipeline.NewDedupChecker(pool)
 	clusterer := pipeline.NewClusterer(pool)
@@ -105,7 +107,7 @@ func main() {
 		clusterer, factExtractor, storyGenerator, fpNewsFetcher,
 		playerSyncer, rankingsSyncer, fcSyncer, fpInjuriesSyncer, fpRankingsSyncer,
 		leaguemateSyncer, tradesSyncer, leaguemateAssessor, teamAssessor,
-		publisher, pool, embedClient)
+		publisher)
 
 	// Set pipeline trigger for MCP
 	mcpServer.SetTrigger(func(ctx context.Context, step string) error {
@@ -164,19 +166,22 @@ func registerSteps(
 	leaguemateAssessor *ffsync.LeaguemateAssessor,
 	teamAssessor *ffsync.TeamAssessor,
 	publisher *corpus.Publisher,
-	pool *db.Pool,
-	embedClient *embed.Client,
 ) {
-	ctx := context.Background()
-
-	// Pipeline: fetch RSS
+	// Pipeline: fetch RSS. Sources are independent, so fetch them
+	// concurrently (bounded) instead of one at a time; each worker logs its
+	// own failure and returns nil so one bad feed can't cancel the rest.
 	sched.RegisterStep("pipeline.fetch", func(ctx context.Context, job config.JobConfig) error {
+		var g errgroup.Group
+		g.SetLimit(8)
 		for _, src := range cfg.Sources {
-			if _, err := rssFetcher.Fetch(ctx, src.URL, 45); err != nil {
-				slog.Warn("fetch RSS", "url", src.URL, "err", err)
-			}
+			g.Go(func() error {
+				if _, err := rssFetcher.Fetch(ctx, src.URL, 45); err != nil {
+					slog.Warn("fetch RSS", "url", src.URL, "err", err)
+				}
+				return nil
+			})
 		}
-		return nil
+		return g.Wait()
 	})
 
 	// Pipeline: fetch bodies
@@ -319,29 +324,29 @@ func registerSteps(
 		return err
 	})
 
-	// Combined step: enrich + embed + dedup + cluster (cron #5)
+	// Combined step: embed + dedup + enrich + cluster (cron #5).
+	// Order matters: dedup and enrich both claim work from the same
+	// `quality_score IS NULL` queue, so dedup must run first — otherwise
+	// enrich (which unconditionally sets quality_score) empties that queue
+	// before dedup ever sees it. embed runs before dedup so semantic dedup
+	// has an embedding to compare; cluster runs last since it also reads
+	// embeddings and is independent of quality_score.
 	sched.RegisterStep("pipeline.enrich_embed_dedup_cluster", func(ctx context.Context, job config.JobConfig) error {
 		limit := 10
 		if job.Limit > 0 {
 			limit = job.Limit
 		}
-		enricher.EnrichBatch(ctx, limit)
-		embedder.EmbedBatch(ctx, 50)
-		dedupChecker.CheckBatch(ctx, 50)
-		clusterer.AssignBatch(ctx)
-		return nil
+		_, errEmbed := embedder.EmbedBatch(ctx, 50)
+		_, errDedup := dedupChecker.CheckBatch(ctx, 50)
+		_, errEnrich := enricher.EnrichBatch(ctx, limit)
+		_, errCluster := clusterer.AssignBatch(ctx)
+		return errors.Join(errEmbed, errDedup, errEnrich, errCluster)
 	})
 
 	// Combined step: assess_teams + publish weekly (cron #19)
 	sched.RegisterStep("sync.assess_teams_publish_weekly", func(ctx context.Context, job config.JobConfig) error {
-		teamAssessor.Assess(ctx)
-		_, err := publisher.Publish(ctx, "weekly", false)
-		return err
+		_, errAssess := teamAssessor.Assess(ctx)
+		_, errPublish := publisher.Publish(ctx, "weekly", false)
+		return errors.Join(errAssess, errPublish)
 	})
-
-	// Ensure ctx is used
-	_ = ctx
-	_ = pool
-	_ = embedClient
-	_ = time.Now
 }

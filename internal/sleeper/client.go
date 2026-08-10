@@ -3,15 +3,20 @@ package sleeper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/markis/fantasy-football-engine/internal/models"
 )
+
+var errSleeperHTTP = errors.New("sleeper HTTP error")
 
 // Client is a Sleeper Fantasy Football API client.
 type Client struct {
@@ -22,11 +27,18 @@ type Client struct {
 }
 
 type cacheEntry struct {
-	data    interface{}
+	data    any
 	expires time.Time
 }
 
-// New creates a new Sleeper API client with per-run caching.
+// cacheSweepThreshold triggers an expired-entry sweep once the cache grows
+// past this many entries, so paths that are cached once but never looked up
+// again (a league that stops being synced, say) don't accumulate forever.
+const cacheSweepThreshold = 200
+
+// New creates a new Sleeper API client. Response caching lives for the
+// whole process — this client is constructed once at daemon startup and
+// kept for the daemon's entire lifetime, not just a single run.
 func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
@@ -36,24 +48,67 @@ func New(baseURL string) *Client {
 }
 
 // get fetches JSON from the Sleeper API with caching and retry.
-func (c *Client) get(ctx context.Context, path string, target interface{}) error {
+func (c *Client) get(ctx context.Context, path string, target any) error {
 	c.mu.RLock()
-	if entry, ok := c.cache[path]; ok && time.Now().Before(entry.expires) {
-		c.mu.RUnlock()
-		// Deep-copy via re-marshal is complex; for our use the cache is per-run
-		// and callers don't mutate the returned slice, so this is acceptable.
-		raw, _ := json.Marshal(entry.data)
-		c.mu.RUnlock()
-		return json.Unmarshal(raw, target)
-	}
+	entry, ok := c.cache[path]
 	c.mu.RUnlock()
+	if ok {
+		if time.Now().Before(entry.expires) {
+			// Deep-copy via re-marshal is complex; for our use the cache is per-run
+			// and callers don't mutate the returned slice, so this is acceptable.
+			raw, _ := json.Marshal(entry.data)
+			return json.Unmarshal(raw, target)
+		}
+		// Expired — evict now rather than leaving it for the size-triggered sweep.
+		c.mu.Lock()
+		delete(c.cache, path)
+		c.mu.Unlock()
+	}
 
+	resp, err := c.doGet(ctx, path)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		return fmt.Errorf("decode sleeper response %s: %w", path, err)
+	}
+	// Cache the result (re-marshal for storage)
+	raw, _ := json.Marshal(target)
+	var stored any
+	json.Unmarshal(raw, &stored)
+	c.mu.Lock()
+	c.cache[path] = cacheEntry{data: stored, expires: time.Now().Add(5 * time.Minute)}
+	if len(c.cache) > cacheSweepThreshold {
+		c.sweepExpiredLocked()
+	}
+	c.mu.Unlock()
+	return nil
+}
+
+// sweepExpiredLocked removes expired cache entries. Callers must hold c.mu
+// for writing.
+func (c *Client) sweepExpiredLocked() {
+	now := time.Now()
+	for k, v := range c.cache {
+		if now.After(v.expires) {
+			delete(c.cache, k)
+		}
+	}
+}
+
+// doGet performs an HTTP GET against the Sleeper API with the same
+// retry-with-backoff behavior as get(), but returns the raw response
+// instead of decoding+caching it — used for endpoints too large to cache
+// (FetchPlayerDump's ~16MB player database).
+func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error) {
 	url := c.baseURL + "/" + path
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	for attempt := range 3 {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
-			return fmt.Errorf("create request: %w", err)
+			return nil, fmt.Errorf("create request: %w", err)
 		}
 		resp, err := c.client.Do(req)
 		if err != nil {
@@ -64,25 +119,13 @@ func (c *Client) get(ctx context.Context, path string, target interface{}) error
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			resp.Body.Close()
-			lastErr = fmt.Errorf("sleeper GET %s: HTTP %d: %s", path, resp.StatusCode, string(body))
+			lastErr = fmt.Errorf("%s: %w (%d): %s", path, errSleeperHTTP, resp.StatusCode, string(body))
 			time.Sleep(time.Duration(attempt+1) * time.Second)
 			continue
 		}
-		err = json.NewDecoder(resp.Body).Decode(target)
-		resp.Body.Close()
-		if err != nil {
-			return fmt.Errorf("decode sleeper response %s: %w", path, err)
-		}
-		// Cache the result (re-marshal for storage)
-		raw, _ := json.Marshal(target)
-		var stored interface{}
-		json.Unmarshal(raw, &stored)
-		c.mu.Lock()
-		c.cache[path] = cacheEntry{data: stored, expires: time.Now().Add(5 * time.Minute)}
-		c.mu.Unlock()
-		return nil
+		return resp, nil
 	}
-	return fmt.Errorf("sleeper GET %s failed after 3 attempts: %w", path, lastErr)
+	return nil, fmt.Errorf("sleeper GET %s failed after 3 attempts: %w", path, lastErr)
 }
 
 // GetNFLState returns the current NFL state.
@@ -95,8 +138,8 @@ func (c *Client) GetNFLState(ctx context.Context) (*models.NFLState, error) {
 }
 
 // GetUserInfo returns user info by username or user ID.
-func (c *Client) GetUserInfo(ctx context.Context, usernameOrID string) (map[string]interface{}, error) {
-	var result map[string]interface{}
+func (c *Client) GetUserInfo(ctx context.Context, usernameOrID string) (map[string]any, error) {
+	var result map[string]any
 	if err := c.get(ctx, "user/"+usernameOrID, &result); err != nil {
 		return nil, err
 	}
@@ -104,8 +147,8 @@ func (c *Client) GetUserInfo(ctx context.Context, usernameOrID string) (map[stri
 }
 
 // GetUserLeagues returns a user's leagues for a season.
-func (c *Client) GetUserLeagues(ctx context.Context, userID, season string) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
+func (c *Client) GetUserLeagues(ctx context.Context, userID, season string) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.get(ctx, fmt.Sprintf("user/%s/leagues/nfl/%s", userID, season), &result); err != nil {
 		return nil, err
 	}
@@ -113,8 +156,8 @@ func (c *Client) GetUserLeagues(ctx context.Context, userID, season string) ([]m
 }
 
 // GetLeagueInfo returns league info.
-func (c *Client) GetLeagueInfo(ctx context.Context, leagueID string) (map[string]interface{}, error) {
-	var result map[string]interface{}
+func (c *Client) GetLeagueInfo(ctx context.Context, leagueID string) (map[string]any, error) {
+	var result map[string]any
 	if err := c.get(ctx, "league/"+leagueID, &result); err != nil {
 		return nil, err
 	}
@@ -122,8 +165,8 @@ func (c *Client) GetLeagueInfo(ctx context.Context, leagueID string) (map[string
 }
 
 // GetLeagueRosters returns rosters for a league.
-func (c *Client) GetLeagueRosters(ctx context.Context, leagueID string) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
+func (c *Client) GetLeagueRosters(ctx context.Context, leagueID string) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.get(ctx, "league/"+leagueID+"/rosters", &result); err != nil {
 		return nil, err
 	}
@@ -131,8 +174,8 @@ func (c *Client) GetLeagueRosters(ctx context.Context, leagueID string) ([]map[s
 }
 
 // GetLeagueUsers returns users/managers for a league.
-func (c *Client) GetLeagueUsers(ctx context.Context, leagueID string) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
+func (c *Client) GetLeagueUsers(ctx context.Context, leagueID string) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.get(ctx, "league/"+leagueID+"/users", &result); err != nil {
 		return nil, err
 	}
@@ -140,8 +183,8 @@ func (c *Client) GetLeagueUsers(ctx context.Context, leagueID string) ([]map[str
 }
 
 // GetLeagueMatchups returns matchups for a league/week.
-func (c *Client) GetLeagueMatchups(ctx context.Context, leagueID string, week int) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
+func (c *Client) GetLeagueMatchups(ctx context.Context, leagueID string, week int) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.get(ctx, fmt.Sprintf("league/%s/matchups/%d", leagueID, week), &result); err != nil {
 		return nil, err
 	}
@@ -149,8 +192,8 @@ func (c *Client) GetLeagueMatchups(ctx context.Context, leagueID string, week in
 }
 
 // GetLeagueTransactions returns transactions for a league/week.
-func (c *Client) GetLeagueTransactions(ctx context.Context, leagueID string, week int) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
+func (c *Client) GetLeagueTransactions(ctx context.Context, leagueID string, week int) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.get(ctx, fmt.Sprintf("league/%s/transactions/%d", leagueID, week), &result); err != nil {
 		return nil, err
 	}
@@ -158,8 +201,8 @@ func (c *Client) GetLeagueTransactions(ctx context.Context, leagueID string, wee
 }
 
 // GetLeagueDrafts returns drafts for a league.
-func (c *Client) GetLeagueDrafts(ctx context.Context, leagueID string) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
+func (c *Client) GetLeagueDrafts(ctx context.Context, leagueID string) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.get(ctx, "league/"+leagueID+"/drafts", &result); err != nil {
 		return nil, err
 	}
@@ -167,8 +210,8 @@ func (c *Client) GetLeagueDrafts(ctx context.Context, leagueID string) ([]map[st
 }
 
 // GetLeagueTradedPicks returns traded picks for a league.
-func (c *Client) GetLeagueTradedPicks(ctx context.Context, leagueID string) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
+func (c *Client) GetLeagueTradedPicks(ctx context.Context, leagueID string) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.get(ctx, "league/"+leagueID+"/traded_picks", &result); err != nil {
 		return nil, err
 	}
@@ -176,8 +219,8 @@ func (c *Client) GetLeagueTradedPicks(ctx context.Context, leagueID string) ([]m
 }
 
 // GetDraftInfo returns draft info.
-func (c *Client) GetDraftInfo(ctx context.Context, draftID string) (map[string]interface{}, error) {
-	var result map[string]interface{}
+func (c *Client) GetDraftInfo(ctx context.Context, draftID string) (map[string]any, error) {
+	var result map[string]any
 	if err := c.get(ctx, "draft/"+draftID, &result); err != nil {
 		return nil, err
 	}
@@ -185,8 +228,8 @@ func (c *Client) GetDraftInfo(ctx context.Context, draftID string) (map[string]i
 }
 
 // GetDraftPicks returns picks for a draft.
-func (c *Client) GetDraftPicks(ctx context.Context, draftID string) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
+func (c *Client) GetDraftPicks(ctx context.Context, draftID string) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.get(ctx, "draft/"+draftID+"/picks", &result); err != nil {
 		return nil, err
 	}
@@ -194,8 +237,8 @@ func (c *Client) GetDraftPicks(ctx context.Context, draftID string) ([]map[strin
 }
 
 // GetTrendingPlayers returns trending players.
-func (c *Client) GetTrendingPlayers(ctx context.Context, trendType string, lookbackHours, limit int) ([]map[string]interface{}, error) {
-	var result []map[string]interface{}
+func (c *Client) GetTrendingPlayers(ctx context.Context, trendType string, lookbackHours, limit int) ([]map[string]any, error) {
+	var result []map[string]any
 	if err := c.get(ctx, fmt.Sprintf("players/nfl/trending/%s?lookback_hours=%d&limit=%d", trendType, lookbackHours, limit), &result); err != nil {
 		return nil, err
 	}
@@ -204,22 +247,13 @@ func (c *Client) GetTrendingPlayers(ctx context.Context, trendType string, lookb
 
 // FetchPlayerDump fetches the full Sleeper NFL player database (~16MB JSON).
 // This is NOT cached due to size.
-func (c *Client) FetchPlayerDump(ctx context.Context) (map[string]map[string]interface{}, error) {
-	url := c.baseURL + "/players/nfl"
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("create player dump request: %w", err)
-	}
-	resp, err := c.client.Do(req)
+func (c *Client) FetchPlayerDump(ctx context.Context) (map[string]map[string]any, error) {
+	resp, err := c.doGet(ctx, "players/nfl")
 	if err != nil {
 		return nil, fmt.Errorf("fetch player dump: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("player dump HTTP %d: %s", resp.StatusCode, string(body))
-	}
-	var result map[string]map[string]interface{}
+	var result map[string]map[string]any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode player dump: %w", err)
 	}
@@ -230,16 +264,29 @@ func (c *Client) FetchPlayerDump(ctx context.Context) (map[string]map[string]int
 func (c *Client) CurrentSeason(ctx context.Context) string {
 	state, err := c.GetNFLState(ctx)
 	if err != nil || state.Season == "" {
-		return "2026"
+		fallback := nflSeasonFromDate(time.Now())
+		slog.Warn("sleeper: falling back to date-derived season", "err", err, "season", fallback)
+		return fallback
 	}
 	return state.Season
 }
 
+// nflSeasonFromDate estimates the NFL season year for a given date. The NFL
+// season runs roughly March-February, so January/February dates belong to
+// the season that started the previous calendar year.
+func nflSeasonFromDate(t time.Time) string {
+	year := t.Year()
+	if t.Month() < time.March {
+		year--
+	}
+	return strconv.Itoa(year)
+}
+
 // GetRaw fetches a raw path from the Sleeper API and returns the JSON as-is.
 // Used by the corpus publisher which needs flexible access.
-func (c *Client) GetRaw(ctx context.Context, path string) (interface{}, error) {
+func (c *Client) GetRaw(ctx context.Context, path string) (any, error) {
 	url := c.baseURL + "/" + path
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -250,9 +297,9 @@ func (c *Client) GetRaw(ctx context.Context, path string) (interface{}, error) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("sleeper GET %s: HTTP %d: %s", path, resp.StatusCode, string(body))
+		return nil, fmt.Errorf("%s: %w (%d): %s", path, errSleeperHTTP, resp.StatusCode, string(body))
 	}
-	var result interface{}
+	var result any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
@@ -266,10 +313,7 @@ func (c *Client) CurrentWeek(ctx context.Context) int {
 		return 0
 	}
 	if state.SeasonType == "regular" || state.SeasonType == "post" || state.SeasonType == "pre" {
-		w := state.Week
-		if w < 0 {
-			w = 0
-		}
+		w := max(state.Week, 0)
 		if w > 18 {
 			w = 18
 		}

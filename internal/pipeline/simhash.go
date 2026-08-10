@@ -3,7 +3,6 @@ package pipeline
 import (
 	"crypto/md5"
 	"encoding/binary"
-	"math"
 	"regexp"
 	"strings"
 )
@@ -11,8 +10,10 @@ import (
 // HashBits is the SimHash fingerprint width.
 const HashBits = 64
 
-var htmlTagRe = regexp.MustCompile(`<[^>]+>`)
-var whitespaceRe = regexp.MustCompile(`\s+`)
+var (
+	htmlTagRe    = regexp.MustCompile(`<[^>]+>`)
+	whitespaceRe = regexp.MustCompile(`\s+`)
+)
 
 // SimhashCompute computes a 64-bit SimHash fingerprint for the given text.
 // The result is masked to signed 64-bit range for PostgreSQL bigint compatibility.
@@ -26,7 +27,7 @@ func SimhashCompute(text string) int64 {
 	for _, token := range tokens {
 		h := md5.Sum([]byte(token))
 		hash := int64(binary.BigEndian.Uint64(h[:8]))
-		for i := 0; i < HashBits; i++ {
+		for i := range HashBits {
 			if hash&(1<<int64(i)) != 0 {
 				v[i]++
 			} else {
@@ -36,7 +37,7 @@ func SimhashCompute(text string) int64 {
 	}
 
 	var fingerprint int64
-	for i := 0; i < HashBits; i++ {
+	for i := range HashBits {
 		if v[i] > 0 {
 			fingerprint |= 1 << int64(i)
 		}
@@ -70,6 +71,3 @@ func tokenize(text string) []string {
 	}
 	return strings.Split(text, " ")
 }
-
-// Ensure math import is used (for potential future use)
-var _ = math.MaxFloat64

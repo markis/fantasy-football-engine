@@ -3,22 +3,27 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/markis/fantasy-football-engine/internal/config"
 	"github.com/markis/fantasy-football-engine/internal/db"
 )
 
+var errFPNewsHTTP = errors.New("FP news HTTP error")
+
 // FPNewsFetcher fetches FantasyPros player news via API.
 type FPNewsFetcher struct {
-	pool    *db.Pool
-	cfg     *config.Config
-	client  *http.Client
+	pool   *db.Pool
+	cfg    *config.Config
+	client *http.Client
 }
 
 // NewFPNewsFetcher creates a new FantasyPros news fetcher.
@@ -30,8 +35,10 @@ func NewFPNewsFetcher(pool *db.Pool, cfg *config.Config) *FPNewsFetcher {
 	}
 }
 
-const fpNewsURL = "https://api.fantasypros.com/public/v2/json/nfl/news"
-const fpNewsSourceName = "FantasyPros Player News"
+const (
+	fpNewsURL        = "https://api.fantasypros.com/public/v2/json/nfl/news"
+	fpNewsSourceName = "FantasyPros Player News"
+)
 
 // FPNewsResult is the result of a FantasyPros news fetch.
 type FPNewsResult struct {
@@ -48,11 +55,11 @@ func (f *FPNewsFetcher) Fetch(ctx context.Context) (*FPNewsResult, error) {
 		return nil, fmt.Errorf("get FP API key: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fpNewsURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpNewsURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("X-Api-Key", apiKey)
 	req.Header.Set("Accept", "application/json")
 	q := req.URL.Query()
 	q.Add("limit", "500")
@@ -65,13 +72,16 @@ func (f *FPNewsFetcher) Fetch(ctx context.Context) (*FPNewsResult, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := ioReadAll(resp.Body)
-		return nil, fmt.Errorf("FP news HTTP %d: %s", resp.StatusCode, string(body))
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("%w (%d): read body failed: %w", errFPNewsHTTP, resp.StatusCode, err)
+		}
+		return nil, fmt.Errorf("%w (%d): %s", errFPNewsHTTP, resp.StatusCode, string(body))
 	}
 
 	var apiResp struct {
-		Injuries []map[string]interface{} `json:"injuries"`
-		News     []map[string]interface{} `json:"news"`
+		Injuries []map[string]any `json:"injuries"`
+		News     []map[string]any `json:"news"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("decode FP news: %w", err)
@@ -109,7 +119,7 @@ func (f *FPNewsFetcher) ensureSource(ctx context.Context) (uuid.UUID, error) {
 	return sourceID, nil
 }
 
-func (f *FPNewsFetcher) upsertNews(ctx context.Context, sourceID uuid.UUID, item map[string]interface{}) {
+func (f *FPNewsFetcher) upsertNews(ctx context.Context, sourceID uuid.UUID, item map[string]any) {
 	id := getStr(item, "id")
 	if id == "" {
 		return
@@ -140,34 +150,42 @@ func (f *FPNewsFetcher) upsertNews(ctx context.Context, sourceID uuid.UUID, item
 
 	// Check existing
 	var existingID *uuid.UUID
-	_ = f.pool.QueryRow(ctx,
+	if err := f.pool.QueryRow(ctx,
 		"SELECT id FROM news_item WHERE source_id = $1 AND external_id = $2",
-		sourceID, id).Scan(&existingID)
+		sourceID, id).Scan(&existingID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		slog.Warn("query existing news item", "err", err)
+	}
 
+	// is_relevant/is_news/quality_score are deliberately left unset here (as
+	// the RSS path in fetch.go also does): leaving quality_score NULL keeps
+	// FantasyPros items in the same Enricher/DedupChecker work queue as
+	// every other source, so they get real relevance classification and
+	// entity/topic extraction instead of a blanket, always-relevant default.
 	if existingID != nil {
-		_, _ = f.pool.Exec(ctx, `
+		_, err := f.pool.Exec(ctx, `
 			UPDATE news_item SET title = $1, summary_short = $2, content_text = $3,
 				content_hash = $4, simhash = $5, published_at = COALESCE($6, published_at),
-				body_fetch_status = 'fetched', is_relevant = true, is_news = true,
-				quality_score = 0.9, fetched_at = now()
+				body_fetch_status = 'fetched', fetched_at = now()
 			WHERE id = $7
 		`, title, desc, content, cHash, sh, published, *existingID)
+		if err != nil {
+			slog.Warn("FP news update", "id", id, "err", err)
+		}
 		return
 	}
 
 	_, err := f.pool.Exec(ctx, `
 		INSERT INTO news_item
 			(source_id, source_type, external_id, title, summary_short, content_text,
-			 content_hash, simhash, published_at, fetched_at, body_fetch_status,
-			 is_relevant, is_news, quality_score)
-		VALUES ($1, 'api', $2, $3, $4, $5, $6, $7, $8, now(), 'fetched', true, true, 0.9)
+			 content_hash, simhash, published_at, fetched_at, body_fetch_status)
+		VALUES ($1, 'api', $2, $3, $4, $5, $6, $7, $8, now(), 'fetched')
 	`, sourceID, id, title, desc, content, cHash, sh, published)
 	if err != nil {
 		slog.Warn("FP news upsert", "id", id, "err", err)
 	}
 }
 
-func getStr(m map[string]interface{}, key string) string {
+func getStr(m map[string]any, key string) string {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return ""

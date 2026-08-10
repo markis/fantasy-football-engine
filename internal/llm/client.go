@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,12 +12,14 @@ import (
 	"time"
 )
 
+var errChatHTTP = errors.New("chat HTTP error")
+
 // Client is an Ollama Cloud chat completion client.
 type Client struct {
-	url       string
-	model     string
-	apiKey    string
-	client    *http.Client
+	url    string
+	model  string
+	apiKey string
+	client *http.Client
 }
 
 // New creates a new LLM client for Ollama Cloud.
@@ -66,7 +69,7 @@ func (c *Client) Chat(ctx context.Context, prompt string, temperature float64) (
 		return "", fmt.Errorf("marshal chat request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return "", fmt.Errorf("create chat request: %w", err)
 	}
@@ -83,7 +86,7 @@ func (c *Client) Chat(ctx context.Context, prompt string, temperature float64) (
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("chat HTTP %d: %s", resp.StatusCode, string(respBody))
+		return "", fmt.Errorf("%w (%d): %s", errChatHTTP, resp.StatusCode, string(respBody))
 	}
 
 	var result chatResponse

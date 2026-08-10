@@ -5,10 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -40,20 +40,31 @@ const bodyUserAgent = "Mozilla/5.0 (X11; Linux x64) AppleWebKit/537.36 (KHTML, l
 
 // BodyFetchResult is the result of a body fetch batch.
 type BodyFetchResult struct {
-	Checked int `json:"checked"`
-	Fetched int `json:"fetched"`
-	Skipped int `json:"skipped"`
+	Checked int    `json:"checked"`
+	Fetched int    `json:"fetched"`
+	Skipped int    `json:"skipped"`
 	Status  string `json:"status"`
+}
+
+// pendingItem is a news_item row awaiting a full-body fetch.
+type pendingItem struct {
+	id      uuid.UUID
+	url     string
+	title   string
+	summary string
+	content string
 }
 
 // FetchBatch fetches bodies for pending items.
 func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResult, error) {
 	// Reset stale 'fetching' items
-	_, _ = b.pool.Exec(ctx, `
+	if _, err := b.pool.Exec(ctx, `
 		UPDATE news_item SET body_fetch_status = 'pending'
 		WHERE body_fetch_status = 'fetching'
 		  AND body_fetched_at < now() - interval '10 minutes'
-	`)
+	`); err != nil {
+		slog.Warn("reset stale fetch status", "err", err)
+	}
 
 	// Get pending items
 	rows, err := b.pool.Query(ctx, `
@@ -70,18 +81,11 @@ func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResu
 	}
 	defer rows.Close()
 
-	type pendingItem struct {
-		id       uuid.UUID
-		url      string
-		title    string
-		summary  string
-		content  string
-	}
 	var items []pendingItem
 	for rows.Next() {
 		var it pendingItem
 		var url, title, summary, content *string
-		if err := rows.Scan(&it.id, &url, &it.title, &it.summary, &it.content); err != nil {
+		if err := rows.Scan(&it.id, &url, &title, &summary, &content); err != nil {
 			return nil, err
 		}
 		if url != nil {
@@ -103,17 +107,21 @@ func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResu
 
 	for _, item := range items {
 		// Mark as fetching
-		_, _ = b.pool.Exec(ctx, `
+		if _, err := b.pool.Exec(ctx, `
 			UPDATE news_item SET body_fetch_status = 'fetching',
 				body_fetch_attempts = body_fetch_attempts + 1, body_fetched_at = now()
 			WHERE id = $1 AND body_fetch_status = 'pending'
-		`, item.id)
+		`, item.id); err != nil {
+			slog.Warn("mark fetching", "id", item.id, "err", err)
+		}
 
 		status := b.processItem(ctx, item)
 		if status == "skipped" {
-			_, _ = b.pool.Exec(ctx,
+			if _, err := b.pool.Exec(ctx,
 				"UPDATE news_item SET body_fetch_status = 'skipped', body_fetched_at = now() WHERE id = $1",
-				item.id)
+				item.id); err != nil {
+				slog.Warn("mark skipped", "id", item.id, "err", err)
+			}
 			result.Skipped++
 		} else {
 			result.Fetched++
@@ -124,13 +132,7 @@ func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResu
 	return result, nil
 }
 
-func (b *BodyFetcher) processItem(ctx context.Context, item struct {
-	id      uuid.UUID
-	url     string
-	title   string
-	summary string
-	content string
-}) string {
+func (b *BodyFetcher) processItem(ctx context.Context, item pendingItem) string {
 	parsed, err := url.Parse(item.url)
 	if err != nil {
 		return "skipped"
@@ -140,7 +142,7 @@ func (b *BodyFetcher) processItem(ctx context.Context, item struct {
 	}
 
 	httpClient := &http.Client{Timeout: 20 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "GET", item.url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, item.url, nil)
 	if err != nil {
 		return "skipped"
 	}
@@ -157,7 +159,7 @@ func (b *BodyFetcher) processItem(ctx context.Context, item struct {
 		return "skipped"
 	}
 
-	bodyBytes, err := ioReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil || len(bodyBytes) < 500 {
 		return "skipped"
 	}
@@ -168,8 +170,17 @@ func (b *BodyFetcher) processItem(ctx context.Context, item struct {
 		return "skipped"
 	}
 
-	// Only update if fetched body is longer than existing
+	// Only overwrite content if the newly fetched body is longer than what
+	// we already have — but the status update must still happen, or the row
+	// is left stuck at 'fetching' (set by FetchBatch before this call) until
+	// the staleness reset kicks it back to 'pending' and it's retried again.
 	if len(contentText) <= len(item.content) {
+		_, err := b.pool.Exec(ctx,
+			"UPDATE news_item SET body_fetch_status = 'fetched', body_fetched_at = now() WHERE id = $1",
+			item.id)
+		if err != nil {
+			return "skipped"
+		}
 		return "fetched"
 	}
 
@@ -189,6 +200,3 @@ func (b *BodyFetcher) processItem(ctx context.Context, item struct {
 	}
 	return "fetched"
 }
-
-// Ensure strings import is used
-var _ = strings.TrimSpace

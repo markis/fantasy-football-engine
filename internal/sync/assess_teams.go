@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"math"
-	"time"
 
 	"github.com/markis/fantasy-football-engine/internal/db"
 	"github.com/markis/fantasy-football-engine/internal/models"
@@ -45,7 +43,7 @@ func (a *TeamAssessor) Assess(ctx context.Context) (*TeamAssessResult, error) {
 		}
 
 		// Find Markis's roster
-		var myRoster map[string]interface{}
+		var myRoster map[string]any
 		for _, r := range rosters {
 			if fmt.Sprint(r["owner_id"]) == models.MarkisUserID {
 				myRoster = r
@@ -148,7 +146,3 @@ func classifyZone(winNow, future float64) string {
 	}
 	return "FRINGE/RETOOL"
 }
-
-// Ensure math import is used
-var _ = math.MaxFloat64
-var _ = time.Now

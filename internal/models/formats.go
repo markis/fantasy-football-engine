@@ -3,13 +3,13 @@ package models
 // LeagueFormat describes a Sleeper league's scoring format and its
 // FantasyCalc market mapping.
 type LeagueFormat struct {
-	Name    string `json:"name"`
-	Teams   int    `json:"teams"`
-	NumQbs  int    `json:"num_qbs"`
-	PPR     int    `json:"ppr"`
-	TEP     string `json:"tep"`
-	Market  *int   `json:"market"`
-	Type    string `json:"type"`
+	Name   string `json:"name"`
+	Teams  int    `json:"teams"`
+	NumQbs int    `json:"num_qbs"`
+	PPR    int    `json:"ppr"`
+	TEP    string `json:"tep"`
+	Market *int   `json:"market"`
+	Type   string `json:"type"`
 }
 
 // LeagueFormats is the authoritative mapping of Markis's Sleeper league IDs
@@ -24,12 +24,12 @@ var LeagueFormats = map[string]LeagueFormat{
 
 // FormatCombo is a distinct dynasty format combo synced from FantasyCalc.
 type FormatCombo struct {
-	Market  int    `json:"market"`
-	Teams   int    `json:"teams"`
-	NumQbs  int    `json:"num_qbs"`
-	PPR     int    `json:"ppr"`
-	TEP     string `json:"tep"`
-	Label   string `json:"label"`
+	Market int    `json:"market"`
+	Teams  int    `json:"teams"`
+	NumQbs int    `json:"num_qbs"`
+	PPR    int    `json:"ppr"`
+	TEP    string `json:"tep"`
+	Label  string `json:"label"`
 }
 
 // FormatCombos are the distinct dynasty format combos to sync.
@@ -51,10 +51,10 @@ const MarkisUserID = "558115100726579200"
 
 // PickValue constants from evaluate_trade.py — 1QB dynasty pick values.
 var (
-	Round1 = map[int]int{1: 9000, 2: 8200, 3: 7600, 4: 6800, 5: 6200, 6: 5600, 7: 5000, 8: 4500, 9: 4000, 10: 3600, 11: 3200, 12: 2900}
-	Round2 = map[int]int{1: 2600, 2: 2300, 3: 2100, 4: 1900, 5: 1700, 6: 1500, 7: 1400, 8: 1300, 9: 1200, 10: 1100, 11: 1000, 12: 950}
+	Round1       = map[int]int{1: 9000, 2: 8200, 3: 7600, 4: 6800, 5: 6200, 6: 5600, 7: 5000, 8: 4500, 9: 4000, 10: 3600, 11: 3200, 12: 2900}
+	Round2       = map[int]int{1: 2600, 2: 2300, 3: 2100, 4: 1900, 5: 1700, 6: 1500, 7: 1400, 8: 1300, 9: 1200, 10: 1100, 11: 1000, 12: 950}
 	RoundDefault = map[int]int{1: 3400, 2: 2000, 3: 600, 4: 250}
-	Tranche = map[string]map[int]int{
+	Tranche      = map[string]map[int]int{
 		"early": {1: 8200, 2: 2300},
 		"mid":   {1: 6200, 2: 1700},
 		"late":  {1: 3400, 2: 1100},

@@ -8,7 +8,6 @@ import (
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	gitAuth "github.com/go-git/go-git/v5/plumbing/transport/http"
-	"github.com/markis/fantasy-football-engine/internal/config"
 )
 
 // gitCommitAndPush commits the corpus changes and pushes to the remote.
@@ -70,6 +69,3 @@ func (p *Publisher) gitCommitAndPush(ctx context.Context, result *PublishResult)
 	slog.Info("pushed to remote", "sha", commit.String())
 	return nil
 }
-
-// Ensure config import is used (for future config integration)
-var _ config.Config

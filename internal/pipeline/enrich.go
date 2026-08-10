@@ -11,31 +11,25 @@ import (
 	"github.com/google/uuid"
 	"github.com/markis/fantasy-football-engine/internal/db"
 	"github.com/markis/fantasy-football-engine/internal/llm"
+	"github.com/markis/fantasy-football-engine/internal/models"
+	"golang.org/x/sync/errgroup"
 )
 
 // Enricher classifies fantasy relevance and extracts entities/topics.
 type Enricher struct {
-	pool   *db.Pool
-	llm    *llm.Client
+	pool           *db.Pool
+	llm            *llm.Client
+	maxConcurrency int
 }
 
-// NewEnricher creates a new enricher.
-func NewEnricher(pool *db.Pool, llmClient *llm.Client) *Enricher {
-	return &Enricher{pool: pool, llm: llmClient}
-}
-
-var nflTeams = map[string]string{
-	"ARI": "Arizona Cardinals", "ATL": "Atlanta Falcons", "BAL": "Baltimore Ravens",
-	"BUF": "Buffalo Bills", "CAR": "Carolina Panthers", "CHI": "Chicago Bears",
-	"CIN": "Cincinnati Bengals", "CLE": "Cleveland Browns", "DAL": "Dallas Cowboys",
-	"DEN": "Denver Broncos", "DET": "Detroit Lions", "GB": "Green Bay Packers",
-	"HOU": "Houston Texans", "IND": "Indianapolis Colts", "JAX": "Jacksonville Jaguars",
-	"KC": "Kansas City Chiefs", "LV": "Las Vegas Raiders", "LAC": "Los Angeles Chargers",
-	"LAR": "Los Angeles Rams", "MIA": "Miami Dolphins", "MIN": "Minnesota Vikings",
-	"NE": "New England Patriots", "NO": "New Orleans Saints", "NYG": "New York Giants",
-	"NYJ": "New York Jets", "PHI": "Philadelphia Eagles", "PIT": "Pittsburgh Steelers",
-	"SF": "San Francisco 49ers", "SEA": "Seattle Seahawks", "TB": "Tampa Bay Buccaneers",
-	"TEN": "Tennessee Titans", "WAS": "Washington Commanders",
+// NewEnricher creates a new enricher. maxConcurrency bounds how many items
+// EnrichBatch classifies via the LLM at once; values <= 0 fall back to 1
+// (sequential).
+func NewEnricher(pool *db.Pool, llmClient *llm.Client, maxConcurrency int) *Enricher {
+	if maxConcurrency <= 0 {
+		maxConcurrency = 1
+	}
+	return &Enricher{pool: pool, llm: llmClient, maxConcurrency: maxConcurrency}
 }
 
 var fantasyPositions = []string{"QB", "RB", "WR", "TE", "K", "DEF", "DST", "DL", "LB", "DB"}
@@ -65,10 +59,10 @@ Summary: %s`
 
 // EnrichResult is the result of enriching items in batch.
 type EnrichResult struct {
-	Enriched         int `json:"enriched"`
-	FantasyRelevant  int `json:"fantasy_relevant"`
-	NotRelevant       int `json:"not_relevant"`
-	Status           string `json:"status"`
+	Enriched        int    `json:"enriched"`
+	FantasyRelevant int    `json:"fantasy_relevant"`
+	NotRelevant     int    `json:"not_relevant"`
+	Status          string `json:"status"`
 }
 
 // EnrichBatch enriches news items that haven't been enriched yet.
@@ -90,18 +84,29 @@ func (e *Enricher) EnrichBatch(ctx context.Context, limit int) (*EnrichResult, e
 	}
 
 	result := &EnrichResult{Status: "ok"}
+	var mu sync.Mutex
+	var g errgroup.Group
+	g.SetLimit(e.maxConcurrency)
 	for _, id := range itemIDs {
-		relevant, err := e.enrichOne(ctx, id)
-		if err != nil {
-			slog.Warn("enrich item", "id", id, "err", err)
-			continue
-		}
-		result.Enriched++
-		if relevant {
-			result.FantasyRelevant++
-		} else {
-			result.NotRelevant++
-		}
+		g.Go(func() error {
+			relevant, err := e.enrichOne(ctx, id)
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				slog.Warn("enrich item", "id", id, "err", err)
+				return nil
+			}
+			result.Enriched++
+			if relevant {
+				result.FantasyRelevant++
+			} else {
+				result.NotRelevant++
+			}
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("enrich batch: %w", err)
 	}
 	slog.Info("enrich batch complete", "enriched", result.Enriched, "relevant", result.FantasyRelevant)
 	return result, nil
@@ -170,7 +175,7 @@ func extractEntities(text, title string) []string {
 	entities := make(map[string]bool)
 
 	// NFL team detection
-	for abbr, fullName := range nflTeams {
+	for abbr, fullName := range models.NFLTeams {
 		parts := strings.Split(fullName, " ")
 		nickname := parts[len(parts)-1]
 		city := strings.Join(parts[:len(parts)-1], " ")
@@ -214,16 +219,16 @@ func extractEntities(text, title string) []string {
 }
 
 var topicKeywords = map[string][]string{
-	"injury":       {"injury", "injured", "hurt", "concussion", "hamstring", "ankle", "knee", "shoulder", "questionable", "doubtful", "out", "ir", "injured reserve", "physically unable", "pup", "dnp", "limited"},
-	"depth chart":  {"depth chart", "starter", "backup", "benched", "demoted", "promoted", "number one", "number 1", "rb1", "rb2", "wr1", "wr2", "te1", "starting"},
-	"transaction":  {"trade", "traded", "signing", "signed", "released", "cut", "waived", "claimed", "free agent", "free agency", "contract", "extension", "retire", "retirement", "suspended", "suspension"},
-	"performance":  {"snap count", "snaps", "targets", "touchdown", "td", "yards", "receptions", "carries", "rush", "receiving", "passing", "fantasy points", "ppr", "half ppr"},
-	"matchup":      {"matchup", "vs", "versus", "against", "defense", "defence", "secondary", "pass rush", "blitz"},
-	"coaching":     {"coach", "coordinator", "offensive coordinator", "dc", "head coach", "fired", "hired", "playcaller", "play caller"},
-	"practice":     {"practice", "mini camp", "minicamp", "ota", "training camp", "preseason", "walk-through"},
-	"dfs":          {"dfs", "draftkings", "fanduel", "salary", "lineup", "cash game", "tournament", "gpp", "stack", "value"},
-	"waiver wire":  {"waiver", "waivers", "add", "drop", "pickup", "claim"},
-	"draft":        {"draft", "drafted", "pick", "first round", "round 1", "rookie", "combine", "pro day"},
+	"injury":      {"injury", "injured", "hurt", "concussion", "hamstring", "ankle", "knee", "shoulder", "questionable", "doubtful", "out", "ir", "injured reserve", "physically unable", "pup", "dnp", "limited"},
+	"depth chart": {"depth chart", "starter", "backup", "benched", "demoted", "promoted", "number one", "number 1", "rb1", "rb2", "wr1", "wr2", "te1", "starting"},
+	"transaction": {"trade", "traded", "signing", "signed", "released", "cut", "waived", "claimed", "free agent", "free agency", "contract", "extension", "retire", "retirement", "suspended", "suspension"},
+	"performance": {"snap count", "snaps", "targets", "touchdown", "td", "yards", "receptions", "carries", "rush", "receiving", "passing", "fantasy points", "ppr", "half ppr"},
+	"matchup":     {"matchup", "vs", "versus", "against", "defense", "defense", "secondary", "pass rush", "blitz"},
+	"coaching":    {"coach", "coordinator", "offensive coordinator", "dc", "head coach", "fired", "hired", "playcaller", "play caller"},
+	"practice":    {"practice", "mini camp", "minicamp", "ota", "training camp", "preseason", "walk-through"},
+	"dfs":         {"dfs", "draftkings", "fanduel", "salary", "lineup", "cash game", "tournament", "gpp", "stack", "value"},
+	"waiver wire": {"waiver", "waivers", "add", "drop", "pickup", "claim"},
+	"draft":       {"draft", "drafted", "pick", "first round", "round 1", "rookie", "combine", "pro day"},
 }
 
 func extractTopics(text, title string) []string {
@@ -267,6 +272,3 @@ func ptrStr(s *string) string {
 	}
 	return *s
 }
-
-// Ensure sync is used (for potential future concurrent enrichment)
-var _ sync.WaitGroup

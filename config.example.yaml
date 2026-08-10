@@ -27,8 +27,6 @@ llm:
 sleeper:
   base_url: "https://api.sleeper.app/v1"
   rate_limit_per_min: 1000
-  markis_username: "markis"
-  markis_user_id: "558115100726579200"
   seasons: [2026]
 
 sources:

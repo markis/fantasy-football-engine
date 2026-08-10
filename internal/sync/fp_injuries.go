@@ -30,10 +30,10 @@ const fpInjuriesURL = "https://api.fantasypros.com/public/v2/json/nfl/injuries"
 
 // FPInjuriesResult is the result of an injury sync.
 type FPInjuriesResult struct {
-	InjuriesFetched  int    `json:"injuries_fetched"`
-	PlayersUpdated   int    `json:"players_updated"`
-	Unmatched        int    `json:"unmatched"`
-	Status           string `json:"status"`
+	InjuriesFetched int    `json:"injuries_fetched"`
+	PlayersUpdated  int    `json:"players_updated"`
+	Unmatched       int    `json:"unmatched"`
+	Status          string `json:"status"`
 }
 
 // Sync fetches FantasyPros injury data and updates the player table.
@@ -45,11 +45,11 @@ func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) 
 		return nil, fmt.Errorf("get FP API key: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fpInjuriesURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpInjuriesURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("X-Api-Key", apiKey)
 	req.Header.Set("Accept", "application/json")
 	q := req.URL.Query()
 	q.Add("limit", "500")
@@ -62,11 +62,11 @@ func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) 
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("FP injuries HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("%w (%d): %s", errFPInjuriesHTTP, resp.StatusCode, string(body))
 	}
 
 	var apiResp struct {
-		Injuries []map[string]interface{} `json:"injuries"`
+		Injuries []map[string]any `json:"injuries"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("decode FP injuries: %w", err)
@@ -82,10 +82,10 @@ func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) 
 	}
 	defer rows.Close()
 
-	byYahoo := make(map[string]interface{})
-	byNameTeam := make(map[string]interface{})
+	byYahoo := make(map[string]any)
+	byNameTeam := make(map[string]any)
 	for rows.Next() {
-		var id interface{}
+		var id any
 		var sleeperID, yahooID, fullName, team *string
 		if err := rows.Scan(&id, &sleeperID, &yahooID, &fullName, &team); err != nil {
 			continue
@@ -99,7 +99,7 @@ func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) 
 	}
 
 	for _, it := range items {
-		var pid interface{}
+		var pid any
 		yid := fmt.Sprint(it["yahoo_id"])
 		if yid != "" && yid != "<nil>" {
 			if v, ok := byYahoo[yid]; ok {
@@ -156,7 +156,7 @@ func (s *FPInjuriesSyncer) Sync(ctx context.Context) (*FPInjuriesResult, error) 
 	return result, nil
 }
 
-func latestPractice(item map[string]interface{}) string {
+func latestPractice(item map[string]any) string {
 	for _, k := range []string{"practice_3", "practice_2", "practice_1"} {
 		if v, ok := item[k]; ok && v != nil {
 			s := fmt.Sprint(v)

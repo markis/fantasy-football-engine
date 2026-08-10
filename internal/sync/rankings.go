@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,14 +29,14 @@ const ddURL = "https://dynasty-daddy.com/api/v1/player/all/today"
 
 // RankingsSyncResult is the result of a rankings sync.
 type RankingsSyncResult struct {
-	Fetched       int            `json:"fetched"`
-	Matched       int            `json:"matched"`
-	SkippedPicks  int            `json:"skipped_picks"`
-	SkippedNoMatch int           `json:"skipped_nomatch"`
-	RemovedStale  int            `json:"removed_stale"`
-	Market        int            `json:"market"`
-	Source        string         `json:"source"`
-	Status        string         `json:"status"`
+	Fetched        int    `json:"fetched"`
+	Matched        int    `json:"matched"`
+	SkippedPicks   int    `json:"skipped_picks"`
+	SkippedNoMatch int    `json:"skipped_nomatch"`
+	RemovedStale   int    `json:"removed_stale"`
+	Market         int    `json:"market"`
+	Source         string `json:"source"`
+	Status         string `json:"status"`
 }
 
 // Sync fetches Dynasty Daddy rankings and upserts into player_ranking.
@@ -47,7 +48,7 @@ func (s *RankingsSyncer) Sync(ctx context.Context, market int, source string) (*
 
 	url := fmt.Sprintf("%s?market=%d", ddURL, market)
 	slog.Info("fetching rankings", "url", url)
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +58,7 @@ func (s *RankingsSyncer) Sync(ctx context.Context, market int, source string) (*
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rankings HTTP %d", resp.StatusCode)
+		return nil, fmt.Errorf("%w (%d)", errRankingsHTTP, resp.StatusCode)
 	}
 
 	var data []map[string]interface{}
@@ -103,7 +104,7 @@ func (s *RankingsSyncer) Sync(ctx context.Context, market int, source string) (*
 	for _, p := range data {
 		sid := getRankingStr(p, "sleeper_id")
 		nid := getRankingStr(p, "name_id")
-		if sid == "" || endsWith(nid, "pi") {
+		if sid == "" || strings.HasSuffix(nid, "pi") {
 			result.SkippedPicks++
 			continue
 		}
@@ -128,16 +129,22 @@ func (s *RankingsSyncer) Sync(ctx context.Context, market int, source string) (*
 		colNames := ""
 		placeholders := ""
 		updates := ""
+		var colNamesSb132 strings.Builder
+		var placeholdersSb132 strings.Builder
+		var updatesSb132 strings.Builder
 		for i, col := range dataCols {
 			if i > 0 {
-				colNames += ", "
-				placeholders += ", "
-				updates += ", "
+				colNamesSb132.WriteString(", ")
+				placeholdersSb132.WriteString(", ")
+				updatesSb132.WriteString(", ")
 			}
-			colNames += col
-			placeholders += "$" + strconv.Itoa(i+4)
-			updates += col + " = EXCLUDED." + col
+			colNamesSb132.WriteString(col)
+			placeholdersSb132.WriteString("$" + strconv.Itoa(i+4))
+			updatesSb132.WriteString(col + " = EXCLUDED." + col)
 		}
+		colNames += colNamesSb132.String()
+		placeholders += placeholdersSb132.String()
+		updates += updatesSb132.String()
 
 		sql := fmt.Sprintf(`
 			INSERT INTO player_ranking (player_id, source, market, %s, data_date, snapshot_date)
@@ -171,11 +178,4 @@ func getRankingStr(m map[string]interface{}, key string) string {
 		return ""
 	}
 	return fmt.Sprint(v)
-}
-
-func endsWith(s, suffix string) bool {
-	if len(s) < len(suffix) {
-		return false
-	}
-	return s[len(s)-len(suffix):] == suffix
 }

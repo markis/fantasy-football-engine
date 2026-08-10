@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
-	"time"
 
 	"github.com/markis/fantasy-football-engine/internal/db"
 	"github.com/markis/fantasy-football-engine/internal/models"
@@ -78,7 +78,7 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 		}
 
 		// Build user map
-		userMap := make(map[string]map[string]interface{})
+		userMap := make(map[string]map[string]any)
 		for _, u := range users {
 			uid := fmt.Sprint(u["user_id"])
 			userMap[uid] = u
@@ -149,13 +149,15 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 					// Get rosters for discovered league
 					olRosters, err := s.sleeper.GetLeagueRosters(ctx, olID)
 					if err != nil {
+						slog.Warn("get rosters (discovered league)", "league", olID, "err", err)
 						continue
 					}
 					olUsers, err := s.sleeper.GetLeagueUsers(ctx, olID)
 					if err != nil {
+						slog.Warn("get users (discovered league)", "league", olID, "err", err)
 						continue
 					}
-					olUserMap := make(map[string]map[string]interface{})
+					olUserMap := make(map[string]map[string]any)
 					for _, u := range olUsers {
 						uid := fmt.Sprint(u["user_id"])
 						olUserMap[uid] = u
@@ -207,10 +209,14 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 	return result, nil
 }
 
-func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg map[string]interface{}, isMarkis bool, discoveredVia string) {
+func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg map[string]any, isMarkis bool, discoveredVia string) {
 	leagueID := fmt.Sprint(lg["league_id"])
 	rosterPositions, _ := json.Marshal(lg["roster_positions"])
 	settings, _ := json.Marshal(lg["settings"])
+	var leagueType *int
+	if settingsMap, ok := lg["settings"].(map[string]any); ok {
+		leagueType = toInt(settingsMap["type"])
+	}
 
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO league (league_id, name, season, sport, status, num_teams,
@@ -226,7 +232,7 @@ func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg map[string]inter
 			is_markis_league = league.is_markis_league OR EXCLUDED.is_markis_league,
 			last_synced_at = now()
 	`, leagueID, lg["name"], lg["season"], "nfl", lg["status"], toInt(lg["total_rosters"]),
-		hasSuperflex(lg), isBestBall(lg), toInt(lg["settings"]),
+		hasSuperflex(lg), isBestBall(lg), leagueType,
 		rosterPositions, settings, lg["previous_league_id"],
 		isMarkis, nilIfEmpty(discoveredVia))
 	if err != nil {
@@ -234,7 +240,7 @@ func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg map[string]inter
 	}
 }
 
-func (s *LeaguemateSyncer) upsertSleeperUser(ctx context.Context, userID string, user map[string]interface{}, isMarkis bool) {
+func (s *LeaguemateSyncer) upsertSleeperUser(ctx context.Context, userID string, user map[string]any, isMarkis bool) {
 	username := ""
 	if user != nil {
 		username = fmt.Sprint(user["username"])
@@ -271,10 +277,10 @@ func (s *LeaguemateSyncer) upsertSleeperUser(ctx context.Context, userID string,
 	}
 }
 
-func (s *LeaguemateSyncer) upsertLeagueManager(ctx context.Context, leagueID, userID string, rosterID int, user map[string]interface{}, coOwner bool, isMarkis bool) {
+func (s *LeaguemateSyncer) upsertLeagueManager(ctx context.Context, leagueID, userID string, rosterID int, user map[string]any, coOwner bool, isMarkis bool) {
 	teamName := ""
 	if user != nil {
-		if meta, ok := user["metadata"].(map[string]interface{}); ok {
+		if meta, ok := user["metadata"].(map[string]any); ok {
 			teamName = fmt.Sprint(meta["team_name"])
 			if teamName == "<nil>" {
 				teamName = ""
@@ -293,12 +299,12 @@ func (s *LeaguemateSyncer) upsertLeagueManager(ctx context.Context, leagueID, us
 	}
 }
 
-func hasSuperflex(lg map[string]interface{}) bool {
+func hasSuperflex(lg map[string]any) bool {
 	rp, ok := lg["roster_positions"]
 	if !ok {
 		return false
 	}
-	arr, ok := rp.([]interface{})
+	arr, ok := rp.([]any)
 	if !ok {
 		return false
 	}
@@ -310,8 +316,8 @@ func hasSuperflex(lg map[string]interface{}) bool {
 	return false
 }
 
-func isBestBall(lg map[string]interface{}) bool {
-	settings, ok := lg["settings"].(map[string]interface{})
+func isBestBall(lg map[string]any) bool {
+	settings, ok := lg["settings"].(map[string]any)
 	if !ok {
 		return false
 	}
@@ -319,11 +325,11 @@ func isBestBall(lg map[string]interface{}) bool {
 	return v != nil && *v == 1
 }
 
-func toStringSlice(v interface{}) []string {
+func toStringSlice(v any) []string {
 	if v == nil {
 		return nil
 	}
-	arr, ok := v.([]interface{})
+	arr, ok := v.([]any)
 	if !ok {
 		return nil
 	}
@@ -338,20 +344,12 @@ func toStringSlice(v interface{}) []string {
 }
 
 func contains(arr []string, s string) bool {
-	for _, v := range arr {
-		if v == s {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(arr, s)
 }
 
-func nilIfEmpty(s string) interface{} {
+func nilIfEmpty(s string) any {
 	if s == "" || s == "<nil>" {
 		return nil
 	}
 	return s
 }
-
-// Ensure time import is used
-var _ = time.Now

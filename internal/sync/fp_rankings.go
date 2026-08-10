@@ -27,17 +27,19 @@ func NewFPRankingsSyncer(pool *db.Pool, cfg *config.Config) *FPRankingsSyncer {
 	return &FPRankingsSyncer{pool: pool, cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}}
 }
 
-const fpRankingsURL = "https://api.fantasypros.com/public/v2/json/nfl/2026/rankings"
-const fpRankingsSource = "FantasyPros ECR"
-const fpRankingsMarket = 1
+const (
+	fpRankingsURL    = "https://api.fantasypros.com/public/v2/json/nfl/2026/rankings"
+	fpRankingsSource = "FantasyPros ECR"
+	fpRankingsMarket = 1
+)
 
 // FPRankingsResult is the result of an FP rankings sync.
 type FPRankingsResult struct {
-	Source           string `json:"source"`
-	PlayersWithDyn   int    `json:"players_with_dyn_rank"`
-	Matched          int    `json:"matched"`
-	Unmatched        int    `json:"unmatched"`
-	Status           string `json:"status"`
+	Source         string `json:"source"`
+	PlayersWithDyn int    `json:"players_with_dyn_rank"`
+	Matched        int    `json:"matched"`
+	Unmatched      int    `json:"unmatched"`
+	Status         string `json:"status"`
 }
 
 // Sync fetches FantasyPros ECR dynasty ranks and upserts into player_ranking.
@@ -49,11 +51,11 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 		return nil, fmt.Errorf("get FP API key: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", fpRankingsURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpRankingsURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("x-api-key", apiKey)
+	req.Header.Set("X-Api-Key", apiKey)
 	req.Header.Set("Accept", "application/json")
 	q := req.URL.Query()
 	q.Add("limit", "500")
@@ -66,11 +68,11 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("FP rankings HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("%w (%d): %s", errFPRankingsHTTP, resp.StatusCode, string(body))
 	}
 
 	var apiResp struct {
-		Players []map[string]interface{} `json:"players"`
+		Players []map[string]any `json:"players"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
 		return nil, fmt.Errorf("decode FP rankings: %w", err)
@@ -97,16 +99,12 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 		}
 	}
 
-	// Delete stale rows for this source/market
-	_, _ = s.pool.Exec(ctx,
-		"DELETE FROM player_ranking WHERE source = $1 AND market = $2",
-		fpRankingsSource, fpRankingsMarket)
-
 	var matched, skipped int
+	var freshIDs []uuid.UUID
 	for _, p := range players {
-		rankMap, _ := p["rank"].(map[string]interface{})
+		rankMap, _ := p["rank"].(map[string]any)
 		ecrMap, _ := getNested(rankMap, "ECR")
-		dynMap, _ := ecrMap["DYN"].(map[string]interface{})
+		dynMap, _ := ecrMap["DYN"].(map[string]any)
 		if dynMap == nil {
 			continue
 		}
@@ -142,7 +140,17 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 		`, pid, fpRankingsSource, fpRankingsMarket, pos, fmt.Sprint(p["team_id"]), *overall, posRank)
 		if err != nil {
 			slog.Warn("FP ranking upsert", "err", err)
+			continue
 		}
+		freshIDs = append(freshIDs, pid)
+	}
+
+	// Delete stale rows for this source/market, but only once we know we
+	// have fresh data to replace them — never wipe on an empty/failed sync.
+	if len(freshIDs) > 0 {
+		_, _ = s.pool.Exec(ctx,
+			"DELETE FROM player_ranking WHERE source = $1 AND market = $2 AND NOT (player_id = ANY($3))",
+			fpRankingsSource, fpRankingsMarket, freshIDs)
 	}
 
 	result.Matched = matched
@@ -152,11 +160,11 @@ func (s *FPRankingsSyncer) Sync(ctx context.Context) (*FPRankingsResult, error) 
 	return result, nil
 }
 
-func getNested(m map[string]interface{}, key string) (map[string]interface{}, bool) {
+func getNested(m map[string]any, key string) (map[string]any, bool) {
 	v, ok := m[key]
 	if !ok {
 		return nil, false
 	}
-	result, ok := v.(map[string]interface{})
+	result, ok := v.(map[string]any)
 	return result, ok
 }

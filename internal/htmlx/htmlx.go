@@ -11,14 +11,14 @@ import (
 )
 
 var (
-	scriptRe   = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
-	styleRe    = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
-	navRe      = regexp.MustCompile(`(?is)<nav[^>]*>.*?</nav>`)
-	headerRe   = regexp.MustCompile(`(?is)<header[^>]*>.*?</header>`)
-	footerRe   = regexp.MustCompile(`(?is)<footer[^>]*>.*?</footer>`)
-	tagRe      = regexp.MustCompile(`<[^>]+>`)
- whitespaceRe = regexp.MustCompile(`\s+`)
-	pRe        = regexp.MustCompile(`(?i)</p>|<br\s*/?>|<br>`)
+	scriptRe     = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	styleRe      = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	navRe        = regexp.MustCompile(`(?is)<nav[^>]*>.*?</nav>`)
+	headerRe     = regexp.MustCompile(`(?is)<header[^>]*>.*?</header>`)
+	footerRe     = regexp.MustCompile(`(?is)<footer[^>]*>.*?</footer>`)
+	tagRe        = regexp.MustCompile(`<[^>]+>`)
+	whitespaceRe = regexp.MustCompile(`\s+`)
+	pRe          = regexp.MustCompile(`(?i)</p>|<br\s*/?>|<br>`)
 )
 
 // ExtractText extracts plain text from HTML, removing scripts/styles/nav.

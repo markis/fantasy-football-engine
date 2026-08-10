@@ -8,23 +8,62 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/markis/fantasy-football-engine/internal/models"
 )
 
+// anyToInt coerces a decoded-JSON value (float64, string, or int) to an int,
+// returning 0 if it can't be interpreted as a number.
+func anyToInt(v any) int {
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case int:
+		return t
+	case json.Number:
+		n, _ := t.Int64()
+		return int(n)
+	case string:
+		n, _ := strconv.Atoi(t)
+		return n
+	default:
+		return 0
+	}
+}
+
+// nilIfEmpty returns nil for an empty string, otherwise a pointer to it —
+// so it marshals to JSON null instead of "" for nullable schema fields.
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// dfltSlots ensures a nil slice marshals as [] rather than null, since the
+// corpus JSON schemas require these fields to be arrays, never null.
+func dfltSlots(s []map[string]any) []map[string]any {
+	if s == nil {
+		return []map[string]any{}
+	}
+	return s
+}
+
 // renderTeam renders team/ (team-state, roster, picks, settings, transactions).
-func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[string]interface{}, error) {
+func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[string]any, error) {
 	teamDir := filepath.Join(targetDir, "team")
-	if err := os.MkdirAll(teamDir, 0755); err != nil {
+	if err := os.MkdirAll(teamDir, 0o755); err != nil {
 		return nil, err
 	}
 	leaguesDir := filepath.Join(teamDir, "leagues")
-	os.MkdirAll(leaguesDir, 0755)
+	os.MkdirAll(leaguesDir, 0o755)
 
 	now := p.common.NowISO()
-	var leagues []map[string]interface{}
+	var leagues []map[string]any
 
 	for leagueID, lf := range models.LeagueFormats {
 		rosters, err := p.common.LeagueRosters(ctx, leagueID)
@@ -37,11 +76,41 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 			continue
 		}
 
+		rosterOwner := make(map[int]string)
+		for _, r := range rosters {
+			rosterOwner[anyToInt(r["roster_id"])] = fmt.Sprint(r["owner_id"])
+		}
+
+		leagueInfo, _ := p.common.LeagueInfo(ctx, leagueID)
+		var starterSlots []string
+		for _, rp := range toStringSlice(leagueInfo["roster_positions"]) {
+			if rp != "BN" {
+				starterSlots = append(starterSlots, rp)
+			}
+		}
+
+		starters := toStringSlice(myRoster["starters"])
+		starterSlot := make(map[string]string, len(starters))
+		for i, pid := range starters {
+			if pid == "" || pid == "0" || i >= len(starterSlots) {
+				continue
+			}
+			starterSlot[pid] = starterSlots[i]
+		}
+		taxiSet := make(map[string]bool)
+		for _, pid := range toStringSlice(myRoster["taxi"]) {
+			taxiSet[pid] = true
+		}
+		reserveSet := make(map[string]bool)
+		for _, pid := range toStringSlice(myRoster["reserve"]) {
+			reserveSet[pid] = true
+		}
+
 		players := toStringSlice(myRoster["players"])
 		playerRows := p.common.PlayerRows(ctx, players)
 		rkRows := p.common.RankingRows(ctx, players, "Dynasty Daddy", 14)
 
-		var roster []map[string]interface{}
+		var roster, taxiSquad, injuredReserve []map[string]any
 		for _, sid := range players {
 			pr := playerRows[sid]
 			rk := rkRows[sid]
@@ -51,9 +120,9 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 			fullName := getStr(pr, "full_name")
 			pos := getStr(pr, "position")
 			teamAbbr := getStr(pr, "team_abbr")
-			ageStr := ""
-			if v, ok := pr["age"].(*int); ok && v != nil {
-				ageStr = fmt.Sprint(*v)
+			var age *int
+			if v, ok := pr["age"].(*int); ok {
+				age = v
 			}
 			injuryStatus := getStr(pr, "injury_status")
 
@@ -64,53 +133,122 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 				}
 			}
 
-			roster = append(roster, map[string]interface{}{
-				"sleeper_player_id": sid,
-				"full_name":         fullName,
-				"position":          pos,
-				"nfl_team":          teamAbbr,
-				"age":               ageStr,
-				"injury_status":     injuryStatus,
-				"trade_value":       tradeValue,
-			})
-		}
+			slot := "BN"
+			if s, ok := starterSlot[sid]; ok {
+				slot = s
+			}
+			if taxiSet[sid] {
+				slot = "TAXI"
+			} else if reserveSet[sid] {
+				slot = "IR"
+			}
 
-		// Get future picks
-		tradedPicks, _ := p.common.LeagueTradedPicks(ctx, leagueID)
-		var futurePicks []map[string]interface{}
-		for _, pick := range tradedPicks {
-			if fmt.Sprint(pick["owner_id"]) == models.MarkisUserID {
-				futurePicks = append(futurePicks, pick)
+			slotRec := map[string]any{
+				"sleeper_player_id": sid,
+				"full_name":         nilIfEmpty(fullName),
+				"position":          nilIfEmpty(pos),
+				"nfl_team":          nilIfEmpty(teamAbbr),
+				"slot":              slot,
+				"trade_value":       tradeValue,
+				"age":               age,
+				"injury_status":     nilIfEmpty(injuryStatus),
+			}
+
+			switch {
+			case taxiSet[sid]:
+				taxiSquad = append(taxiSquad, slotRec)
+			case reserveSet[sid]:
+				injuredReserve = append(injuredReserve, slotRec)
+			default:
+				roster = append(roster, slotRec)
 			}
 		}
 
-		// FAAB
-		settings, _ := myRoster["settings"].(map[string]interface{})
+		// Get future picks currently owned by Markis's roster in this league.
+		markisRosterID := fmt.Sprint(myRoster["roster_id"])
+		tradedPicks, _ := p.common.LeagueTradedPicks(ctx, leagueID)
+		var futurePicks []map[string]any
+		for _, pick := range tradedPicks {
+			if fmt.Sprint(pick["owner_id"]) != markisRosterID {
+				continue
+			}
+			originalTeam := fmt.Sprint(pick["roster_id"])
+			if name, ok := rosterOwner[anyToInt(pick["roster_id"])]; ok {
+				originalTeam = name
+			}
+			currentOwner := fmt.Sprint(pick["owner_id"])
+			if name, ok := rosterOwner[anyToInt(pick["owner_id"])]; ok {
+				currentOwner = name
+			}
+			futurePicks = append(futurePicks, map[string]any{
+				"season":        anyToInt(pick["season"]),
+				"round":         anyToInt(pick["round"]),
+				"original_team": originalTeam,
+				"current_owner": currentOwner,
+			})
+		}
+
+		// FAAB. The league's total waiver budget (default 100 per Sleeper's
+		// own default) must come from the league settings, not be assumed —
+		// leagues can configure any total.
+		settings, _ := myRoster["settings"].(map[string]any)
 		faab := 0
 		if v, ok := settings["waiver_budget_used"]; ok {
 			if n, ok := v.(float64); ok {
 				faab = int(n)
 			}
 		}
+		waiverBudget := 100
+		if lset, ok := leagueInfo["settings"].(map[string]any); ok {
+			if v, ok := lset["waiver_budget"]; ok {
+				if n, ok := v.(float64); ok {
+					waiverBudget = int(n)
+				}
+			}
+		}
+		faabRemaining := max(waiverBudget-faab, 0)
 
-		leagueState := map[string]interface{}{
-			"league": map[string]interface{}{
-				"league_id": leagueID,
-				"name":      lf.Name,
-				"format":    lf.Type,
-				"teams":     lf.Teams,
-				"num_qbs":   lf.NumQbs,
+		teamName := lf.Name + " (Markis)"
+		if md, ok := myRoster["metadata"].(map[string]any); ok {
+			if tn, ok := md["team_name"].(string); ok && tn != "" {
+				teamName = tn
+			}
+		}
+
+		benchCount := 0
+		for _, rp := range toStringSlice(leagueInfo["roster_positions"]) {
+			if rp == "BN" {
+				benchCount++
+			}
+		}
+
+		leagueState := map[string]any{
+			"league": map[string]any{
+				"league_id":       leagueID,
+				"name":            lf.Name,
+				"platform":        "Sleeper",
+				"format":          lf.Type,
+				"teams":           lf.Teams,
+				"scoring_summary": fmt.Sprintf("%d QB, PPR=%d, TEP=%s", lf.NumQbs, lf.PPR, lf.TEP),
+				"roster_summary":  fmt.Sprintf("Starters: %s; Bench: %d", strings.Join(starterSlots, ","), benchCount),
+				"trade_deadline":  nil,
+				"notes":           "",
 			},
-			"team": map[string]interface{}{
-				"roster":            roster,
-				"future_picks":      futurePicks,
-				"faab_remaining":    100 - faab,
-				"competitive_mode":  "unknown", // would be read from TEAM_STATE.md
-				"taxi_squad":        []interface{}{},
-				"injured_reserve":   []interface{}{},
+			"team": map[string]any{
+				"name":                     teamName,
+				"competitive_mode":         "unknown", // would be read from TEAM_STATE.md
+				"target_contention_window": nil,
+				"roster":                   dfltSlots(roster),
+				"taxi_squad":               dfltSlots(taxiSquad),
+				"injured_reserve":          dfltSlots(injuredReserve),
+				"future_picks":             dfltSlots(futurePicks),
+				"faab_remaining":           faabRemaining,
+				"active_trade_discussions": []string{},
+				"roster_constraints":       []string{},
+				"current_priorities":       []string{},
 			},
 			"as_of": now,
-			"data_freshness": map[string]interface{}{
+			"data_freshness": map[string]any{
 				"roster_updated_at":       now,
 				"league_updated_at":       now,
 				"transactions_updated_at": now,
@@ -125,9 +263,9 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 	}
 
 	// Write multi-league team-state
-	multi := map[string]interface{}{
-		"leagues":    leagues,
-		"as_of":      now,
+	multi := map[string]any{
+		"leagues":      leagues,
+		"as_of":        now,
 		"generated_at": now,
 	}
 	WriteJSON(filepath.Join(teamDir, "team-state.json"), multi)
@@ -136,10 +274,10 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 	var mdLines []string
 	mdLines = append(mdLines, "# Roster", "", fmt.Sprintf("_Generated %s._", now), "")
 	for _, lg := range leagues {
-		l := lg["league"].(map[string]interface{})
-		t := lg["team"].(map[string]interface{})
+		l := lg["league"].(map[string]any)
+		t := lg["team"].(map[string]any)
 		mdLines = append(mdLines, fmt.Sprintf("## %s", l["name"]), "")
-		for _, r := range t["roster"].([]map[string]interface{}) {
+		for _, r := range t["roster"].([]map[string]any) {
 			mdLines = append(mdLines, fmt.Sprintf("- %s (%s, %s) — value: %v",
 				r["full_name"], r["position"], r["nfl_team"], r["trade_value"]))
 		}
@@ -148,21 +286,21 @@ func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[strin
 	WriteText(filepath.Join(teamDir, "roster.md"), strings.Join(mdLines, "\n"))
 
 	// Future picks
-	WriteJSON(filepath.Join(teamDir, "future-picks.json"), map[string]interface{}{
-		"picks":       []interface{}{},
+	WriteJSON(filepath.Join(teamDir, "future-picks.json"), map[string]any{
+		"picks":        []any{},
 		"generated_at": now,
 	})
 
 	// League settings
-	WriteJSON(filepath.Join(teamDir, "league-settings.json"), map[string]interface{}{
-		"leagues": models.LeagueFormats,
+	WriteJSON(filepath.Join(teamDir, "league-settings.json"), map[string]any{
+		"leagues":      models.LeagueFormats,
 		"generated_at": now,
 	})
 
 	// Transaction history (empty for now)
-	os.WriteFile(filepath.Join(teamDir, "transaction-history.jsonl"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(teamDir, "transaction-history.jsonl"), []byte(""), 0o644)
 
-	return map[string]interface{}{"leagues": len(leagues)}, nil
+	return map[string]any{"leagues": len(leagues)}, nil
 }
 
 var slugNonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
@@ -177,9 +315,9 @@ func slugify(name string) string {
 }
 
 // renderDatasets renders datasets/ JSONL/JSON feeds.
-func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[string]interface{}, error) {
+func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[string]any, error) {
 	dsDir := filepath.Join(targetDir, "datasets")
-	if err := os.MkdirAll(dsDir, 0755); err != nil {
+	if err := os.MkdirAll(dsDir, 0o755); err != nil {
 		return nil, err
 	}
 
@@ -189,18 +327,18 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 	// players.jsonl
 	playersPath := filepath.Join(dsDir, "players.jsonl")
-	os.WriteFile(playersPath, []byte(""), 0644)
+	os.WriteFile(playersPath, []byte(""), 0o644)
 	for _, sid := range sortedStringSlice(watchIDs) {
 		p := pr[sid]
 		if p == nil {
-			p = map[string]interface{}{}
+			p = map[string]any{}
 		}
 		own := ownership[sid]
 		var leagues []map[string]string
 		for _, pair := range own {
 			leagues = append(leagues, map[string]string{"league": pair[0], "role": pair[1]})
 		}
-		rec := map[string]interface{}{
+		rec := map[string]any{
 			"sleeper_player_id": sid,
 			"nfl_id":            "nfl:" + sid,
 			"full_name":         getStr(p, "full_name"),
@@ -219,7 +357,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 	// player-signals.jsonl
 	sigPath := filepath.Join(dsDir, "player-signals.jsonl")
-	os.WriteFile(sigPath, []byte(""), 0644)
+	os.WriteFile(sigPath, []byte(""), 0o644)
 	sigCount := 0
 	for _, sid := range sortedStringSlice(watchIDs) {
 		p := pr[sid]
@@ -228,21 +366,22 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 		}
 		injStatus := getStr(p, "injury_status")
 		if injStatus != "" {
-			obs := getStr(p, "last_synced_at")
-			if obs == "" {
-				obs = now
+			obs := now
+			if v, ok := p["last_synced_at"].(time.Time); ok && !v.IsZero() {
+				obs = v.UTC().Format("2006-01-02T15:04:05Z")
 			}
-			rec := map[string]interface{}{
-				"signal_id":            SignalID("nfl:"+sid, "injury", injStatus, obs),
-				"player_id":            "nfl:" + sid,
-				"signal_type":          "injury",
-				"value":                map[string]interface{}{"status": injStatus, "body_part": getStr(p, "injury_body_part"), "notes": getStr(p, "injury_notes")},
-				"source":               "Sleeper",
-				"observed_at":          obs,
-				"published_at":         nil,
-				"confidence":           "high",
-				"status":               "current",
-				"evidence_record_id":   nil,
+			rec := map[string]any{
+				"signal_id":          SignalID("nfl:"+sid, "injury", injStatus, obs),
+				"player_id":          "nfl:" + sid,
+				"signal_type":        "injury",
+				"value":              map[string]any{"status": injStatus, "body_part": getStr(p, "injury_body_part"), "notes": getStr(p, "injury_notes")},
+				"source":             "Sleeper",
+				"source_url":         nil,
+				"observed_at":        obs,
+				"published_at":       nil,
+				"confidence":         "high",
+				"status":             "current",
+				"evidence_record_id": nil,
 			}
 			appendJSONLFile(sigPath, rec)
 			sigCount++
@@ -251,9 +390,12 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 	// valuations.jsonl
 	valPath := filepath.Join(dsDir, "valuations.jsonl")
-	os.WriteFile(valPath, []byte(""), 0645)
+	os.WriteFile(valPath, []byte(""), 0o644)
 	valCount := 0
-	sources := []struct{ source string; market int }{
+	sources := []struct {
+		source string
+		market int
+	}{
 		{"Dynasty Daddy", 14}, {"FantasyCalc", 1}, {"FantasyCalc", 2}, {"FantasyCalc", 3}, {"KeepTradeCut", 0},
 	}
 	for _, src := range sources {
@@ -267,17 +409,17 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 				obs = v.UTC().Format("2006-01-02T15:04:05Z")
 			}
 			if v, ok := r["trade_value"].(*int); ok && v != nil {
-				rec := map[string]interface{}{
-					"valuation_id":         ValuationID("nfl:"+sid, src.source, "trade-value", fmtCtx, obs+"1qb"),
-					"player_id":            "nfl:" + sid,
-					"source":               src.source,
-					"valuation_type":       "trade-value",
-					"format_context":       fmtCtx,
-					"value":                *v,
-					"observed_at":          obs,
-					"source_url":           nil,
-					"confidence":           "medium",
-					"evidence_record_id":   nil,
+				rec := map[string]any{
+					"valuation_id":       ValuationID("nfl:"+sid, src.source, "trade-value", fmtCtx, obs),
+					"player_id":          "nfl:" + sid,
+					"source":             src.source,
+					"valuation_type":     "trade-value",
+					"format_context":     fmtCtx,
+					"value":              *v,
+					"observed_at":        obs,
+					"source_url":         nil,
+					"confidence":         "medium",
+					"evidence_record_id": nil,
 				}
 				appendJSONLFile(valPath, rec)
 				valCount++
@@ -287,7 +429,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 	// news-events.jsonl (from evidence records)
 	newsPath := filepath.Join(dsDir, "news-events.jsonl")
-	os.WriteFile(newsPath, []byte(""), 0644)
+	os.WriteFile(newsPath, []byte(""), 0o644)
 	recDir := filepath.Join(targetDir, "evidence", "records")
 	entries, _ := os.ReadDir(recDir)
 	newsCount := 0
@@ -299,14 +441,14 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 		if err != nil {
 			continue
 		}
-		var rec map[string]interface{}
+		var rec map[string]any
 		if json.Unmarshal(data, &rec) != nil {
 			continue
 		}
 		if rec["status"] != "current" {
 			continue
 		}
-		appendJSONLFile(newsPath, map[string]interface{}{
+		appendJSONLFile(newsPath, map[string]any{
 			"evidence_record_id": rec["id"],
 			"canonical_url":      rec["canonical_url"],
 			"title":              rec["title"],
@@ -320,7 +462,7 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 	}
 
 	// league-transactions.jsonl (empty for now)
-	os.WriteFile(filepath.Join(dsDir, "league-transactions.jsonl"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dsDir, "league-transactions.jsonl"), []byte(""), 0o644)
 
 	// entities.json
 	teams := make(map[string]bool)
@@ -334,34 +476,34 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 	for t := range teams {
 		teamList = append(teamList, t)
 	}
-	var leagueList []map[string]interface{}
+	var leagueList []map[string]any
 	for lid, lf := range models.LeagueFormats {
-		leagueList = append(leagueList, map[string]interface{}{
+		leagueList = append(leagueList, map[string]any{
 			"league_id": lid, "name": lf.Name, "format": lf.Type, "teams": lf.Teams,
 		})
 	}
-	entities := map[string]interface{}{
+	entities := map[string]any{
 		"as_of":         now,
 		"leagues":       leagueList,
 		"teams":         teamList,
 		"players_count": len(watchIDs),
-		"players":       []interface{}{},
+		"players":       []any{},
 	}
 	WriteJSON(filepath.Join(dsDir, "entities.json"), entities)
 
-	return map[string]interface{}{
-		"players":  len(watchIDs),
-		"signals":  sigCount,
-		"valuations": valCount,
-		"news_events": newsCount,
+	return map[string]any{
+		"players":      len(watchIDs),
+		"signals":      sigCount,
+		"valuations":   valCount,
+		"news_events":  newsCount,
 		"transactions": 0,
 	}, nil
 }
 
-func appendJSONLFile(path string, obj interface{}) {
+func appendJSONLFile(path string, obj any) {
 	data, _ := json.Marshal(obj)
 	data = append(data, '\n')
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return
 	}
@@ -372,12 +514,6 @@ func appendJSONLFile(path string, obj interface{}) {
 func sortedStringSlice(ids []string) []string {
 	result := make([]string, len(ids))
 	copy(result, ids)
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[i] > result[j] {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	sort.Strings(result)
 	return result
 }

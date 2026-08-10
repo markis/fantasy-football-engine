@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,22 +12,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var (
+	errEmptyPassPath = errors.New("empty pass path")
+	errEmptyPassOut  = errors.New("pass show: empty output")
+)
+
 // Config is the top-level daemon configuration loaded from YAML.
 type Config struct {
-	Server     ServerConfig     `yaml:"server"`
-	Database   DatabaseConfig   `yaml:"database"`
-	Embeddings EmbeddingsConfig `yaml:"embeddings"`
-	LLM        LLMConfig        `yaml:"llm"`
-	Sleeper    SleeperConfig    `yaml:"sleeper"`
-	Sources    []SourceConfig   `yaml:"sources"`
+	Server      ServerConfig      `yaml:"server"`
+	Database    DatabaseConfig    `yaml:"database"`
+	Embeddings  EmbeddingsConfig  `yaml:"embeddings"`
+	LLM         LLMConfig         `yaml:"llm"`
+	Sleeper     SleeperConfig     `yaml:"sleeper"`
+	Sources     []SourceConfig    `yaml:"sources"`
 	FantasyPros FantasyProsConfig `yaml:"fantasypros"`
-	Corpus     CorpusConfig     `yaml:"corpus"`
-	Telemetry  TelemetryConfig  `yaml:"telemetry"`
-	Scheduler  SchedulerConfig  `yaml:"scheduler"`
+	Corpus      CorpusConfig      `yaml:"corpus"`
+	Telemetry   TelemetryConfig   `yaml:"telemetry"`
+	Scheduler   SchedulerConfig   `yaml:"scheduler"`
 }
 
 type ServerConfig struct {
-	MCPAddr    string `yaml:"mcp_addr"`
+	MCPAddr     string `yaml:"mcp_addr"`
 	MetricsAddr string `yaml:"metrics_addr"`
 }
 
@@ -43,21 +49,19 @@ type EmbeddingsConfig struct {
 }
 
 type LLMConfig struct {
-	Provider     string `yaml:"provider"`
-	URL          string `yaml:"url"`
-	Model        string `yaml:"model"`
-	APIKey       string `yaml:"api_key"`
-	APIKeyPass   string `yaml:"api_key_pass"`
-	TimeoutSecs  int    `yaml:"timeout_secs"`
-	MaxConcurrency int  `yaml:"max_concurrency"`
+	Provider       string `yaml:"provider"`
+	URL            string `yaml:"url"`
+	Model          string `yaml:"model"`
+	APIKey         string `yaml:"api_key"`
+	APIKeyPass     string `yaml:"api_key_pass"`
+	TimeoutSecs    int    `yaml:"timeout_secs"`
+	MaxConcurrency int    `yaml:"max_concurrency"`
 }
 
 type SleeperConfig struct {
-	BaseURL        string `yaml:"base_url"`
-	RateLimitPerMin int   `yaml:"rate_limit_per_min"`
-	MarkisUsername string `yaml:"markis_username"`
-	MarkisUserID   string `yaml:"markis_user_id"`
-	Seasons        []int  `yaml:"seasons"`
+	BaseURL         string `yaml:"base_url"`
+	RateLimitPerMin int    `yaml:"rate_limit_per_min"`
+	Seasons         []int  `yaml:"seasons"`
 }
 
 type SourceConfig struct {
@@ -66,8 +70,8 @@ type SourceConfig struct {
 }
 
 type FantasyProsConfig struct {
-	APIKeyPass   string `yaml:"api_key_pass"`
-	CookiePass   string `yaml:"cookie_pass"`
+	APIKeyPass string `yaml:"api_key_pass"`
+	CookiePass string `yaml:"cookie_pass"`
 }
 
 type CorpusConfig struct {
@@ -85,7 +89,7 @@ type TelemetryConfig struct {
 }
 
 type SchedulerConfig struct {
-	Timezone string    `yaml:"timezone"`
+	Timezone string      `yaml:"timezone"`
 	Jobs     []JobConfig `yaml:"jobs"`
 }
 
@@ -158,12 +162,6 @@ func (c *Config) setDefaults() {
 	}
 	if c.Sleeper.RateLimitPerMin == 0 {
 		c.Sleeper.RateLimitPerMin = 1000
-	}
-	if c.Sleeper.MarkisUsername == "" {
-		c.Sleeper.MarkisUsername = "markis"
-	}
-	if c.Sleeper.MarkisUserID == "" {
-		c.Sleeper.MarkisUserID = "558115100726579200"
 	}
 	if len(c.Sleeper.Seasons) == 0 {
 		c.Sleeper.Seasons = []int{2026}
@@ -240,7 +238,7 @@ func expandEnv(s string) string {
 // passShow retrieves a secret from the pass password store.
 func passShow(path string) (string, error) {
 	if path == "" {
-		return "", fmt.Errorf("empty pass path")
+		return "", errEmptyPassPath
 	}
 	cmd := exec.Command("pass", "show", path)
 	cmd.Env = os.Environ()
@@ -250,7 +248,7 @@ func passShow(path string) (string, error) {
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 	if len(lines) == 0 {
-		return "", fmt.Errorf("pass show %s: empty output", path)
+		return "", errEmptyPassOut
 	}
 	return strings.TrimSpace(lines[0]), nil
 }

@@ -26,10 +26,10 @@ const clusterCosineThreshold = 0.78
 
 // ClusterResult is the result of a clustering run.
 type ClusterResult struct {
-	ClustersCreated  int `json:"clusters_created"`
-	ClustersReused   int `json:"clusters_reused"`
-	ItemsAssigned    int `json:"items_assigned"`
-	Status           string `json:"status"`
+	ClustersCreated int    `json:"clusters_created"`
+	ClustersReused  int    `json:"clusters_reused"`
+	ItemsAssigned   int    `json:"items_assigned"`
+	Status          string `json:"status"`
 }
 
 // AssignBatch clusters all unclustered items.
@@ -96,28 +96,37 @@ func (c *Clusterer) processItem(ctx context.Context, itemID uuid.UUID) (string, 
 		if err == nil {
 			cosineSim := 1 - distance
 			if cosineSim >= clusterCosineThreshold {
-				c.assignToCluster(ctx, itemID, clusterID)
+				if err := c.assignToCluster(ctx, itemID, clusterID); err != nil {
+					return "not_assigned", err
+				}
 				return "reused", nil
 			}
 		}
 	}
 
 	// Create new cluster
-	c.createCluster(ctx, itemID, ptrStr(title), sourceID)
+	if err := c.createCluster(ctx, itemID, ptrStr(title), sourceID); err != nil {
+		return "not_assigned", err
+	}
 	return "created", nil
 }
 
-func (c *Clusterer) assignToCluster(ctx context.Context, itemID, clusterID uuid.UUID) {
-	_, _ = c.pool.Exec(ctx, "UPDATE news_item SET cluster_id = $1 WHERE id = $2", clusterID, itemID)
-	_, _ = c.pool.Exec(ctx, `
+func (c *Clusterer) assignToCluster(ctx context.Context, itemID, clusterID uuid.UUID) error {
+	if _, err := c.pool.Exec(ctx, "UPDATE news_item SET cluster_id = $1 WHERE id = $2", clusterID, itemID); err != nil {
+		return fmt.Errorf("assign item to cluster: %w", err)
+	}
+	if _, err := c.pool.Exec(ctx, `
 		UPDATE story_cluster SET last_seen_at = now(),
 			item_ids = array_append(item_ids, $1)
 		WHERE id = $2 AND NOT $1 = ANY(item_ids)
-	`, itemID, clusterID)
+	`, itemID, clusterID); err != nil {
+		slog.Warn("update cluster items", "err", err)
+	}
 	c.updateClusterScore(ctx, clusterID)
+	return nil
 }
 
-func (c *Clusterer) createCluster(ctx context.Context, itemID uuid.UUID, title string, sourceID uuid.UUID) {
+func (c *Clusterer) createCluster(ctx context.Context, itemID uuid.UUID, title string, sourceID uuid.UUID) error {
 	clusterKey := clusterKeyHash(title, itemID.String())
 	var clusterID uuid.UUID
 	err := c.pool.QueryRow(ctx, `
@@ -128,36 +137,44 @@ func (c *Clusterer) createCluster(ctx context.Context, itemID uuid.UUID, title s
 		RETURNING id
 	`, clusterKey, title, itemID).Scan(&clusterID)
 	if err != nil {
-		slog.Warn("create cluster", "err", err)
-		return
+		return fmt.Errorf("create cluster: %w", err)
 	}
-	_, _ = c.pool.Exec(ctx, "UPDATE news_item SET cluster_id = $1 WHERE id = $2", clusterID, itemID)
-	_, _ = c.pool.Exec(ctx, `
+	if _, err := c.pool.Exec(ctx, "UPDATE news_item SET cluster_id = $1 WHERE id = $2", clusterID, itemID); err != nil {
+		return fmt.Errorf("assign item to new cluster: %w", err)
+	}
+	if _, err := c.pool.Exec(ctx, `
 		UPDATE story_cluster SET last_seen_at = now(),
 			item_ids = array_append(item_ids, $1)
 		WHERE id = $2 AND NOT $1 = ANY(item_ids)
-	`, itemID, clusterID)
+	`, itemID, clusterID); err != nil {
+		slog.Warn("update cluster items", "err", err)
+	}
 	c.updateClusterScore(ctx, clusterID)
+	return nil
 }
 
 func (c *Clusterer) updateClusterScore(ctx context.Context, clusterID uuid.UUID) {
 	score := c.computeImportanceScore(ctx, clusterID)
-	_, _ = c.pool.Exec(ctx, "UPDATE story_cluster SET importance_score = $1 WHERE id = $2",
-		score, clusterID)
+	if _, err := c.pool.Exec(ctx, "UPDATE story_cluster SET importance_score = $1 WHERE id = $2",
+		score, clusterID); err != nil {
+		slog.Warn("update cluster score", "err", err)
+	}
 }
 
 func (c *Clusterer) computeImportanceScore(ctx context.Context, clusterID uuid.UUID) float64 {
 	var itemCount *int
 	var ageSecs *float64
 	var sourceCount *int
-	_ = c.pool.QueryRow(ctx, `
+	if err := c.pool.QueryRow(ctx, `
 		SELECT array_length(sc.item_ids, 1),
 		       EXTRACT(EPOCH FROM (now() - sc.first_seen_at))::float,
 		       (SELECT COUNT(DISTINCT ni2.source_id)
 		          FROM news_item ni2
 		          WHERE ni2.cluster_id = sc.id)
 		FROM story_cluster sc WHERE sc.id = $1
-	`, clusterID).Scan(&itemCount, &ageSecs, &sourceCount)
+	`, clusterID).Scan(&itemCount, &ageSecs, &sourceCount); err != nil {
+		slog.Warn("compute importance score", "err", err)
+	}
 
 	ic := 1
 	if itemCount != nil {

@@ -17,9 +17,9 @@ import (
 
 // FactExtractor extracts atomic fantasy football facts from news items.
 type FactExtractor struct {
-	pool   *db.Pool
-	llm    *llm.Client
-	embed  *embed.Client
+	pool  *db.Pool
+	llm   *llm.Client
+	embed *embed.Client
 }
 
 // NewFactExtractor creates a new fact extractor.
@@ -71,9 +71,9 @@ type llmFact struct {
 
 // FactsResult is the result of a fact extraction batch.
 type FactsResult struct {
-	Processed      int `json:"processed"`
-	FactsExtracted int `json:"facts_extracted"`
-	Errors         int `json:"errors"`
+	Processed      int    `json:"processed"`
+	FactsExtracted int    `json:"facts_extracted"`
+	Errors         int    `json:"errors"`
 	Status         string `json:"status"`
 }
 
@@ -150,15 +150,44 @@ func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, 
 	}
 
 	facts := parseFactsJSON(resp)
-	inserted := 0
+
+	// Collect valid fact texts first so they embed in one batched call
+	// instead of one HTTP round trip per fact (EmbedBatch exists precisely
+	// to avoid the one-call-per-text pattern the Python pipeline used).
+	type validFact struct {
+		fact llmFact
+		text string
+	}
+	var valid []validFact
 	for _, fact := range facts {
-		if len(facts) > maxFactsPerItem {
+		if len(valid) >= maxFactsPerItem {
 			break
 		}
 		text := strings.TrimSpace(fact.Fact)
 		if len(text) < 15 {
 			continue
 		}
+		valid = append(valid, validFact{fact: fact, text: text})
+	}
+	if len(valid) == 0 {
+		return 0, nil
+	}
+
+	texts := make([]string, len(valid))
+	for i, vf := range valid {
+		texts[i] = vf.text
+	}
+	vecs, err := f.embed.EmbedBatch(ctx, texts)
+	if err != nil {
+		return 0, fmt.Errorf("embed facts: %w", err)
+	}
+
+	inserted := 0
+	for i, vf := range valid {
+		if i >= len(vecs) {
+			break
+		}
+		fact, text := vf.fact, vf.text
 
 		// occurred_at = article published_at, else created_at, else LLM value
 		var occurredAt time.Time
@@ -175,13 +204,6 @@ func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, 
 			}
 		} else {
 			occurredAt = time.Now().UTC()
-		}
-
-		// Embed the fact text
-		vec, err := f.embed.Embed(ctx, text)
-		if err != nil {
-			slog.Warn("embed fact", "err", err)
-			continue
 		}
 
 		entities := fact.Entities
@@ -202,7 +224,7 @@ func (f *FactExtractor) extractOne(ctx context.Context, itemID uuid.UUID) (int, 
 			confPtr = &confidence
 		}
 
-		v := pgvector.NewVector(vec)
+		v := pgvector.NewVector(vecs[i])
 		_, err = f.pool.Exec(ctx, `
 			INSERT INTO fact (news_item_id, fact_text, entities, topics,
 			                  occurred_at, confidence, embedding)

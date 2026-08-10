@@ -3,14 +3,17 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 
-	"github.com/markis/fantasy-football-engine/internal/pipeline"
 	"github.com/markis/fantasy-football-engine/internal/query"
 )
+
+var errPipelineTriggerNotEnabled = errors.New("pipeline trigger not enabled")
 
 // Server is the MCP server that exposes tools over Streamable HTTP.
 // It implements a minimal MCP-compatible JSON-RPC handler that supports
@@ -27,8 +30,8 @@ type Server struct {
 type Tool struct {
 	Name        string
 	Description string
-	InputSchema map[string]interface{}
-	Handler     func(ctx context.Context, args map[string]interface{}) (interface{}, error)
+	InputSchema map[string]any
+	Handler     func(ctx context.Context, args map[string]any) (any, error)
 }
 
 // New creates a new MCP server.
@@ -53,17 +56,17 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "search_news",
 		Description: "Semantic search over fantasy football news items using embeddings.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"query":         map[string]interface{}{"type": "string", "description": "Search query"},
-				"limit":         map[string]interface{}{"type": "integer", "default": 10},
-				"days":          map[string]interface{}{"type": "integer", "description": "Only items from last N days"},
-				"relevant_only": map[string]interface{}{"type": "boolean", "default": false},
+			"properties": map[string]any{
+				"query":         map[string]any{"type": "string", "description": "Search query"},
+				"limit":         map[string]any{"type": "integer", "default": 10},
+				"days":          map[string]any{"type": "integer", "description": "Only items from last N days"},
+				"relevant_only": map[string]any{"type": "boolean", "default": false},
 			},
 			"required": []string{"query"},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			query := getStr(args, "query")
 			limit := getInt(args, "limit", 10)
 			var days *int
@@ -79,14 +82,14 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "get_stories",
 		Description: "Get top story clusters from a time window.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"hours": map[string]interface{}{"type": "integer", "default": 24},
-				"limit": map[string]interface{}{"type": "integer", "default": 5},
+			"properties": map[string]any{
+				"hours": map[string]any{"type": "integer", "default": 24},
+				"limit": map[string]any{"type": "integer", "default": 5},
 			},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			hours := getInt(args, "hours", 24)
 			limit := getInt(args, "limit", 5)
 			return s.query.GetStories(ctx, hours, limit)
@@ -96,15 +99,15 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "search_facts",
 		Description: "Semantic search over extracted fantasy football facts.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"query": map[string]interface{}{"type": "string"},
-				"limit": map[string]interface{}{"type": "integer", "default": 10},
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string"},
+				"limit": map[string]any{"type": "integer", "default": 10},
 			},
 			"required": []string{"query"},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			q := getStr(args, "query")
 			limit := getInt(args, "limit", 10)
 			return s.query.SearchFacts(ctx, q, limit)
@@ -114,14 +117,14 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "get_recent_news",
 		Description: "Get the latest N news items, optionally filtered to fantasy-relevant only.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"limit":         map[string]interface{}{"type": "integer", "default": 10},
-				"relevant_only": map[string]interface{}{"type": "boolean", "default": false},
+			"properties": map[string]any{
+				"limit":         map[string]any{"type": "integer", "default": 10},
+				"relevant_only": map[string]any{"type": "boolean", "default": false},
 			},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			limit := getInt(args, "limit", 10)
 			relevant := getBool(args, "relevant_only", false)
 			return s.query.GetRecentNews(ctx, limit, relevant)
@@ -132,16 +135,16 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "search_players",
 		Description: "Search NFL players by name, with optional position filter.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"query":    map[string]interface{}{"type": "string"},
-				"position": map[string]interface{}{"type": "string"},
-				"limit":    map[string]interface{}{"type": "integer", "default": 25},
+			"properties": map[string]any{
+				"query":    map[string]any{"type": "string"},
+				"position": map[string]any{"type": "string"},
+				"limit":    map[string]any{"type": "integer", "default": 25},
 			},
 			"required": []string{"query"},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			q := getStr(args, "query")
 			limit := getInt(args, "limit", 25)
 			var pos *string
@@ -155,14 +158,14 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "get_player",
 		Description: "Get a full player profile by Sleeper player ID.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"player_id": map[string]interface{}{"type": "string"},
+			"properties": map[string]any{
+				"player_id": map[string]any{"type": "string"},
 			},
 			"required": []string{"player_id"},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			pid := getStr(args, "player_id")
 			return s.query.GetPlayer(ctx, pid)
 		},
@@ -171,17 +174,17 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "get_rankings",
 		Description: "Get dynasty trade value rankings. Default source: FantasyCalc, market 14 (Dynasty Daddy composite).",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"position":  map[string]interface{}{"type": "string"},
-				"limit":     map[string]interface{}{"type": "integer", "default": 15},
-				"source":    map[string]interface{}{"type": "string", "default": "FantasyCalc"},
-				"market":    map[string]interface{}{"type": "integer", "default": 14},
-				"superflex": map[string]interface{}{"type": "boolean", "default": false},
+			"properties": map[string]any{
+				"position":  map[string]any{"type": "string"},
+				"limit":     map[string]any{"type": "integer", "default": 15},
+				"source":    map[string]any{"type": "string", "default": "FantasyCalc"},
+				"market":    map[string]any{"type": "integer", "default": 14},
+				"superflex": map[string]any{"type": "boolean", "default": false},
 			},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			limit := getInt(args, "limit", 15)
 			source := getStr(args, "source")
 			if source == "" {
@@ -200,14 +203,14 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "get_trending_players",
 		Description: "Get trending players (adds/drops) from Sleeper.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"trend_type": map[string]interface{}{"type": "string", "default": "add"},
-				"limit":      map[string]interface{}{"type": "integer", "default": 25},
+			"properties": map[string]any{
+				"trend_type": map[string]any{"type": "string", "default": "add"},
+				"limit":      map[string]any{"type": "integer", "default": 25},
 			},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			tt := getStr(args, "trend_type")
 			limit := getInt(args, "limit", 25)
 			return s.query.GetTrendingPlayers(ctx, tt, limit)
@@ -217,17 +220,17 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "get_free_agents",
 		Description: "Get top ranked free agents (unowned players) in a league.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"league_id": map[string]interface{}{"type": "string"},
-				"position":  map[string]interface{}{"type": "string"},
-				"limit":     map[string]interface{}{"type": "integer", "default": 15},
-				"superflex": map[string]interface{}{"type": "boolean", "default": false},
+			"properties": map[string]any{
+				"league_id": map[string]any{"type": "string"},
+				"position":  map[string]any{"type": "string"},
+				"limit":     map[string]any{"type": "integer", "default": 15},
+				"superflex": map[string]any{"type": "boolean", "default": false},
 			},
 			"required": []string{"league_id"},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			leagueID := getStr(args, "league_id")
 			limit := getInt(args, "limit", 15)
 			superflex := getBool(args, "superflex", false)
@@ -243,8 +246,8 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "get_nfl_state",
 		Description: "Get the current NFL state (week, season, season type).",
-		InputSchema: map[string]interface{}{"type": "object"},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		InputSchema: map[string]any{"type": "object"},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			return s.query.GetNFLState(ctx)
 		},
 	})
@@ -253,16 +256,16 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "evaluate_roster",
 		Description: "Get structured roster data with trade values for a user in a league. Returns data only — the agent does the reasoning.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"league_id": map[string]interface{}{"type": "string"},
-				"user_id":   map[string]interface{}{"type": "string", "default": "558115100726579200"},
-				"superflex": map[string]interface{}{"type": "boolean", "default": false},
+			"properties": map[string]any{
+				"league_id": map[string]any{"type": "string"},
+				"user_id":   map[string]any{"type": "string", "default": "558115100726579200"},
+				"superflex": map[string]any{"type": "boolean", "default": false},
 			},
 			"required": []string{"league_id"},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			leagueID := getStr(args, "league_id")
 			userID := getStr(args, "user_id")
 			if userID == "" {
@@ -276,17 +279,17 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "evaluate_trade",
 		Description: "Evaluate a dynasty trade proposal. Returns structured data: both sides' players with trade values, totals, delta, and a recommendation. The agent does the reasoning.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"give":      map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-				"get":       map[string]interface{}{"type": "array", "items": map[string]interface{}{"type": "string"}},
-				"league_id": map[string]interface{}{"type": "string"},
-				"superflex": map[string]interface{}{"type": "boolean", "default": false},
+			"properties": map[string]any{
+				"give":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"get":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				"league_id": map[string]any{"type": "string"},
+				"superflex": map[string]any{"type": "boolean", "default": false},
 			},
 			"required": []string{"give", "get"},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			give := toStrSlice(args["give"])
 			get := toStrSlice(args["get"])
 			leagueID := getStr(args, "league_id")
@@ -299,13 +302,13 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "get_study_material",
 		Description: "Get a digest of recent stories + news for agent self-study. Returns markdown + structured data.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"hours": map[string]interface{}{"type": "integer", "default": 24},
+			"properties": map[string]any{
+				"hours": map[string]any{"type": "integer", "default": 24},
 			},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			hours := getInt(args, "hours", 24)
 			return s.query.GetStudyMaterial(ctx, hours)
 		},
@@ -315,22 +318,22 @@ func (s *Server) registerTools() {
 	s.registerTool(Tool{
 		Name:        "trigger_pipeline",
 		Description: "Manually trigger a named pipeline step (e.g. fetch_rss, enrich, publish_daily). Requires pipeline trigger to be enabled.",
-		InputSchema: map[string]interface{}{
+		InputSchema: map[string]any{
 			"type": "object",
-			"properties": map[string]interface{}{
-				"step": map[string]interface{}{"type": "string", "description": "Pipeline step name"},
+			"properties": map[string]any{
+				"step": map[string]any{"type": "string", "description": "Pipeline step name"},
 			},
 			"required": []string{"step"},
 		},
-		Handler: func(ctx context.Context, args map[string]interface{}) (interface{}, error) {
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			if s.trigger == nil {
-				return nil, fmt.Errorf("pipeline trigger not enabled")
+				return nil, errPipelineTriggerNotEnabled
 			}
 			step := getStr(args, "step")
 			if err := s.trigger(ctx, step); err != nil {
 				return nil, err
 			}
-			return map[string]interface{}{"status": "ok", "step": step}, nil
+			return map[string]any{"status": "ok", "step": step}, nil
 		},
 	})
 }
@@ -355,11 +358,13 @@ func (s *Server) Start() error {
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" || r.URL.Path == "/health" {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"status":  "ok",
 			"service": "fantasy-football-engine",
 			"tools":   len(s.tools),
-		})
+		}); err != nil {
+			slog.Warn("encode health response", "err", err)
+		}
 		return
 	}
 	http.NotFound(w, r)
@@ -368,7 +373,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 // handleMCP handles MCP JSON-RPC requests over HTTP.
 // This implements a simplified Streamable HTTP transport:
 // - POST with JSON-RPC body → response (JSON or SSE)
-// - GET → SSE stream for server-initiated messages (not used currently)
+// - GET → SSE stream for server-initiated messages (not used currently).
 func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -388,12 +393,12 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Method {
 	case "initialize":
-		writeJSONRPCResult(w, req.ID, map[string]interface{}{
+		writeJSONRPCResult(w, req.ID, map[string]any{
 			"protocolVersion": "2025-03-26",
-			"capabilities": map[string]interface{}{
-				"tools": map[string]interface{}{},
+			"capabilities": map[string]any{
+				"tools": map[string]any{},
 			},
-			"serverInfo": map[string]interface{}{
+			"serverInfo": map[string]any{
 				"name":    "fantasy-football-engine",
 				"version": "1.0.0",
 			},
@@ -401,21 +406,21 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 	case "tools/list":
 		s.mu.RLock()
-		tools := make([]map[string]interface{}, 0, len(s.tools))
+		tools := make([]map[string]any, 0, len(s.tools))
 		for _, tool := range s.tools {
-			tools = append(tools, map[string]interface{}{
+			tools = append(tools, map[string]any{
 				"name":        tool.Name,
 				"description": tool.Description,
 				"inputSchema": tool.InputSchema,
 			})
 		}
 		s.mu.RUnlock()
-		writeJSONRPCResult(w, req.ID, map[string]interface{}{"tools": tools})
+		writeJSONRPCResult(w, req.ID, map[string]any{"tools": tools})
 
 	case "tools/call":
 		var params struct {
-			Name      string                 `json:"name"`
-			Arguments map[string]interface{} `json:"arguments"`
+			Name      string         `json:"name"`
+			Arguments map[string]any `json:"arguments"`
 		}
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			writeJSONRPCError(w, req.ID, -32602, "invalid params")
@@ -425,14 +430,18 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		tool, ok := s.tools[params.Name]
 		s.mu.RUnlock()
 		if !ok {
-			writeJSONRPCError(w, req.ID, -32601, fmt.Sprintf("tool not found: %s", params.Name))
+			writeJSONRPCError(w, req.ID, -32601, "tool not found: "+params.Name)
+			return
+		}
+		if missing := missingRequired(tool.InputSchema, params.Arguments); len(missing) > 0 {
+			writeJSONRPCError(w, req.ID, -32602, "missing required argument(s): "+strings.Join(missing, ", "))
 			return
 		}
 		result, err := tool.Handler(r.Context(), params.Arguments)
 		if err != nil {
-			writeJSONRPCResult(w, req.ID, map[string]interface{}{
-				"content": []map[string]interface{}{
-					{"type": "text", "text": fmt.Sprintf("Error: %s", err.Error())},
+			writeJSONRPCResult(w, req.ID, map[string]any{
+				"content": []map[string]any{
+					{"type": "text", "text": "Error: " + err.Error()},
 				},
 				"isError": true,
 			})
@@ -440,20 +449,37 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		}
 		// Serialize result as text content
 		resultJSON, _ := json.MarshalIndent(result, "", "  ")
-		writeJSONRPCResult(w, req.ID, map[string]interface{}{
-			"content": []map[string]interface{}{
+		writeJSONRPCResult(w, req.ID, map[string]any{
+			"content": []map[string]any{
 				{"type": "text", "text": string(resultJSON)},
 			},
 		})
 
 	default:
-		writeJSONRPCError(w, req.ID, -32601, fmt.Sprintf("method not found: %s", req.Method))
+		writeJSONRPCError(w, req.ID, -32601, "method not found: "+req.Method)
 	}
 }
 
-func writeJSONRPCResult(w http.ResponseWriter, id json.RawMessage, result interface{}) {
+// missingRequired returns the names of any InputSchema "required" fields not
+// present in args, so tools/call can reject an incomplete call up front
+// instead of letting the handler run with silently-defaulted zero values.
+func missingRequired(schema map[string]any, args map[string]any) []string {
+	required, ok := schema["required"].([]string)
+	if !ok {
+		return nil
+	}
+	var missing []string
+	for _, name := range required {
+		if _, ok := args[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+func writeJSONRPCResult(w http.ResponseWriter, id json.RawMessage, result any) {
 	w.Header().Set("Content-Type", "application/json")
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      json.RawMessage(id),
 		"result":  result,
@@ -466,10 +492,10 @@ func writeJSONRPCError(w http.ResponseWriter, id json.RawMessage, code int, mess
 	if id == nil {
 		id = json.RawMessage("null")
 	}
-	resp := map[string]interface{}{
+	resp := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      json.RawMessage(id),
-		"error": map[string]interface{}{
+		"error": map[string]any{
 			"code":    code,
 			"message": message,
 		},
@@ -479,7 +505,7 @@ func writeJSONRPCError(w http.ResponseWriter, id json.RawMessage, code int, mess
 
 // --- Helpers ---
 
-func getStr(m map[string]interface{}, key string) string {
+func getStr(m map[string]any, key string) string {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return ""
@@ -487,7 +513,7 @@ func getStr(m map[string]interface{}, key string) string {
 	return fmt.Sprint(v)
 }
 
-func getInt(m map[string]interface{}, key string, def int) int {
+func getInt(m map[string]any, key string, def int) int {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return def
@@ -495,7 +521,7 @@ func getInt(m map[string]interface{}, key string, def int) int {
 	return toInt(v)
 }
 
-func getBool(m map[string]interface{}, key string, def bool) bool {
+func getBool(m map[string]any, key string, def bool) bool {
 	v, ok := m[key]
 	if !ok || v == nil {
 		return def
@@ -504,11 +530,11 @@ func getBool(m map[string]interface{}, key string, def bool) bool {
 	case bool:
 		return val
 	default:
-		return false
+		return def
 	}
 }
 
-func toInt(v interface{}) int {
+func toInt(v any) int {
 	switch val := v.(type) {
 	case float64:
 		return int(val)
@@ -519,11 +545,11 @@ func toInt(v interface{}) int {
 	}
 }
 
-func toStrSlice(v interface{}) []string {
+func toStrSlice(v any) []string {
 	if v == nil {
 		return nil
 	}
-	arr, ok := v.([]interface{})
+	arr, ok := v.([]any)
 	if !ok {
 		return nil
 	}
@@ -533,6 +559,3 @@ func toStrSlice(v interface{}) []string {
 	}
 	return result
 }
-
-// Ensure pipeline import is used
-var _ = pipeline.SimhashCompute

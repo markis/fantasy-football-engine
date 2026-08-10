@@ -2,16 +2,18 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/markis/fantasy-football-engine/internal/db"
 	"github.com/markis/fantasy-football-engine/internal/llm"
 )
+
+var errStoryValidation = errors.New("story validation failed")
 
 // StoryGenerator generates fantasy football blurbs for news items.
 type StoryGenerator struct {
@@ -25,9 +27,9 @@ func NewStoryGenerator(pool *db.Pool, llmClient *llm.Client) *StoryGenerator {
 }
 
 const (
-	maxBodyCharsStory    = 1500
-	maxFactChars         = 220
-	maxStoryChars        = 800
+	maxBodyCharsStory = 1500
+	maxFactChars      = 220
+	maxStoryChars     = 800
 )
 
 const storyPrompt = `You are writing a short fantasy football news blurb for a Discord channel.
@@ -55,14 +57,12 @@ Atomic facts:
 %s
 `
 
-var whitespaceRe3 = regexp.MustCompile(`\s+`)
-
 // StoryResult is the result of a story generation batch.
 type StoryResult struct {
-	Processed        int `json:"processed"`
-	StoriesGenerated int `json:"stories_generated"`
-	Errors           int `json:"errors"`
-	Candidates       int `json:"candidates"`
+	Processed        int    `json:"processed"`
+	StoriesGenerated int    `json:"stories_generated"`
+	Errors           int    `json:"errors"`
+	Candidates       int    `json:"candidates"`
 	Status           string `json:"status"`
 }
 
@@ -138,7 +138,7 @@ func (g *StoryGenerator) generateOne(ctx context.Context, itemID uuid.UUID) erro
 
 	story := validateStory(raw)
 	if story == "" {
-		return fmt.Errorf("validation failed")
+		return errStoryValidation
 	}
 
 	modelTag := g.llm.ModelTag()
@@ -172,16 +172,18 @@ func (g *StoryGenerator) compactFacts(ctx context.Context, itemID uuid.UUID) []s
 }
 
 func truncate(text string, limit int) string {
-	text = strings.TrimSpace(whitespaceRe3.ReplaceAllString(text, " "))
+	text = strings.TrimSpace(whitespaceRe.ReplaceAllString(text, " "))
 	if len(text) <= limit {
 		return text
 	}
 	return strings.TrimRight(text[:limit-1], " ") + "\u2026"
 }
 
-var codeFenceStartRe = regexp.MustCompile("^```(?:json|text|markdown)?\\s*")
-var codeFenceEndRe = regexp.MustCompile("\\s*```$")
-var listLineRe = regexp.MustCompile(`^\s*[-*]\s|^\s*\d+\.\s`)
+var (
+	codeFenceStartRe = regexp.MustCompile("^```(?:json|text|markdown)?\\s*")
+	codeFenceEndRe   = regexp.MustCompile("\\s*```$")
+	listLineRe       = regexp.MustCompile(`^\s*[-*]\s|^\s*\d+\.\s`)
+)
 
 func validateStory(text string) string {
 	text = strings.TrimSpace(text)
@@ -198,7 +200,7 @@ func validateStory(text string) string {
 	}
 	// Reject if it looks like a list
 	listCount := 0
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		if listLineRe.MatchString(line) {
 			listCount++
 		}
@@ -206,7 +208,7 @@ func validateStory(text string) string {
 	if listCount >= 2 {
 		return ""
 	}
-	text = strings.TrimSpace(whitespaceRe3.ReplaceAllString(text, " "))
+	text = strings.TrimSpace(whitespaceRe.ReplaceAllString(text, " "))
 	return text
 }
 
@@ -216,6 +218,3 @@ func ptrStrOr(s *string, def string) string {
 	}
 	return *s
 }
-
-// Ensure time import is used
-var _ = time.Now

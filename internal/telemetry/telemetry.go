@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"context"
 	"log/slog"
 	"os"
 )
@@ -22,6 +21,3 @@ func Init(serviceName, otelEndpoint string) {
 		// can be collected by any log shipper.
 	}
 }
-
-// Ensure context import is used
-var _ context.Context

@@ -20,19 +20,19 @@ func NewDedupChecker(pool *db.Pool) *DedupChecker {
 }
 
 const (
-	simhashThreshold   = 3
-	cosineThreshold    = 0.88
-	timeWindowHours    = 48
+	simhashThreshold = 3
+	cosineThreshold  = 0.88
+	timeWindowHours  = 48
 )
 
 // DedupResult is the result of a dedup check run.
 type DedupResult struct {
-	Checked       int `json:"checked"`
-	ExactDups     int `json:"exact_dups"`
-	NearDups      int `json:"near_dups"`
-	SemanticDups  int `json:"semantic_dups"`
-	NewItems      int `json:"new_items"`
-	Status        string `json:"status"`
+	Checked      int    `json:"checked"`
+	ExactDups    int    `json:"exact_dups"`
+	NearDups     int    `json:"near_dups"`
+	SemanticDups int    `json:"semantic_dups"`
+	NewItems     int    `json:"new_items"`
+	Status       string `json:"status"`
 }
 
 // CheckBatch runs dedup on items that haven't been checked yet.
@@ -49,13 +49,13 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 	defer rows.Close()
 
 	type item struct {
-		id          uuid.UUID
-		sourceID    uuid.UUID
-		urlHash     *string
-		simhash     *int64
-		embedding   *string
-		published   *interface{}
-		createdAt   interface{}
+		id        uuid.UUID
+		sourceID  uuid.UUID
+		urlHash   *string
+		simhash   *int64
+		embedding *string
+		published *any
+		createdAt any
 	}
 	var items []item
 	for rows.Next() {
@@ -79,7 +79,9 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 				AND created_at < $4
 			`, it.sourceID, *it.urlHash, it.id, it.createdAt).Scan(&existing)
 			if err == nil {
-				_, _ = d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -1 WHERE id = $1", it.id)
+				if _, err := d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -1 WHERE id = $1", it.id); err != nil {
+					slog.Warn("mark exact dup", "err", err)
+				}
 				result.ExactDups++
 				continue
 			}
@@ -97,9 +99,13 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 				for nearRows.Next() {
 					var candID uuid.UUID
 					var candSimhash int64
-					nearRows.Scan(&candID, &candSimhash)
+					if err := nearRows.Scan(&candID, &candSimhash); err != nil {
+						continue
+					}
 					if HammingDistance(*it.simhash, candSimhash) <= simhashThreshold {
-						_, _ = d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.5 WHERE id = $1", it.id)
+						if _, err := d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.5 WHERE id = $1", it.id); err != nil {
+							slog.Warn("mark near dup", "err", err)
+						}
 						result.NearDups++
 						found = true
 						break
@@ -126,7 +132,9 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 			if err == nil {
 				cosineSim := 1 - distance
 				if cosineSim >= cosineThreshold {
-					_, _ = d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.3 WHERE id = $1", it.id)
+					if _, err := d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.3 WHERE id = $1", it.id); err != nil {
+						slog.Warn("mark semantic dup", "err", err)
+					}
 					result.SemanticDups++
 					continue
 				}

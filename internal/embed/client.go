@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,11 +13,16 @@ import (
 	"time"
 )
 
+var (
+	errEmptyEmbedResponse = errors.New("empty embedding response")
+	errEmbedHTTP          = errors.New("embedding HTTP error")
+)
+
 // Client is an embedding client that calls a llama-server HTTP endpoint.
 type Client struct {
-	url     string
-	model   string
-	client  *http.Client
+	url    string
+	model  string
+	client *http.Client
 }
 
 // New creates a new embedding client.
@@ -49,7 +55,7 @@ func (c *Client) Embed(ctx context.Context, text string) ([]float32, error) {
 		return nil, err
 	}
 	if len(vecs) == 0 {
-		return nil, fmt.Errorf("empty embedding response")
+		return nil, errEmptyEmbedResponse
 	}
 	return vecs[0], nil
 }
@@ -61,18 +67,20 @@ func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, e
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	// Truncate each text to fit the model's context window.
+	// Truncate each text to fit the model's context window. Copy into a new
+	// slice so we don't mutate the caller's backing array.
+	truncated := make([]string, len(texts))
 	for i, t := range texts {
-		texts[i] = truncateForEmbed(t)
+		truncated[i] = truncateForEmbed(t)
 	}
 
-	body := embedRequest{Model: c.model, Input: texts}
+	body := embedRequest{Model: c.model, Input: truncated}
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshal embed request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.url, bytes.NewReader(bodyBytes))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, fmt.Errorf("create embed request: %w", err)
 	}
@@ -86,7 +94,7 @@ func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, e
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("embed HTTP %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("%w (%d): %s", errEmbedHTTP, resp.StatusCode, string(respBody))
 	}
 
 	var result embedResponse
@@ -98,7 +106,11 @@ func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, e
 	for i, d := range result.Data {
 		vecs[i] = d.Embedding
 	}
-	slog.Debug("embedded batch", "count", len(vecs), "dim", len(vecs[0]))
+	dim := 0
+	if len(vecs) > 0 {
+		dim = len(vecs[0])
+	}
+	slog.Debug("embedded batch", "count", len(vecs), "dim", dim)
 	return vecs, nil
 }
 

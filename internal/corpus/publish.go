@@ -2,17 +2,24 @@ package corpus
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
+	"sync"
+)
 
-	"github.com/markis/fantasy-football-engine/internal/models"
+var (
+	errPublishInProgress    = errors.New("publish already in progress")
+	errValidationFailed     = errors.New("validation failed")
 )
 
 // Publisher is the corpus publishing orchestrator.
 type Publisher struct {
 	common *Common
+	mu     sync.Mutex
 }
 
 // NewPublisher creates a new publisher.
@@ -22,19 +29,27 @@ func NewPublisher(common *Common) *Publisher {
 
 // PublishResult is the result of a publish run.
 type PublishResult struct {
-	Mode             string `json:"mode"`
-	Committed        bool   `json:"committed"`
-	EvidenceCurrent  int    `json:"evidence_current"`
-	EvidenceSuperseded int  `json:"evidence_superseded"`
-	Changes          int    `json:"changes"`
-	Players          int    `json:"players"`
-	Signals          int    `json:"signals"`
-	Valuations       int    `json:"valuations"`
-	Status           string `json:"status"`
+	Mode               string `json:"mode"`
+	Committed          bool   `json:"committed"`
+	EvidenceCurrent    int    `json:"evidence_current"`
+	EvidenceSuperseded int    `json:"evidence_superseded"`
+	Changes            int    `json:"changes"`
+	Players            int    `json:"players"`
+	Signals            int    `json:"signals"`
+	Valuations         int    `json:"valuations"`
+	Status             string `json:"status"`
 }
 
-// Publish runs the full render → validate → commit → push cycle.
+// Publish runs the full render → validate → commit → push cycle. Publish
+// runs are serialized: they're reachable from multiple, independently
+// scheduled cron jobs plus a manual MCP trigger, and two concurrent runs
+// would race on the same shared staging directory.
 func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*PublishResult, error) {
+	if !p.mu.TryLock() {
+		return nil, errPublishInProgress
+	}
+	defer p.mu.Unlock()
+
 	result := &PublishResult{Mode: mode, Status: "ok"}
 
 	staging := p.common.StagingDir()
@@ -44,7 +59,7 @@ func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*Pub
 	if err := os.RemoveAll(staging); err != nil {
 		return nil, fmt.Errorf("clear staging: %w", err)
 	}
-	if err := os.MkdirAll(staging, 0755); err != nil {
+	if err := os.MkdirAll(staging, 0o755); err != nil {
 		return nil, fmt.Errorf("create staging: %w", err)
 	}
 
@@ -94,7 +109,7 @@ func (p *Publisher) Publish(ctx context.Context, mode string, dryRun bool) (*Pub
 			slog.Error("validation error", "msg", e)
 		}
 		result.Status = "validation_failed"
-		return result, fmt.Errorf("validation failed: %d errors", len(errs))
+		return result, fmt.Errorf("%w (%d errors)", errValidationFailed, len(errs))
 	}
 	slog.Info("validation OK")
 
@@ -168,14 +183,14 @@ func (p *Publisher) sync(staging, corpus string) error {
 	stagingFiles := listSubstanceFiles(staging)
 	for rel, full := range stagingFiles {
 		dst := filepath.Join(corpus, rel)
-		if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 			return err
 		}
 		data, err := os.ReadFile(full)
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(dst, data, 0644); err != nil {
+		if err := os.WriteFile(dst, data, 0o644); err != nil {
 			return err
 		}
 	}
@@ -184,9 +199,9 @@ func (p *Publisher) sync(staging, corpus string) error {
 		src := filepath.Join(staging, extra)
 		if _, err := os.Stat(src); err == nil {
 			dst := filepath.Join(corpus, extra)
-			os.MkdirAll(filepath.Dir(dst), 0755)
+			os.MkdirAll(filepath.Dir(dst), 0o755)
 			data, _ := os.ReadFile(src)
-			os.WriteFile(dst, data, 0644)
+			os.WriteFile(dst, data, 0o644)
 		}
 	}
 	return nil
@@ -244,10 +259,8 @@ func isProtected(rel string) bool {
 		"strategy/draft-policy.md", "strategy/waiver-policy.md",
 		"strategy/lineup-policy.md",
 	}
-	for _, p := range protected {
-		if rel == p {
-			return true
-		}
+	if slices.Contains(protected, rel) {
+		return true
 	}
 	// Skip .gitkeep
 	if filepath.Base(rel) == ".gitkeep" {
@@ -259,6 +272,3 @@ func isProtected(rel string) bool {
 	}
 	return false
 }
-
-// Ensure models import is used
-var _ = models.MarkisUserID

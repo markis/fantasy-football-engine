@@ -5,18 +5,22 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/markis/fantasy-football-engine/internal/db"
 	"github.com/mmcdole/gofeed"
 )
+
+var errFeedHTTP = errors.New("feed HTTP error")
 
 // RSSFetcher fetches and ingests RSS/Atom feeds into the database.
 type RSSFetcher struct {
@@ -32,14 +36,14 @@ const userAgent = "ZeroClawFantasyBot/0.1 (homelab)"
 
 // FetchResult is the result of fetching one feed.
 type FetchResult struct {
-	SourceID       string `json:"source_id"`
-	URL            string `json:"url"`
-	ItemsFetched   int    `json:"items_fetched"`
-	ItemsNew       int    `json:"items_new"`
-	ItemsUpdated   int    `json:"items_updated"`
-	ItemsSkippedOld int   `json:"items_skipped_old"`
-	HTTPStatus     int    `json:"http_status"`
-	Status         string `json:"status"`
+	SourceID        string `json:"source_id"`
+	URL             string `json:"url"`
+	ItemsFetched    int    `json:"items_fetched"`
+	ItemsNew        int    `json:"items_new"`
+	ItemsUpdated    int    `json:"items_updated"`
+	ItemsSkippedOld int    `json:"items_skipped_old"`
+	HTTPStatus      int    `json:"http_status"`
+	Status          string `json:"status"`
 }
 
 // Fetch fetches a single RSS feed, stores the raw document, and upserts news items.
@@ -69,7 +73,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 
 	// Fetch the feed
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	req, err := http.NewRequestWithContext(ctx, "GET", feedURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, nil)
 	if err != nil {
 		result.Status = "error"
 		return result, fmt.Errorf("create request: %w", err)
@@ -96,12 +100,12 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 	if resp.StatusCode != http.StatusOK {
 		result.Status = "error"
 		result.HTTPStatus = resp.StatusCode
-		return result, fmt.Errorf("http %d for %s", resp.StatusCode, feedURL)
+		return result, fmt.Errorf("%w (%d) for %s", errFeedHTTP, resp.StatusCode, feedURL)
 	}
 	result.HTTPStatus = resp.StatusCode
 
 	// Read body
-	bodyBytes, err := ioReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		result.Status = "error"
 		return result, fmt.Errorf("read body: %w", err)
@@ -109,8 +113,8 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 	body := string(bodyBytes)
 
 	newETag := resp.Header.Get("etag")
-	newLastModified := resp.Header.Get("last-modified")
-	contentType := resp.Header.Get("content-type")
+	newLastModified := resp.Header.Get("Last-Modified")
+	contentType := resp.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = "application/rss+xml"
 	}
@@ -132,7 +136,8 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
 	`, sourceID, feedURL, resp.StatusCode, headersJSON, body, contentType).Scan(&rawDocID)
 	if err != nil {
-		slog.Warn("failed to insert raw_document", "err", err)
+		result.Status = "error"
+		return result, fmt.Errorf("insert raw_document: %w", err)
 	}
 
 	// Process entries
@@ -189,12 +194,9 @@ func (f *RSSFetcher) updateSourcePoll(ctx context.Context, sourceID uuid.UUID, e
 	}
 }
 
-var htmlTagRe2 = regexp.MustCompile(`<[^>]+>`)
-var whitespaceRe2 = regexp.MustCompile(`\s+`)
-
 func stripHTML(s string) string {
-	s = htmlTagRe2.ReplaceAllString(s, " ")
-	s = whitespaceRe2.ReplaceAllString(s, " ")
+	s = htmlTagRe.ReplaceAllString(s, " ")
+	s = whitespaceRe.ReplaceAllString(s, " ")
 	return strings.TrimSpace(s)
 }
 
@@ -228,7 +230,7 @@ func urlHash(rawURL string) string {
 
 func contentHash(text string) string {
 	if text == "" {
-		text = ""
+		return ""
 	}
 	h := sha256.Sum256([]byte(text))
 	return hex.EncodeToString(h[:])
@@ -307,26 +309,32 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 		sh = SimhashCompute(title)
 	}
 
-	// Check for existing item
+	// Check for existing item by GUID, falling back to canonical URL hash
+	// when the GUID doesn't match anything (e.g. a feed changed its GUID
+	// format for an already-ingested URL).
 	var existingID *uuid.UUID
-	err := f.pool.QueryRow(ctx,
+	if err := f.pool.QueryRow(ctx,
 		"SELECT id FROM news_item WHERE source_id = $1 AND external_id = $2",
 		sourceID, guid,
-	).Scan(&existingID)
-	if err != nil && err.Error() != "no rows in result set" {
-		// Try canonical_url_hash
-		if cURLHash != "" {
-			_ = f.pool.QueryRow(ctx,
-				"SELECT id FROM news_item WHERE source_id = $1 AND canonical_url_hash = $2",
-				sourceID, cURLHash,
-			).Scan(&existingID)
+	).Scan(&existingID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		slog.Warn("lookup existing item by guid", "err", err)
+	}
+	if existingID == nil && cURLHash != "" {
+		if err := f.pool.QueryRow(ctx,
+			"SELECT id FROM news_item WHERE source_id = $1 AND canonical_url_hash = $2",
+			sourceID, cURLHash,
+		).Scan(&existingID); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			slog.Warn("lookup existing item by canonical url hash", "err", err)
 		}
 	}
 
 	if existingID != nil {
 		// Update only if new content is longer
 		var existingTextLen int
-		_ = f.pool.QueryRow(ctx, "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1", *existingID).Scan(&existingTextLen)
+		if err := f.pool.QueryRow(ctx, "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1", *existingID).Scan(&existingTextLen); err != nil {
+			slog.Warn("query existing content length", "err", err)
+			existingTextLen = 0
+		}
 		newTextLen := len(contentText)
 
 		if newTextLen > existingTextLen {
@@ -361,7 +369,7 @@ func (f *RSSFetcher) upsertNewsItem(ctx context.Context, sourceID uuid.UUID, sou
 	}
 
 	// Insert new item
-	_, err = f.pool.Exec(ctx, `
+	_, err := f.pool.Exec(ctx, `
 		INSERT INTO news_item
 			(source_id, source_type, external_id, raw_document_id,
 			 url, canonical_url, canonical_url_hash, title, author,
