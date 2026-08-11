@@ -29,12 +29,30 @@ const (
 
 // RSSFetcher fetches and ingests RSS/Atom feeds into the database.
 type RSSFetcher struct {
-	pool *db.Pool
+	pool      *db.Pool
+	evergreen []string // canonical-URL substrings whose items are de-flagged as stale/evergreen
 }
 
-// NewRSSFetcher creates a new RSS fetcher.
-func NewRSSFetcher(pool *db.Pool) *RSSFetcher {
-	return &RSSFetcher{pool: pool}
+// NewRSSFetcher creates a new RSS fetcher. evergreen is a list of canonical-URL
+// substrings whose articles are evergreen aggregators (republished with a fresh
+// pubDate but stale body); matching items are ingested with is_news=false,
+// is_relevant=false so they never surface as current news.
+func NewRSSFetcher(pool *db.Pool, evergreen []string) *RSSFetcher {
+	return &RSSFetcher{pool: pool, evergreen: evergreen}
+}
+
+// isEvergreen reports whether the item's canonical URL matches an evergreen
+// blocklist pattern.
+func (f *RSSFetcher) isEvergreen(canonicalURL string) bool {
+	if canonicalURL == "" {
+		return false
+	}
+	for _, p := range f.evergreen {
+		if p != "" && strings.Contains(canonicalURL, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // FetchResult is the result of fetching one feed.
@@ -438,17 +456,25 @@ func (f *RSSFetcher) findExistingItem(ctx context.Context, sourceID uuid.UUID, g
 func (f *RSSFetcher) insertNewNewsItem(
 	ctx context.Context, sourceID uuid.UUID, sourceType, guid string, rawDocID uuid.UUID, n *normalizedItem,
 ) error {
+	// Evergreen aggregator articles (republished with a fresh pubDate but stale
+	// body — e.g. CBS's "training camp injuries tracker") must never surface as
+	// current news. De-flag them at ingest.
+	isNews, isRelevant := true, false
+	if f.isEvergreen(n.cURL) {
+		isNews, isRelevant = false, false
+	}
+
 	_, err := f.pool.Exec(ctx, `
 		INSERT INTO news_item
 			(source_id, source_type, external_id, raw_document_id,
 			 url, canonical_url, canonical_url_hash, title, author,
 			 published_at, content_html, content_text, content_markdown, summary_short,
-			 content_hash, simhash, fetched_at, body_fetch_status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), $17)
+			 content_hash, simhash, fetched_at, body_fetch_status, is_news, is_relevant)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now(), $17, $18, $19)
 	`, sourceID, sourceType, guid, rawDocID,
 		n.link, n.cURL, n.cURLHash, n.title, n.author,
 		n.published, n.contentHTML, n.contentText, n.contentHTML, n.summaryShort,
-		n.cHash, n.simhash, n.bodyStatus)
+		n.cHash, n.simhash, n.bodyStatus, isNews, isRelevant)
 	if err != nil {
 		return fmt.Errorf("insert news item: %w", err)
 	}
@@ -463,8 +489,17 @@ func (f *RSSFetcher) upsertNewsItem(
 
 	existingID := f.findExistingItem(ctx, sourceID, n.guid, n.cURLHash)
 	if existingID != nil {
-		return f.updateExistingItem(ctx, existingID, &n.link, &n.cURL, &n.cURLHash, &n.title, &n.author, n.published,
+		updated, changed, uerr := f.updateExistingItem(ctx, existingID, &n.link, &n.cURL, &n.cURLHash, &n.title, &n.author, n.published,
 			&n.contentHTML, &n.contentText, &n.summaryShort, &n.cHash, &n.simhash, rawDocID, n.bodyStatus)
+		// Evergreen items must stay retired even on re-ingest (a fresh pubDate
+		// update would otherwise leave a previously-de-flagged row flagged again
+		// if it was ever re-enriched). Force de-flag.
+		if uerr == nil && f.isEvergreen(n.cURL) {
+			_, _ = f.pool.Exec(ctx,
+				"UPDATE news_item SET is_news = false, is_relevant = false, news_story = NULL WHERE id = $1",
+				*existingID)
+		}
+		return updated, changed, uerr
 	}
 
 	if insertErr := f.insertNewNewsItem(ctx, sourceID, sourceType, n.guid, rawDocID, &n); insertErr != nil {

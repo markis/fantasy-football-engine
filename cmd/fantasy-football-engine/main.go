@@ -26,6 +26,17 @@ import (
 	"ff-engine/internal/telemetry"
 )
 
+// evergreenPatterns extracts the evergreen URL-substring blocklist from config.
+func evergreenPatterns(es []config.EvergreenPattern) []string {
+	out := make([]string, 0, len(es))
+	for _, e := range es {
+		if e.Pattern != "" {
+			out = append(out, e.Pattern)
+		}
+	}
+	return out
+}
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
 	flag.Parse()
@@ -64,7 +75,7 @@ func main() {
 	sleeperClient := sleeper.New(cfg.Sleeper.BaseURL)
 
 	// Initialize pipeline components
-	rssFetcher := pipeline.NewRSSFetcher(pool)
+	rssFetcher := pipeline.NewRSSFetcher(pool, evergreenPatterns(cfg.Evergreen))
 	bodyFetcher := pipeline.NewBodyFetcher(pool)
 	enricher := pipeline.NewEnricher(pool, llmClient, cfg.LLM.MaxConcurrency)
 	embedder := pipeline.NewEmbedder(pool, embedClient, cfg.Embeddings.BatchSize)

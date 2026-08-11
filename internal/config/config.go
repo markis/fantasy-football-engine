@@ -27,6 +27,7 @@ type Config struct {
 	LLM         LLMConfig         `yaml:"llm"`
 	Sleeper     SleeperConfig     `yaml:"sleeper"`
 	Sources     []SourceConfig    `yaml:"sources"`
+	Evergreen   []EvergreenPattern `yaml:"evergreen"`
 	FantasyPros FantasyProsConfig `yaml:"fantasyPros"`
 	Corpus      CorpusConfig      `yaml:"corpus"`
 	Telemetry   TelemetryConfig   `yaml:"telemetry"`
@@ -69,6 +70,16 @@ type SleeperConfig struct {
 type SourceConfig struct {
 	Name string `yaml:"name"`
 	URL  string `yaml:"url"`
+}
+
+// EvergreenPattern marks a URL substring whose articles are evergreen
+// aggregator/trackers republished with a fresh pubDate but stale body. Items
+// whose URL matches are ingested but de-flagged (is_news=false, is_relevant=false)
+// so they don't surface as current news. Patterns are matched as substrings
+// against the item's canonical URL (case-sensitive).
+type EvergreenPattern struct {
+	Pattern  string `yaml:"pattern"`
+	Reason   string `yaml:"reason"`
 }
 
 type FantasyProsConfig struct {
