@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 go build -o /ff-engine ./cmd/fantasy-football-engine
 # The :nonroot variant ships a non-root user (UID 65532, name "nonroot").
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --chown=nonroot:nonroot --chmod=0555 --from=builder /ff-engine /ff-engine
+COPY --chmod=0555 --from=builder /ff-engine /ff-engine
 
 # Run as the unprivileged nonroot user (UID 65532).
 USER nonroot
