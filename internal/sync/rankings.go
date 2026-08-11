@@ -10,7 +10,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/db"
+
+	"ff-engine/internal/db"
 )
 
 // RankingsSyncer syncs dynasty rankings from Dynasty Daddy.

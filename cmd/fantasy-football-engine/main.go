@@ -12,18 +12,18 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/markis/fantasy-football-engine/internal/config"
-	"github.com/markis/fantasy-football-engine/internal/corpus"
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/embed"
-	"github.com/markis/fantasy-football-engine/internal/llm"
-	"github.com/markis/fantasy-football-engine/internal/mcp"
-	"github.com/markis/fantasy-football-engine/internal/pipeline"
-	"github.com/markis/fantasy-football-engine/internal/query"
-	"github.com/markis/fantasy-football-engine/internal/scheduler"
-	"github.com/markis/fantasy-football-engine/internal/sleeper"
-	ffsync "github.com/markis/fantasy-football-engine/internal/sync"
-	"github.com/markis/fantasy-football-engine/internal/telemetry"
+	"ff-engine/internal/config"
+	"ff-engine/internal/corpus"
+	"ff-engine/internal/db"
+	"ff-engine/internal/embed"
+	"ff-engine/internal/llm"
+	"ff-engine/internal/mcp"
+	"ff-engine/internal/pipeline"
+	"ff-engine/internal/query"
+	"ff-engine/internal/scheduler"
+	"ff-engine/internal/sleeper"
+	ffsync "ff-engine/internal/sync"
+	"ff-engine/internal/telemetry"
 )
 
 func main() {

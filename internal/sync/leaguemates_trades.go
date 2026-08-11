@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/sleeper"
+
+	"ff-engine/internal/db"
+	"ff-engine/internal/sleeper"
 )
 
 // LeaguemateTradesSyncer stores completed trades from mapped leagues.

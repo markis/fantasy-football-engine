@@ -13,8 +13,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/markis/fantasy-football-engine/internal/config"
-	"github.com/markis/fantasy-football-engine/internal/db"
+
+	"ff-engine/internal/config"
+	"ff-engine/internal/db"
 )
 
 var errFPNewsHTTP = errors.New("FP news HTTP error")

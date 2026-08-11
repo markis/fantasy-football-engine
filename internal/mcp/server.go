@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/markis/fantasy-football-engine/internal/query"
+	"ff-engine/internal/query"
 )
 
 var errPipelineTriggerNotEnabled = errors.New("pipeline trigger not enabled")

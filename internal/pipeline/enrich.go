@@ -9,10 +9,11 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/llm"
-	"github.com/markis/fantasy-football-engine/internal/models"
 	"golang.org/x/sync/errgroup"
+
+	"ff-engine/internal/db"
+	"ff-engine/internal/llm"
+	"ff-engine/internal/models"
 )
 
 // Enricher classifies fantasy relevance and extracts entities/topics.

@@ -11,8 +11,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/models"
+
+	"ff-engine/internal/db"
+	"ff-engine/internal/models"
 )
 
 var (

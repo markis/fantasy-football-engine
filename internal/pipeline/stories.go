@@ -9,8 +9,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/llm"
+
+	"ff-engine/internal/db"
+	"ff-engine/internal/llm"
 )
 
 var errStoryValidation = errors.New("story validation failed")

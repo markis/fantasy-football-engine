@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/models"
-	"github.com/markis/fantasy-football-engine/internal/sleeper"
+	"ff-engine/internal/db"
+	"ff-engine/internal/models"
+	"ff-engine/internal/sleeper"
 )
 
 // TeamAssessor runs the weekly dynasty team-state assessment.

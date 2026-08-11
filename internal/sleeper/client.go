@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/markis/fantasy-football-engine/internal/models"
+	"ff-engine/internal/models"
 )
 
 var errSleeperHTTP = errors.New("sleeper HTTP error")

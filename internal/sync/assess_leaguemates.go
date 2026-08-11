@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/llm"
-	"github.com/markis/fantasy-football-engine/internal/models"
+	"ff-engine/internal/db"
+	"ff-engine/internal/llm"
+	"ff-engine/internal/models"
 )
 
 // LeaguemateAssessor computes tendency signals and LLM dossiers.

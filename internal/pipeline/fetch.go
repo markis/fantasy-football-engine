@@ -16,8 +16,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
-	"github.com/markis/fantasy-football-engine/internal/db"
 	"github.com/mmcdole/gofeed"
+
+	"ff-engine/internal/db"
 )
 
 var errFeedHTTP = errors.New("feed HTTP error")

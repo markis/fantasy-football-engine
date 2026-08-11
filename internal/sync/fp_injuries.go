@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/markis/fantasy-football-engine/internal/config"
-	"github.com/markis/fantasy-football-engine/internal/db"
+	"ff-engine/internal/config"
+	"ff-engine/internal/db"
 )
 
 // FPInjuriesSyncer syncs FantasyPros injury data.

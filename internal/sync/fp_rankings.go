@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/config"
-	"github.com/markis/fantasy-football-engine/internal/db"
+
+	"ff-engine/internal/config"
+	"ff-engine/internal/db"
 )
 
 // FPRankingsSyncer syncs FantasyPros ECR dynasty consensus ranks.

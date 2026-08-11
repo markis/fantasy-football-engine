@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/markis/fantasy-football-engine/internal/models"
+	"ff-engine/internal/models"
 )
 
 // anyToInt coerces a decoded-JSON value (float64, string, or int) to an int,

@@ -214,9 +214,8 @@ linters:
         - (.Decode(
         - (.Get(
       ignore-package-globs:
-        - connector-api/*
         - github.com/jackc/*
-        - github.com/markis/fantasy-football-engine/internal/sleeper/*
+        - ff-engine/internal/sleeper/*
 
   exclusions:
     generated: lax
@@ -244,7 +243,7 @@ formatters:
     - goimports
   settings:
     gofumpt:
-      module-path: connector-api
+      module-path: ff-engine
     goimports:
       local-prefixes:
-        - connector-api
+        - ff-engine

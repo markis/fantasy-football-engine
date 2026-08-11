@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/markis/fantasy-football-engine/internal/config"
+	"ff-engine/internal/config"
 )
 
 // fetchFPJSON issues an authenticated GET request against a FantasyPros API

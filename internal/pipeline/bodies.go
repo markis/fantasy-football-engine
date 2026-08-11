@@ -12,8 +12,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/htmlx"
+
+	"ff-engine/internal/db"
+	"ff-engine/internal/htmlx"
 )
 
 // BodyFetcher downloads full article bodies for news items.

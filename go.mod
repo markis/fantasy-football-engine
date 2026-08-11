@@ -1,4 +1,4 @@
-module github.com/markis/fantasy-football-engine
+module ff-engine
 
 go 1.24
 

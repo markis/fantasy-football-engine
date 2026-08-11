@@ -6,7 +6,8 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/db"
+
+	"ff-engine/internal/db"
 )
 
 // sid2pidMap builds a sleeper_player_id -> player.id lookup used to match

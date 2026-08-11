@@ -6,7 +6,8 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/db"
+
+	"ff-engine/internal/db"
 )
 
 // DedupChecker runs staged dedup (exact -> simhash -> semantic) on items.

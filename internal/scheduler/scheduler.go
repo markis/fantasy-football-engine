@@ -9,8 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/markis/fantasy-football-engine/internal/config"
 	"github.com/robfig/cron/v3"
+
+	"ff-engine/internal/config"
 )
 
 var (

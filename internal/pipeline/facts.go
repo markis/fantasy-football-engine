@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/embed"
-	"github.com/markis/fantasy-football-engine/internal/llm"
 	"github.com/pgvector/pgvector-go"
+
+	"ff-engine/internal/db"
+	"ff-engine/internal/embed"
+	"ff-engine/internal/llm"
 )
 
 var errNoFactBody = errors.New("no fact body available")

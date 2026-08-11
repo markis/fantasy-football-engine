@@ -8,9 +8,9 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/models"
-	"github.com/markis/fantasy-football-engine/internal/sleeper"
+	"ff-engine/internal/db"
+	"ff-engine/internal/models"
+	"ff-engine/internal/sleeper"
 )
 
 // LeaguemateSyncer builds the 1-hop manager graph from Sleeper.

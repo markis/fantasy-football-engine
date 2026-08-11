@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/markis/fantasy-football-engine/internal/models"
+	"ff-engine/internal/models"
 )
 
 const (

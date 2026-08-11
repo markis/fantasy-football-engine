@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/models"
-	"github.com/markis/fantasy-football-engine/internal/sleeper"
+	"ff-engine/internal/db"
+	"ff-engine/internal/models"
+	"ff-engine/internal/sleeper"
 )
 
 // Common provides shared helpers for the corpus publisher.

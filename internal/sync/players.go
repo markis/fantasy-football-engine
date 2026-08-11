@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/markis/fantasy-football-engine/internal/db"
-	"github.com/markis/fantasy-football-engine/internal/sleeper"
+	"ff-engine/internal/db"
+	"ff-engine/internal/sleeper"
 )
 
 // PlayerSyncer syncs the full Sleeper NFL player database.
