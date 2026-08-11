@@ -1,30 +1,36 @@
-# Multi-stage build for fantasy-football-engine
-# Stage 1: Build the Go binary
-FROM golang:1.24-bookworm AS builder
+# syntax=docker/dockerfile:1
 
-WORKDIR /build
+FROM golang:1.26 AS builder
+
+WORKDIR /src
+
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+  go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 go build -o /ff-engine ./cmd/fantasy-football-engine
 
-# Stage 2: Minimal runtime image
-# The :nonroot variant ships a non-root user (UID 65532, name "nonroot").
-FROM gcr.io/distroless/static-debian12:nonroot
+RUN --mount=type=cache,target=/go/pkg/mod \
+  --mount=type=cache,target=/root/.cache/go-build \
+  CGO_ENABLED=0 go build \
+  -trimpath \
+  -ldflags="-s -w" \
+  -o /out/ff-engine \
+  ./cmd/fantasy-football-engine
 
-COPY --chmod=0555 --from=builder /ff-engine /ff-engine
+FROM gcr.io/distroless/static-debian13:nonroot
 
-# Run as the unprivileged nonroot user (UID 65532).
-USER nonroot
+COPY --chmod=0555 --from=builder /out/ff-engine /ff-engine
 
-# Config and data are mounted at runtime. This path remains writable even
-# when the container is started with a read-only root filesystem
-# (e.g. `docker run --read-only` or Kubernetes readOnlyRootFilesystem: true),
-# because declared VOLUMEs get their own writable overlay.
+# Ensures a newly created Docker volume inherits writable ownership.
+COPY --chown=65532:65532 --from=builder /dev/null /data/.keep
+
+USER 65532:65532
+
+# Docker-only convenience: Kubernetes still needs an explicit volumeMount.
 VOLUME ["/data"]
 
 EXPOSE 3100
 
 ENTRYPOINT ["/ff-engine"]
-CMD ["-config", "/data/config.yaml"]
+CMD ["-config", "/config/config.yaml"]

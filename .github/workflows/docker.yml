@@ -12,7 +12,7 @@ on:
       - main
 
 env:
-  PLATFORMS: linux/arm64
+  PLATFORMS: linux/amd64
 
 permissions:
   contents: read
