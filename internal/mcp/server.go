@@ -42,6 +42,7 @@ const (
 	paramLeagueID     = "league_id"
 	paramStep         = "step"
 	paramQuery        = "query"
+	paramPlayerID     = "player_id"
 	paramLimit        = "limit"
 )
 
@@ -326,6 +327,187 @@ func (s *Server) registerTools() {
 			leagueID := getStr(args, paramLeagueID)
 			superflex := getBool(args, paramSuperflex)
 			return s.query.EvaluateTrade(ctx, give, get, leagueID, superflex)
+		},
+	})
+
+	// Sleeper league / user / draft passthrough tools (absorbed from the old stdio MCP)
+	s.registerTool(Tool{
+		Name:        "get_user_info",
+		Description: "Fetch Sleeper user info by username or user ID.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				"username_or_user_id": map[string]any{schemaType: schemaTypeString},
+			},
+			schemaRequired: []any{"username_or_user_id"},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.GetUserInfo(ctx, getStr(args, "username_or_user_id"))
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "get_user_leagues",
+		Description: "Fetch a Sleeper user's leagues for a season (sport nfl).",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				"user_id": map[string]any{schemaType: schemaTypeString},
+				"season":  map[string]any{schemaType: schemaTypeString, schemaDefault: "2026"},
+			},
+			schemaRequired: []any{"user_id"},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			season := getStr(args, "season")
+			if season == "" {
+				season = "2026"
+			}
+			return s.query.GetUserLeagues(ctx, getStr(args, "user_id"), season)
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "get_league_info",
+		Description: "Fetch Sleeper league info (settings, roster positions, scoring).",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
+			},
+			schemaRequired: []any{paramLeagueID},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.GetLeagueInfo(ctx, getStr(args, paramLeagueID))
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "get_league_rosters",
+		Description: "Fetch all rosters for a Sleeper league.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
+			},
+			schemaRequired: []any{paramLeagueID},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.GetLeagueRosters(ctx, getStr(args, paramLeagueID))
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "get_league_users",
+		Description: "Fetch all managers (users) for a Sleeper league.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
+			},
+			schemaRequired: []any{paramLeagueID},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.GetLeagueUsers(ctx, getStr(args, paramLeagueID))
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "get_league_matchups",
+		Description: "Fetch matchups for a Sleeper league in a given week.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
+				"week":         map[string]any{schemaType: schemaTypeInteger},
+			},
+			schemaRequired: []any{paramLeagueID, "week"},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.GetLeagueMatchups(ctx, getStr(args, paramLeagueID), getInt(args, "week", 0))
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "get_league_transactions",
+		Description: "Fetch transactions (trades/waivers) for a Sleeper league in a given week.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
+				"week":         map[string]any{schemaType: schemaTypeInteger},
+			},
+			schemaRequired: []any{paramLeagueID, "week"},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.GetLeagueTransactions(ctx, getStr(args, paramLeagueID), getInt(args, "week", 0))
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "get_league_drafts",
+		Description: "Fetch drafts for a Sleeper league.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
+			},
+			schemaRequired: []any{paramLeagueID},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.GetLeagueDrafts(ctx, getStr(args, paramLeagueID))
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "get_league_traded_picks",
+		Description: "Fetch traded picks for a Sleeper league.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramLeagueID: map[string]any{schemaType: schemaTypeString},
+			},
+			schemaRequired: []any{paramLeagueID},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.GetLeagueTradedPicks(ctx, getStr(args, paramLeagueID))
+		},
+	})
+
+	// Leaguemate intelligence (cross-league profiling; absorbed from the old stdio MCP)
+	s.registerTool(Tool{
+		Name:        "leaguemate_overlap",
+		Description: "For a Sleeper player_id, show which leaguemates own that player across ALL their leagues (yours + their others), with overlap counts. A leaguemate who owns a player in many leagues values them above market. Resolve a name to player_id with search_players first.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramPlayerID:   map[string]any{schemaType: schemaTypeString},
+				"include_markis": map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
+			},
+			schemaRequired: []any{paramPlayerID},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.LeaguemateOverlap(ctx, getStr(args, paramPlayerID), getBool(args, "include_markis"))
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "manager_profile",
+		Description: "Build a cross-league dossier for a leaguemate by their Sleeper @username or display_name: every league they manage (flagging yours), aggregate standings, and players they hold in >=2 of their leagues. Use before any trade negotiation.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				"username": map[string]any{schemaType: schemaTypeString},
+			},
+			schemaRequired: []any{"username"},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.ManagerProfile(ctx, getStr(args, "username"))
+		},
+	})
+	s.registerTool(Tool{
+		Name:        "player_trade_value",
+		Description: "Show what a player has ACTUALLY been traded for across all tracked leagues — the true-market-price anchor. Returns recent completed trades with the full package (players by name + picks). Resolve a name to player_id with search_players first.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramPlayerID: map[string]any{schemaType: schemaTypeString},
+				"limit":       map[string]any{schemaType: schemaTypeInteger, schemaDefault: 12},
+			},
+			schemaRequired: []any{paramPlayerID},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			return s.query.PlayerTradeValue(ctx, getStr(args, paramPlayerID), getInt(args, "limit", 12))
 		},
 	})
 
