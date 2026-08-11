@@ -215,7 +215,7 @@ linters:
         - (.Get(
       ignore-package-globs:
         - github.com/jackc/*
-        - ff-engine/internal/sleeper/*
+        - ff-engine/internal/*
 
   exclusions:
     generated: lax

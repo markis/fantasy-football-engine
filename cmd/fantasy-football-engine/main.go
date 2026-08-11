@@ -192,13 +192,13 @@ func registerSteps(
 			limit = job.Limit
 		}
 		_, err := bodyFetcher.FetchBatch(ctx, limit)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Pipeline: fetch FP news
 	sched.RegisterStep("pipeline.fetch_fp_news", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := fpNewsFetcher.Fetch(ctx)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Pipeline: enrich
@@ -208,7 +208,7 @@ func registerSteps(
 			limit = job.Limit
 		}
 		_, err := enricher.EnrichBatch(ctx, limit)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Pipeline: embed
@@ -218,7 +218,7 @@ func registerSteps(
 			limit = job.Limit
 		}
 		_, err := embedder.EmbedBatch(ctx, limit)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Pipeline: dedup
@@ -228,13 +228,13 @@ func registerSteps(
 			limit = job.Limit
 		}
 		_, err := dedupChecker.CheckBatch(ctx, limit)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Pipeline: cluster
 	sched.RegisterStep("pipeline.cluster", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := clusterer.AssignBatch(ctx)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Pipeline: facts
@@ -244,7 +244,7 @@ func registerSteps(
 			limit = job.Limit
 		}
 		_, err := factExtractor.ExtractBatch(ctx, limit)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Pipeline: stories
@@ -254,49 +254,49 @@ func registerSteps(
 			limit = job.Limit
 		}
 		_, err := storyGenerator.GenerateBatch(ctx, limit)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Sync: players
 	sched.RegisterStep("sync.players", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := playerSyncer.Sync(ctx)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Sync: rankings
 	sched.RegisterStep("sync.rankings", func(ctx context.Context, job config.JobConfig) error {
 		_, err := rankingsSyncer.Sync(ctx, job.Market, job.Source)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Sync: FantasyCalc
 	sched.RegisterStep("sync.fantasycalc", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := fcSyncer.SyncAll(ctx)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Sync: FP injuries
 	sched.RegisterStep("sync.fp_injuries", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := fpInjuriesSyncer.Sync(ctx)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Sync: FP rankings
 	sched.RegisterStep("sync.fp_rankings", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := fpRankingsSyncer.Sync(ctx)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Sync: leaguemates
 	sched.RegisterStep("sync.leaguemates", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := leaguemateSyncer.Sync(ctx, 15, "")
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Sync: leaguemate trades
 	sched.RegisterStep("sync.leaguemates_trades", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := tradesSyncer.Sync(ctx, 3)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Sync: assess leaguemates
@@ -306,13 +306,13 @@ func registerSteps(
 			batch = job.Limit
 		}
 		_, err := leaguemateAssessor.Assess(ctx, batch)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Sync: assess teams
 	sched.RegisterStep("sync.assess_teams", func(ctx context.Context, _ config.JobConfig) error {
 		_, err := teamAssessor.Assess(ctx)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Corpus: publish
@@ -322,7 +322,7 @@ func registerSteps(
 			mode = "daily"
 		}
 		_, err := publisher.Publish(ctx, mode, false)
-		return err //nolint:wrapcheck // propagate error from internal package
+		return err
 	})
 
 	// Combined step: embed + dedup + enrich + cluster (cron #5).

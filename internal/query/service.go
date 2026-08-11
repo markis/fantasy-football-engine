@@ -406,7 +406,7 @@ func (s *Service) GetRankings(
 
 // GetNFLState returns the current NFL state.
 func (s *Service) GetNFLState(ctx context.Context) (*models.NFLState, error) {
-	return s.sleeper.GetNFLState(ctx) //nolint:wrapcheck // proxy method
+	return s.sleeper.GetNFLState(ctx)
 }
 
 // GetStudyMaterial returns a digest for agent self-study.
@@ -457,7 +457,7 @@ func (s *Service) GetTrendingPlayers(ctx context.Context, trendType string, limi
 	if trendType == "" {
 		trendType = "add"
 	}
-	return s.sleeper.GetTrendingPlayers(ctx, trendType, 24, limit) //nolint:wrapcheck // proxy method
+	return s.sleeper.GetTrendingPlayers(ctx, trendType, 24, limit)
 }
 
 // GetFreeAgents returns top ranked free agents in a league.
@@ -474,7 +474,7 @@ func (s *Service) GetFreeAgents(
 	// Get rosters
 	rosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // propagate error from sleeper client
+		return nil, err
 	}
 	// Build owned set
 	owned := make(map[string]bool)
@@ -622,7 +622,7 @@ func (s *Service) EvaluateTrade(
 func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, superflex bool) (map[string]any, error) {
 	rosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
 	if err != nil {
-		return nil, err //nolint:wrapcheck // propagate error from sleeper client
+		return nil, err
 	}
 
 	// Find user's roster
