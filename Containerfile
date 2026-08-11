@@ -16,14 +16,15 @@ RUN --mount=type=cache,target=/go/pkg/mod \
   -trimpath \
   -ldflags="-s -w" \
   -o /out/ff-engine \
-  ./cmd/fantasy-football-engine
+  ./cmd/fantasy-football-engine && \
+  touch /out/.keep
 
 FROM gcr.io/distroless/static-debian13:nonroot
 
 COPY --chmod=0555 --from=builder /out/ff-engine /ff-engine
 
 # Ensures a newly created Docker volume inherits writable ownership.
-COPY --chown=65532:65532 --from=builder /dev/null /data/.keep
+COPY --chown=65532:65532 --from=builder /out/.keep /data/.keep
 
 USER 65532:65532
 
