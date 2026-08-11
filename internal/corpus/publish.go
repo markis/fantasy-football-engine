@@ -237,15 +237,15 @@ func (p *Publisher) sync(staging, corpus string) error {
 	for rel, full := range stagingFiles {
 		dst := filepath.Join(corpus, rel)
 		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
-			return err
+			return fmt.Errorf("create directory for %s: %w", dst, err)
 		}
 		//nolint:gosec // path is internal storage path
 		data, err := os.ReadFile(full)
 		if err != nil {
-			return err
+			return fmt.Errorf("read file %s: %w", full, err)
 		}
 		if err := os.WriteFile(dst, data, 0o600); err != nil { //nolint:gosec // paths are internal corpus paths, not user input
-			return err
+			return fmt.Errorf("write file %s: %w", dst, err)
 		}
 	}
 	// Copy extras

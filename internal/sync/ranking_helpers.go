@@ -2,6 +2,7 @@ package sync
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -16,7 +17,7 @@ func sid2pidMap(ctx context.Context, pool *db.Pool) (map[string]uuid.UUID, error
 	sid2pid := make(map[string]uuid.UUID)
 	rows, err := pool.Query(ctx, "SELECT id, sleeper_player_id FROM player")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query players: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -72,7 +73,7 @@ func deleteStaleRankings(ctx context.Context, pool *db.Pool, source string, mark
 		"DELETE FROM player_ranking WHERE source = $1 AND market = $2 AND NOT (player_id = ANY($3))",
 		source, market, freshIDs)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("delete stale rankings for %s/%d: %w", source, market, err)
 	}
 	return int(ct.RowsAffected()), nil
 }

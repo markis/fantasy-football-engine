@@ -79,7 +79,7 @@ func (e *Enricher) EnrichBatch(ctx context.Context, limit int) (*EnrichResult, e
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan news item id: %w", err)
 		}
 		itemIDs = append(itemIDs, id)
 	}
@@ -124,7 +124,7 @@ func (e *Enricher) enrichOne(ctx context.Context, itemID uuid.UUID) (bool, error
 		WHERE ni.id = $1
 	`, itemID).Scan(&title, &summary, &content, &contentHTML, &sourceID, &sourceName, &url)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("scan news item %s: %w", itemID, err)
 	}
 
 	titleStr := ptrStr(title)
@@ -152,7 +152,7 @@ func (e *Enricher) enrichOne(ctx context.Context, itemID uuid.UUID) (bool, error
 		WHERE id = $5
 	`, isRelevant, entities, topics, quality, itemID)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("update news item %s: %w", itemID, err)
 	}
 	return isRelevant, nil
 }

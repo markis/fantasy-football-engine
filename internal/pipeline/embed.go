@@ -56,7 +56,7 @@ func (e *Embedder) fetchPendingEmbedItems(ctx context.Context, limit int) ([]emb
 		var id uuid.UUID
 		var title, summary, content *string
 		if err := rows.Scan(&id, &title, &summary, &content); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan embed item: %w", err)
 		}
 		text := ptrStr(content)
 		if text == "" {

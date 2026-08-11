@@ -391,7 +391,10 @@ func (s *Server) Start() error {
 	}
 
 	slog.Info("MCP server starting", "addr", s.addr)
-	return server.ListenAndServe()
+	if err := server.ListenAndServe(); err != nil {
+		return fmt.Errorf("mcp server: %w", err)
+	}
+	return nil
 }
 
 // handleHTTP is a simple health check endpoint.

@@ -86,7 +86,7 @@ func (b *BodyFetcher) FetchBatch(ctx context.Context, limit int) (*BodyFetchResu
 		var it pendingItem
 		var urlStr, title, summary, content *string
 		if err := rows.Scan(&it.id, &urlStr, &title, &summary, &content); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan pending body row: %w", err)
 		}
 		if urlStr != nil {
 			it.url = *urlStr

@@ -63,7 +63,10 @@ func (f *RSSFetcher) lookupSource(ctx context.Context, feedURL string) (sourceLo
 	err := f.pool.QueryRow(ctx,
 		"SELECT id, etag, last_modified FROM source WHERE url = $1", feedURL,
 	).Scan(&sl.sourceID, &sl.etag, &sl.lastModified)
-	return sl, err
+	if err != nil {
+		return sl, fmt.Errorf("query source %s: %w", feedURL, err)
+	}
+	return sl, nil
 }
 
 // doConditionalFetch issues a GET request for the feed URL with conditional
@@ -135,7 +138,10 @@ func (f *RSSFetcher) storeRawDocument(
 		INSERT INTO raw_document (source_id, url, fetch_status, headers, body_text, content_type)
 		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
 	`, sourceID, feedURL, statusCode, headersJSON, body, contentType).Scan(&rawDocID)
-	return rawDocID, err
+	if err != nil {
+		return rawDocID, fmt.Errorf("insert raw document for %s: %w", feedURL, err)
+	}
+	return rawDocID, nil
 }
 
 // processFeedEntries upserts each feed entry (skipping ones older than the
@@ -443,7 +449,10 @@ func (f *RSSFetcher) insertNewNewsItem(
 		n.link, n.cURL, n.cURLHash, n.title, n.author,
 		n.published, n.contentHTML, n.contentText, n.contentHTML, n.summaryShort,
 		n.cHash, n.simhash, n.bodyStatus)
-	return err
+	if err != nil {
+		return fmt.Errorf("insert news item: %w", err)
+	}
+	return nil
 }
 
 //nolint:nonamedreturns // Multiple bool returns benefit from naming
@@ -493,7 +502,7 @@ func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UU
 		`, link, cURL, cURLHash, title, author, published,
 			contentHTML, contentText, contentHTML, summaryShort, cHash, sh, rawDocID, bodyStatus, *existingID)
 		if err != nil {
-			return false, false, err
+			return false, false, fmt.Errorf("update news item %s: %w", *existingID, err)
 		}
 	} else {
 		// Update without content
@@ -507,7 +516,7 @@ func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UU
 		`, link, cURL, cURLHash, title, author, published,
 			summaryShort, cHash, sh, rawDocID, bodyStatus, *existingID)
 		if err != nil {
-			return false, false, err
+			return false, false, fmt.Errorf("update news item %s: %w", *existingID, err)
 		}
 	}
 	return false, true, nil

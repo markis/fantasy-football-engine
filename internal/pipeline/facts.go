@@ -102,7 +102,7 @@ func (f *FactExtractor) ExtractBatch(ctx context.Context, limit int) (*FactsResu
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan news item id: %w", err)
 		}
 		itemIDs = append(itemIDs, id)
 	}
@@ -152,7 +152,7 @@ func (f *FactExtractor) loadFactSource(ctx context.Context, itemID uuid.UUID) (*
 		FROM news_item WHERE id = $1
 	`, itemID).Scan(&title, &content, &summary, &publishedAt, &createdAt)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query news item %s: %w", itemID, err)
 	}
 
 	body := ptrStr(content)

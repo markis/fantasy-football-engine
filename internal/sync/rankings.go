@@ -97,7 +97,7 @@ func (s *RankingsSyncer) fetchRankingsData(ctx context.Context, market int) ([]m
 	slog.Info("fetching rankings", "url", url)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build rankings request: %w", err)
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {

@@ -74,7 +74,7 @@ func (s *LeaguemateTradesSyncer) Sync(ctx context.Context, maxWeeks int) (*Trade
 func (s *LeaguemateTradesSyncer) fetchLeagues(ctx context.Context) ([]leagueInfo, error) {
 	rows, err := s.pool.Query(ctx, "SELECT league_id, status, is_markis_league FROM league")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query leagues: %w", err)
 	}
 	defer rows.Close()
 
@@ -214,14 +214,20 @@ func (s *LeaguemateTradesSyncer) insertTradeTransaction(
 		rosterIDs, consenterIDs,
 		epochMsToTime(txn["created"]), epochMsToTime(txn["status_updated"]),
 		isMarkisLeague, involvesWatchSet, raw)
-	return err
+	if err != nil {
+		return fmt.Errorf("upsert trade transaction %s: %w", txnID, err)
+	}
+	return nil
 }
 
 // deleteTradeAssets removes any existing trade assets for a transaction so
 // they can be reinserted fresh.
 func (s *LeaguemateTradesSyncer) deleteTradeAssets(ctx context.Context, txnID string) error {
 	_, err := s.pool.Exec(ctx, "DELETE FROM leaguemate_trade_asset WHERE transaction_id = $1", txnID)
-	return err
+	if err != nil {
+		return fmt.Errorf("delete trade assets for %s: %w", txnID, err)
+	}
+	return nil
 }
 
 // insertPlayerTradeAssets stores the player assets moved in a trade, derived

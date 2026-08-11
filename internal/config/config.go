@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/creasty/defaults"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,7 +34,7 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	MCPAddr     string `yaml:"mcpAddr"`
+	MCPAddr     string `default:":3100"    yaml:"mcpAddr"`
 	MetricsAddr string `yaml:"metricsAddr"`
 }
 
@@ -42,27 +43,27 @@ type DatabaseConfig struct {
 }
 
 type EmbeddingsConfig struct {
-	Provider   string `yaml:"provider"`
-	URL        string `yaml:"url"`
-	Model      string `yaml:"model"`
-	Dimensions int    `yaml:"dimensions"`
-	BatchSize  int    `yaml:"batchSize"`
+	Provider   string `default:"llama-server"             yaml:"provider"`
+	URL        string `default:"http://llama-server:8080" yaml:"url"`
+	Model      string `default:"nomic-embed-text-v1.5"    yaml:"model"`
+	Dimensions int    `default:"768"                      yaml:"dimensions"`
+	BatchSize  int    `default:"32"                       yaml:"batchSize"`
 }
 
 type LLMConfig struct {
-	Provider       string `yaml:"provider"`
-	URL            string `yaml:"url"`
-	Model          string `yaml:"model"`
+	Provider       string `default:"ollama-cloud"       yaml:"provider"`
+	URL            string `default:"https://ollama.com" yaml:"url"`
+	Model          string `default:"minimax-m3"         yaml:"model"`
 	APIKey         string `yaml:"apiKey"`
-	APIKeyPass     string `yaml:"apiKeyPass"`
-	TimeoutSecs    int    `yaml:"timeoutSecs"`
-	MaxConcurrency int    `yaml:"maxConcurrency"`
+	APIKeyPass     string `default:"news/ollama-cloud"  yaml:"apiKeyPass"`
+	TimeoutSecs    int    `default:"300"                yaml:"timeoutSecs"`
+	MaxConcurrency int    `default:"4"                  yaml:"maxConcurrency"`
 }
 
 type SleeperConfig struct {
-	BaseURL         string `yaml:"baseUrl"`
-	RateLimitPerMin int    `yaml:"rateLimitPerMin"`
-	Seasons         []int  `yaml:"seasons"`
+	BaseURL         string `default:"https://api.sleeper.app/v1" yaml:"baseUrl"`
+	RateLimitPerMin int    `default:"1000"                       yaml:"rateLimitPerMin"`
+	Seasons         []int  `default:"[2026]"                     yaml:"seasons"`
 }
 
 type SourceConfig struct {
@@ -71,26 +72,26 @@ type SourceConfig struct {
 }
 
 type FantasyProsConfig struct {
-	APIKeyPass string `yaml:"apiKeyPass"`
-	CookiePass string `yaml:"cookiePass"`
+	APIKeyPass string `default:"football/fantasypros-api"     yaml:"apiKeyPass"`
+	CookiePass string `default:"football/fantasypros-cookies" yaml:"cookiePass"`
 }
 
 type CorpusConfig struct {
 	RepoDir     string `yaml:"repoDir"`
-	GitURL      string `yaml:"gitUrl"`
+	GitURL      string `default:"https://github.com/markis/fantasy-football-corpus" yaml:"gitUrl"`
 	GitPAT      string `yaml:"gitPat"`
-	GitPATPass  string `yaml:"gitPatPass"`
-	AuthorName  string `yaml:"authorName"`
-	AuthorEmail string `yaml:"authorEmail"`
+	GitPATPass  string `default:"football/fantasy-github-pat"                       yaml:"gitPatPass"`
+	AuthorName  string `default:"Markis Taylor"                                     yaml:"authorName"`
+	AuthorEmail string `default:"m@rkis.net"                                        yaml:"authorEmail"`
 }
 
 type TelemetryConfig struct {
 	OTelEndpoint string `yaml:"oTelEndpoint"`
-	ServiceName  string `yaml:"serviceName"`
+	ServiceName  string `default:"fantasy-football-engine" yaml:"serviceName"`
 }
 
 type SchedulerConfig struct {
-	Timezone string      `yaml:"timezone"`
+	Timezone string      `default:"America/New_York" yaml:"timezone"`
 	Jobs     []JobConfig `yaml:"jobs"`
 }
 
@@ -114,113 +115,11 @@ func Load(path string) (*Config, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
-	cfg.setDefaults()
+	if err := defaults.Set(&cfg); err != nil {
+		return nil, fmt.Errorf("set config defaults: %w", err)
+	}
 	cfg.resolveSecrets()
 	return &cfg, nil
-}
-
-func (c *Config) setDefaults() {
-	c.setDefaultsServer()
-	c.setDefaultsEmbeddings()
-	c.setDefaultsLLM()
-	c.setDefaultsSleeper()
-	c.setDefaultsFantasyPros()
-	c.setDefaultsCorpus()
-	c.setDefaultsTelemetry()
-	c.setDefaultsScheduler()
-}
-
-func (c *Config) setDefaultsServer() {
-	if c.Server.MCPAddr == "" {
-		c.Server.MCPAddr = ":3100"
-	}
-}
-
-func (c *Config) setDefaultsEmbeddings() {
-	if c.Embeddings.Provider == "" {
-		c.Embeddings.Provider = "llama-server"
-	}
-	if c.Embeddings.URL == "" {
-		c.Embeddings.URL = "http://llama-server:8080"
-	}
-	if c.Embeddings.Model == "" {
-		c.Embeddings.Model = "nomic-embed-text-v1.5"
-	}
-	if c.Embeddings.Dimensions == 0 {
-		c.Embeddings.Dimensions = 768
-	}
-	if c.Embeddings.BatchSize == 0 {
-		c.Embeddings.BatchSize = 32
-	}
-}
-
-func (c *Config) setDefaultsLLM() {
-	if c.LLM.Provider == "" {
-		c.LLM.Provider = "ollama-cloud"
-	}
-	if c.LLM.URL == "" {
-		c.LLM.URL = "https://ollama.com"
-	}
-	if c.LLM.Model == "" {
-		c.LLM.Model = "minimax-m3"
-	}
-	if c.LLM.TimeoutSecs == 0 {
-		c.LLM.TimeoutSecs = 300
-	}
-	if c.LLM.MaxConcurrency == 0 {
-		c.LLM.MaxConcurrency = 4
-	}
-	if c.LLM.APIKeyPass == "" {
-		c.LLM.APIKeyPass = "news/ollama-cloud"
-	}
-}
-
-func (c *Config) setDefaultsSleeper() {
-	if c.Sleeper.BaseURL == "" {
-		c.Sleeper.BaseURL = "https://api.sleeper.app/v1"
-	}
-	if c.Sleeper.RateLimitPerMin == 0 {
-		c.Sleeper.RateLimitPerMin = 1000
-	}
-	if len(c.Sleeper.Seasons) == 0 {
-		c.Sleeper.Seasons = []int{2026}
-	}
-}
-
-func (c *Config) setDefaultsFantasyPros() {
-	if c.FantasyPros.APIKeyPass == "" {
-		c.FantasyPros.APIKeyPass = "football/fantasypros-api"
-	}
-	if c.FantasyPros.CookiePass == "" {
-		c.FantasyPros.CookiePass = "football/fantasypros-cookies"
-	}
-}
-
-func (c *Config) setDefaultsCorpus() {
-	if c.Corpus.GitURL == "" {
-		c.Corpus.GitURL = "https://github.com/markis/fantasy-football-corpus"
-	}
-	if c.Corpus.GitPATPass == "" {
-		c.Corpus.GitPATPass = "football/fantasy-github-pat"
-	}
-	if c.Corpus.AuthorName == "" {
-		c.Corpus.AuthorName = "Markis Taylor"
-	}
-	if c.Corpus.AuthorEmail == "" {
-		c.Corpus.AuthorEmail = "m@rkis.net"
-	}
-}
-
-func (c *Config) setDefaultsTelemetry() {
-	if c.Telemetry.ServiceName == "" {
-		c.Telemetry.ServiceName = "fantasy-football-engine"
-	}
-}
-
-func (c *Config) setDefaultsScheduler() {
-	if c.Scheduler.Timezone == "" {
-		c.Scheduler.Timezone = "America/New_York"
-	}
 }
 
 // resolveSecrets resolves ${ENV_VAR} references and pass-store fallbacks.

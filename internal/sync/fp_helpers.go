@@ -25,7 +25,7 @@ func fetchFPJSON(
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: build request: %w", reqErrCtx, err)
 	}
 	req.Header.Set("X-Api-Key", apiKey)
 	req.Header.Set("Accept", "application/json")

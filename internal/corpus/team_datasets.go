@@ -63,7 +63,7 @@ func dfltSlots(s []map[string]any) []map[string]any {
 func (p *Publisher) renderTeam(ctx context.Context, targetDir string) (map[string]any, error) {
 	teamDir := filepath.Join(targetDir, "team")
 	if err := os.MkdirAll(teamDir, 0o750); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create directory %s: %w", teamDir, err)
 	}
 	leaguesDir := filepath.Join(teamDir, "leagues")
 	if err := os.MkdirAll(leaguesDir, 0o750); err != nil {
@@ -438,7 +438,7 @@ func slugify(name string) string {
 func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[string]any, error) {
 	dsDir := filepath.Join(targetDir, "datasets")
 	if err := os.MkdirAll(dsDir, 0o750); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create directory %s: %w", dsDir, err)
 	}
 
 	watchIDs, _, ownership := p.buildWatchSet(ctx)

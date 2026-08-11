@@ -87,7 +87,7 @@ func (g *StoryGenerator) GenerateBatch(ctx context.Context, limit int) (*StoryRe
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan news item id: %w", err)
 		}
 		itemIDs = append(itemIDs, id)
 	}
@@ -113,7 +113,7 @@ func (g *StoryGenerator) generateOne(ctx context.Context, itemID uuid.UUID) erro
 		SELECT title, summary_short, content_text FROM news_item WHERE id = $1
 	`, itemID).Scan(&title, &summary, &body)
 	if err != nil {
-		return err
+		return fmt.Errorf("query news item %s: %w", itemID, err)
 	}
 
 	summaryStr := strings.TrimSpace(ptrStr(summary))
@@ -147,7 +147,10 @@ func (g *StoryGenerator) generateOne(ctx context.Context, itemID uuid.UUID) erro
 		UPDATE news_item SET news_story = $1, news_story_generated_at = now(), news_story_model = $2
 		WHERE id = $3
 	`, story, modelTag, itemID)
-	return err
+	if err != nil {
+		return fmt.Errorf("update news item %s: %w", itemID, err)
+	}
+	return nil
 }
 
 func (g *StoryGenerator) compactFacts(ctx context.Context, itemID uuid.UUID) []string {

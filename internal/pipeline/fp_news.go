@@ -58,7 +58,7 @@ func (f *FPNewsFetcher) Fetch(ctx context.Context) (*FPNewsResult, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fpNewsURL, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build FP news request: %w", err)
 	}
 	req.Header.Set("X-Api-Key", apiKey)
 	req.Header.Set("Accept", "application/json")
@@ -115,7 +115,7 @@ func (f *FPNewsFetcher) ensureSource(ctx context.Context) (uuid.UUID, error) {
 		VALUES ($1, 'api', $2, 'http', 3600, true) RETURNING id
 	`, fpNewsSourceName, fpNewsURL).Scan(&sourceID)
 	if err != nil {
-		return uuid.Nil, err
+		return uuid.Nil, fmt.Errorf("insert FP news source: %w", err)
 	}
 	return sourceID, nil
 }

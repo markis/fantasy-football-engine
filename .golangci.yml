@@ -178,43 +178,7 @@ linters:
       check-exported: false
 
     wrapcheck:
-      ignore-sigs:
-        - .Errorf(
-        - errors.New(
-        - errors.Unwrap(
-        - errors.Join(
-        - .Wrap(
-        - .Wrapf(
-        - .WithMessage(
-        - .WithMessagef(
-        - .WithStack(
-        - os.ReadFile(
-        - os.WriteFile(
-        - os.MkdirAll(
-        - os.OpenFile(
-        - os.RemoveAll(
-        - filepath.Walk(
-        - filepath.Rel(
-        - json.Marshal(
-        - json.MarshalIndent(
-        - json.Unmarshal(
-        - json.NewDecoder(
-        - json.Decoder
-        - http.NewRequestWithContext(
-        - http.NewRequest(
-        - http.Client
-        - http.Server
-        - (.Do(
-        - (.Scan(
-        - (.Query(
-        - (.QueryRow(
-        - (.Exec(
-        - (.Write(
-        - (.ListenAndServe(
-        - (.Decode(
-        - (.Get(
       ignore-package-globs:
-        - github.com/jackc/*
         - ff-engine/internal/*
 
   exclusions:

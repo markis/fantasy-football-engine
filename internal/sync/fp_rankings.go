@@ -102,7 +102,7 @@ func (s *FPRankingsSyncer) playerIDsByNameTeam(ctx context.Context) (map[string]
 	rows, err := s.pool.Query(ctx,
 		"SELECT id, lower(full_name), team FROM player WHERE active = true")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query active players: %w", err)
 	}
 	defer rows.Close()
 

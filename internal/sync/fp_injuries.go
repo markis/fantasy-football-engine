@@ -93,7 +93,7 @@ func (s *FPInjuriesSyncer) playerLookupMaps(ctx context.Context) (injuryPlayerLo
 	rows, err := s.pool.Query(ctx,
 		"SELECT id, sleeper_player_id, yahoo_id, lower(full_name), team FROM player WHERE active = true")
 	if err != nil {
-		return injuryPlayerLookups{}, err
+		return injuryPlayerLookups{}, fmt.Errorf("query active players: %w", err)
 	}
 	defer rows.Close()
 
@@ -164,7 +164,10 @@ func (s *FPInjuriesSyncer) updatePlayerInjury(ctx context.Context, it map[string
 			updated_at = now()
 		WHERE id = $6
 	`, status, injuryType, comment, practice, practiceDesc, pid)
-	return err
+	if err != nil {
+		return fmt.Errorf("update player %s injury status: %w", pid, err)
+	}
+	return nil
 }
 
 func latestPractice(item map[string]any) string {

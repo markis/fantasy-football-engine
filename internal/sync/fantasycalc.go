@@ -116,7 +116,7 @@ func (s *FantasyCalcSyncer) fetchFantasyCalcData(ctx context.Context, combo mode
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build FantasyCalc request: %w", err)
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {

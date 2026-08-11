@@ -18,7 +18,7 @@ import (
 func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[string]any, error) {
 	curDir := filepath.Join(targetDir, "current")
 	if err := os.MkdirAll(curDir, 0o750); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create directory %s: %w", curDir, err)
 	}
 
 	recs := loadCurrentRecords(filepath.Join(targetDir, "evidence", "records"))
@@ -171,7 +171,7 @@ func (p *Publisher) writeRookieDraftBoard(ctx context.Context, curDir, now strin
 		ORDER BY r.overall_rank ASC NULLS LAST LIMIT 40
 	`)
 	if err != nil {
-		return err
+		return fmt.Errorf("query rookie draft board: %w", err)
 	}
 	defer rows.Close()
 	p.appendRookieDraftLines(rows, &lines)
@@ -191,7 +191,7 @@ func (p *Publisher) writeUpcomingDecisions(curDir, now string) error {
 // writeCurrentTeamPlan renders strategy/current-team-plan.md.
 func (p *Publisher) writeCurrentTeamPlan(targetDir, now string) error {
 	if err := os.MkdirAll(filepath.Join(targetDir, "strategy"), 0o750); err != nil {
-		return err
+		return fmt.Errorf("create strategy directory: %w", err)
 	}
 	planLines := []string{
 		"# Current Team Plan", "",
@@ -205,10 +205,10 @@ func (p *Publisher) renderLeaguemates(ctx context.Context, targetDir string) (ma
 	curDir := filepath.Join(targetDir, "current")
 	dsDir := filepath.Join(targetDir, "datasets")
 	if err := os.MkdirAll(curDir, 0o750); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create directory %s: %w", curDir, err)
 	}
 	if err := os.MkdirAll(dsDir, 0o750); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create directory %s: %w", dsDir, err)
 	}
 
 	var snap *time.Time
@@ -511,7 +511,7 @@ func walkFilesForManifest(root string) (map[string]string, error) {
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
-			return err
+			return fmt.Errorf("relativize path %s: %w", path, err)
 		}
 		if strings.HasPrefix(rel, ".git") || strings.HasPrefix(rel, ".staging") {
 			return nil
@@ -522,7 +522,10 @@ func walkFilesForManifest(root string) (map[string]string, error) {
 		files[rel] = path
 		return nil
 	})
-	return files, err
+	if err != nil {
+		return nil, fmt.Errorf("walk %s: %w", root, err)
+	}
+	return files, nil
 }
 
 func countJSONLFile(targetDir, rel string) int {

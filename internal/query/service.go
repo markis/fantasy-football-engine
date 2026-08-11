@@ -72,7 +72,7 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 
 	rows, err := s.pool.Query(ctx, sql, params...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query similar news items: %w", err)
 	}
 	defer rows.Close()
 
@@ -125,7 +125,7 @@ func (s *Service) GetStories(ctx context.Context, hours, limit int) ([]map[strin
 		LIMIT $2
 	`, hours, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query stories: %w", err)
 	}
 	defer rows.Close()
 
@@ -174,7 +174,7 @@ func (s *Service) SearchFacts(ctx context.Context, query string, limit int) ([]m
 		LIMIT $2
 	`, v, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query similar facts: %w", err)
 	}
 	defer rows.Close()
 
@@ -216,7 +216,7 @@ func (s *Service) GetRecentNews(ctx context.Context, limit int, relevantOnly boo
 	sql += " ORDER BY ni.published_at DESC NULLS LAST LIMIT $1"
 	rows, err := s.pool.Query(ctx, sql, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query recent news: %w", err)
 	}
 	defer rows.Close()
 
@@ -265,7 +265,7 @@ func (s *Service) SearchPlayers(ctx context.Context, query string, position *str
 	sql += fmt.Sprintf(" LIMIT %d", limit)
 	rows, err := s.pool.Query(ctx, sql, params...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query players: %w", err)
 	}
 	defer rows.Close()
 
@@ -308,7 +308,7 @@ func (s *Service) GetPlayer(ctx context.Context, playerID string) (map[string]an
 	`, playerID).Scan(&sleeperID, &fullName, &pos, &team, &teamAbbr, &status,
 		&active, &age, &yearsExp, &injStatus, &injBodyPart, &injNotes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query player %s: %w", playerID, err)
 	}
 	item := map[string]any{
 		colPlayerID: playerID,
@@ -372,7 +372,7 @@ func (s *Service) GetRankings(
 
 	rows, err := s.pool.Query(ctx, sql, params...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query rankings: %w", err)
 	}
 	defer rows.Close()
 
@@ -506,7 +506,7 @@ func (s *Service) GetFreeAgents(
 
 	rows, err := s.pool.Query(ctx, sql, params...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("query dynasty values: %w", err)
 	}
 	defer rows.Close()
 
@@ -665,7 +665,7 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 			WHERE p.sleeper_player_id = ANY($3)
 		`, valueCol), source, market, players)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("query roster values: %w", err)
 		}
 		defer rows.Close()
 		for rows.Next() {

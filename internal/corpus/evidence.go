@@ -24,7 +24,7 @@ const (
 func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir string) (map[string]any, error) {
 	recDir := filepath.Join(targetDir, "evidence", "records")
 	if err := os.MkdirAll(recDir, 0o750); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create directory %s: %w", recDir, err)
 	}
 
 	// Build watch set

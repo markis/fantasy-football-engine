@@ -48,7 +48,7 @@ func (c *Clusterer) AssignBatch(ctx context.Context) (*ClusterResult, error) {
 	for rows.Next() {
 		var id uuid.UUID
 		if err := rows.Scan(&id); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan news item id: %w", err)
 		}
 		itemIDs = append(itemIDs, id)
 	}
@@ -80,7 +80,7 @@ func (c *Clusterer) processItem(ctx context.Context, itemID uuid.UUID) (string, 
 		"SELECT title, embedding::text, source_id FROM news_item WHERE id = $1", itemID,
 	).Scan(&title, &embeddingText, &sourceID)
 	if err != nil {
-		return "not_found", err
+		return "not_found", fmt.Errorf("scan news item %s: %w", itemID, err)
 	}
 
 	if embeddingText != nil && *embeddingText != "" {

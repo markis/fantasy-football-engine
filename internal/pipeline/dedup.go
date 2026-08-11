@@ -65,7 +65,7 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 		var it dedupItem
 		if err := rows.Scan(&it.id, &it.sourceID, &it.urlHash, &it.simhash,
 			&it.embedding, &it.published, &it.createdAt); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("scan dedup item: %w", err)
 		}
 		items = append(items, it)
 	}

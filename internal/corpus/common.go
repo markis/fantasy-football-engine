@@ -96,7 +96,7 @@ func ContentHash(text string) string {
 func FileSHA256Bytes(path string) (string, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is internal content directory path, not user input
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("read file %s: %w", path, err)
 	}
 	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:]), nil
@@ -345,39 +345,47 @@ func MatchEntitiesToPlayers(entities []string, nameIndex map[string][]string) []
 
 func WriteJSON(path string, obj any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return fmt.Errorf("create directory for %s: %w", path, err)
 	}
 	data, err := json.MarshalIndent(obj, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal json for %s: %w", path, err)
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("write file %s: %w", path, err)
+	}
+	return nil
 }
 
 func WriteText(path, text string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return fmt.Errorf("create directory for %s: %w", path, err)
 	}
-	return os.WriteFile(path, []byte(strings.TrimRight(text, "\n")+"\n"), 0o600)
+	if err := os.WriteFile(path, []byte(strings.TrimRight(text, "\n")+"\n"), 0o600); err != nil {
+		return fmt.Errorf("write file %s: %w", path, err)
+	}
+	return nil
 }
 
 func AppendJSONL(path string, obj any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
+		return fmt.Errorf("create directory for %s: %w", path, err)
 	}
 	data, err := json.Marshal(obj)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal json for %s: %w", path, err)
 	}
 	data = append(data, '\n')
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600) //nolint:gosec // path is content directory path, not user input
 	if err != nil {
-		return err
+		return fmt.Errorf("open file %s: %w", path, err)
 	}
 	defer f.Close()
-	_, err = f.Write(data)
-	return err //nolint:wrapcheck // propagate stdlib error
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("write file %s: %w", path, err)
+	}
+	return nil
 }
 
 func ReadJSONL(path string) ([]map[string]any, error) {
@@ -386,7 +394,7 @@ func ReadJSONL(path string) ([]map[string]any, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("read file %s: %w", path, err)
 	}
 	var result []map[string]any
 	for line := range strings.SplitSeq(string(data), "\n") {

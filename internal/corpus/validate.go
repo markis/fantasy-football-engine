@@ -3,6 +3,7 @@ package corpus
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -87,7 +88,7 @@ func Validate(target string) []string {
 		}
 		rel, err := filepath.Rel(target, path)
 		if err != nil {
-			return err
+			return fmt.Errorf("relativize path %s: %w", path, err)
 		}
 		if rel == fileGitignore {
 			return nil
@@ -98,7 +99,7 @@ func Validate(target string) []string {
 		//nolint:gosec // path comes from internal filepath.Walk, not user input
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return err
+			return fmt.Errorf("read file %s: %w", path, err)
 		}
 		content := string(data)
 		errors = append(errors, validateSecrets(rel, content)...)

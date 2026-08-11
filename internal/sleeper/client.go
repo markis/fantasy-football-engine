@@ -47,6 +47,18 @@ func New(baseURL string) *Client {
 	}
 }
 
+// copyCacheEntry deep-copies a cached value into target via re-marshal.
+func copyCacheEntry(data, target any) error {
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal cache entry: %w", err)
+	}
+	if err := json.Unmarshal(raw, target); err != nil {
+		return fmt.Errorf("unmarshal cache entry: %w", err)
+	}
+	return nil
+}
+
 // get fetches JSON from the Sleeper API with caching and retry.
 func (c *Client) get(ctx context.Context, path string, target any) error {
 	c.mu.RLock()
@@ -54,13 +66,7 @@ func (c *Client) get(ctx context.Context, path string, target any) error {
 	c.mu.RUnlock()
 	if ok {
 		if time.Now().Before(entry.expires) {
-			// Deep-copy via re-marshal is complex; for our use the cache is per-run
-			// and callers don't mutate the returned slice, so this is acceptable.
-			raw, err := json.Marshal(entry.data)
-			if err != nil {
-				return fmt.Errorf("marshal cache entry: %w", err)
-			}
-			return json.Unmarshal(raw, target)
+			return copyCacheEntry(entry.data, target)
 		}
 		// Expired — evict now rather than leaving it for the size-triggered sweep.
 		c.mu.Lock()
@@ -300,11 +306,11 @@ func (c *Client) GetRaw(ctx context.Context, path string) (any, error) {
 	url := c.baseURL + "/" + path
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build request for %s: %w", path, err)
 	}
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("fetch %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -316,7 +322,7 @@ func (c *Client) GetRaw(ctx context.Context, path string) (any, error) {
 	}
 	var result any
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode %s response: %w", path, err)
 	}
 	return result, nil
 }
