@@ -2,8 +2,8 @@
 # Copy to config.yaml and adjust for your environment.
 
 server:
-  mcp_addr: ":3100"          # MCP Streamable HTTP endpoint
-  metrics_addr: ":3101"      # metrics (optional)
+  mcpAddr: ":3100"          # MCP Streamable HTTP endpoint
+  metricsAddr: ":3101"      # metrics (optional)
 
 database:
   dsn: "postgres://fantasy:${FF_PG_PASSWORD}@ff-pg:5432/fantasy_football?sslmode=disable"
@@ -14,19 +14,20 @@ embeddings:
   url: "http://llama-server:8080"
   model: "nomic-embed-text-v1.5"
   dimensions: 768
-  batch_size: 32             # texts per HTTP call (vs Python's 1-at-a-time)
+  batchSize: 32              # texts per HTTP call (vs Python's 1-at-a-time)
 
 llm:
   provider: "ollama-cloud"
   url: "https://ollama.com"
   model: "minimax-m3"
-  api_key: ""                # from env LLM_API_KEY or docker secret llm-api-key
-  timeout_secs: 300
-  max_concurrency: 4         # gate fan-out
+  apiKey: ""                 # from env LLM_API_KEY or docker secret llm-api-key
+  apiKeySecret: "llm-api-key"  # docker secret name; apiKey is read from this file when apiKey is empty
+  timeoutSecs: 300
+  maxConcurrency: 4          # gate fan-out
 
 sleeper:
-  base_url: "https://api.sleeper.app/v1"
-  rate_limit_per_min: 1000
+  baseUrl: "https://api.sleeper.app/v1"
+  rateLimitPerMin: 1000
   seasons: [2026]
 
 sources:
@@ -45,20 +46,21 @@ sources:
   - name: "4for4"
     url: "https://www.4for4.com/rss.xml"
 
-fantasypros:
+fantasyPros:
   apiKeySecret: "football/fantasypros-api"
   cookieSecret: "football/fantasypros-cookies"
 
 corpus:
-  repo_dir: "/data/corpus"
-  git_url: "https://github.com/markis/fantasy-football-corpus"
-  git_pat: ""                # from env FF_GITHUB_PAT or docker secret fantasy-github-pat
-  author_name: "Markis Taylor"
-  author_email: "m@rkis.net"
+  repoDir: "/data/corpus"
+  gitUrl: "https://github.com/markis/fantasy-football-corpus"
+  gitPat: ""                 # from env FF_GITHUB_PAT or docker secret fantasy-github-pat
+  gitPatSecret: "fantasy-github-pat"  # docker secret name; gitPat is read from this file when gitPat is empty
+  authorName: "Markis Taylor"
+  authorEmail: "m@rkis.net"
 
 telemetry:
-  otel_endpoint: "http://otel-collector:4318"
-  service_name: "fantasy-football-engine"
+  oTelEndpoint: "http://otel-collector:4318"
+  serviceName: "fantasy-football-engine"
 
 scheduler:
   timezone: "America/New_York"
