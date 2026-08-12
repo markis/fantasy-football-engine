@@ -48,7 +48,7 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 	if err != nil {
 		return nil, fmt.Errorf("get Markis leagues: %w", err)
 	}
-	parsedLeagues := sleeper.ParseLeagues(markisLeagues)
+	parsedLeagues := markisLeagues
 
 	// Track all leagues and managers
 	seenLeagues := make(map[string]bool)
@@ -92,12 +92,11 @@ func (s *LeaguemateSyncer) processMarkisLeagueRosters(
 	seenLeagues, seenManagers map[string]bool,
 ) (int, int) {
 	var rosterRows, discoveredLeagues int
-	rawRosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
+	rosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
 	if err != nil {
 		slog.Warn("get rosters", "league", leagueID, "err", err)
 		return 0, 0
 	}
-	rosters := sleeper.ParseRosters(rawRosters)
 	users, err := s.sleeper.GetLeagueUsers(ctx, leagueID)
 	if err != nil {
 		slog.Warn("get users", "league", leagueID, "err", err)
@@ -134,11 +133,10 @@ func (s *LeaguemateSyncer) processMarkisLeagueRosters(
 }
 
 // buildUserMap indexes league users by user_id and upserts each as a sleeper_user.
-func (s *LeaguemateSyncer) buildUserMap(ctx context.Context, users []map[string]any) map[string]*sleeper.User {
-	parsed := sleeper.ParseUsers(users)
-	userMap := make(map[string]*sleeper.User, len(parsed))
-	for i := range parsed {
-		u := &parsed[i]
+func (s *LeaguemateSyncer) buildUserMap(ctx context.Context, users []sleeper.User) map[string]*sleeper.User {
+	userMap := make(map[string]*sleeper.User, len(users))
+	for i := range users {
+		u := &users[i]
 		uid := util.StrOrEmpty(u.UserID.Ptr())
 		userMap[uid] = u
 		s.upsertSleeperUser(ctx, uid, u, uid == models.MarkisUserID)
@@ -314,7 +312,7 @@ func (s *LeaguemateSyncer) syncOtherManagerLeagues(
 		slog.Warn("get other leagues", "user", ownerID, "err", err)
 		return 0
 	}
-	parsedOthers := sleeper.ParseLeagues(otherLeagues)
+	parsedOthers := otherLeagues
 	count := 0
 	maxLeagues := 3
 	rosterRows := 0
@@ -342,12 +340,11 @@ func (s *LeaguemateSyncer) syncDiscoveredLeague(
 ) int {
 	s.upsertLeague(ctx, ol, false, discoveredVia)
 
-	rawRosters, err := s.sleeper.GetLeagueRosters(ctx, olID)
+	olRosters, err := s.sleeper.GetLeagueRosters(ctx, olID)
 	if err != nil {
 		slog.Warn("get rosters (discovered league)", "league", olID, "err", err)
 		return 0
 	}
-	olRosters := sleeper.ParseRosters(rawRosters)
 	olUsers, err := s.sleeper.GetLeagueUsers(ctx, olID)
 	if err != nil {
 		slog.Warn("get users (discovered league)", "league", olID, "err", err)

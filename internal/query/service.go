@@ -462,7 +462,7 @@ func (s *Service) GetStudyMaterial(ctx context.Context, hours int) (map[string]a
 }
 
 // GetTrendingPlayers returns trending players from Sleeper.
-func (s *Service) GetTrendingPlayers(ctx context.Context, trendType string, limit int) ([]map[string]any, error) {
+func (s *Service) GetTrendingPlayers(ctx context.Context, trendType string, limit int) ([]sleeper.TrendingPlayer, error) {
 	if limit <= 0 {
 		limit = 25
 	}
@@ -484,11 +484,10 @@ func (s *Service) GetFreeAgents(
 		limit = 15
 	}
 	// Get rosters
-	rawRosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
+	rosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
 	if err != nil {
 		return nil, err
 	}
-	rosters := sleeper.ParseRosters(rawRosters)
 	// Build owned set
 	owned := make(map[string]bool)
 	for i := range rosters {
@@ -638,13 +637,12 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 	if err != nil {
 		return nil, err
 	}
-	parsed := sleeper.ParseRosters(rosters)
 
 	// Find user's roster
 	var myRoster *sleeper.Roster
-	for i := range parsed {
-		if util.StrOrEmpty(parsed[i].OwnerID.Ptr()) == userID {
-			myRoster = &parsed[i]
+	for i := range rosters {
+		if util.StrOrEmpty(rosters[i].OwnerID.Ptr()) == userID {
+			myRoster = &rosters[i]
 			break
 		}
 	}

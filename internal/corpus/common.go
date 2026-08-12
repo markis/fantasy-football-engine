@@ -140,35 +140,26 @@ func (c *Common) SleeperGet(ctx context.Context, path string) (any, error) {
 }
 
 func (c *Common) LeagueRosters(ctx context.Context, leagueID string) ([]sleeper.Roster, error) {
-	raw, err := c.sleeper.GetLeagueRosters(ctx, leagueID)
-	if err != nil {
-		return nil, err
-	}
-	return sleeper.ParseRosters(raw), nil
+	return c.sleeper.GetLeagueRosters(ctx, leagueID)
 }
 
-func (c *Common) LeagueUsers(ctx context.Context, leagueID string) ([]map[string]any, error) {
+func (c *Common) LeagueUsers(ctx context.Context, leagueID string) ([]sleeper.User, error) {
 	return c.sleeper.GetLeagueUsers(ctx, leagueID)
 }
 
 func (c *Common) LeagueInfo(ctx context.Context, leagueID string) (*sleeper.League, error) {
-	raw, err := c.sleeper.GetLeagueInfo(ctx, leagueID)
+	l, err := c.sleeper.GetLeagueInfo(ctx, leagueID)
 	if err != nil {
 		return nil, err
 	}
-	l := sleeper.ParseLeague(raw)
 	return &l, nil
 }
 
 func (c *Common) LeagueTradedPicks(ctx context.Context, leagueID string) ([]sleeper.TradedPick, error) {
-	raw, err := c.sleeper.GetLeagueTradedPicks(ctx, leagueID)
-	if err != nil {
-		return nil, err
-	}
-	return sleeper.ParseTradedPicks(raw), nil
+	return c.sleeper.GetLeagueTradedPicks(ctx, leagueID)
 }
 
-func (c *Common) LeagueTransactions(ctx context.Context, leagueID string, week int) ([]map[string]any, error) {
+func (c *Common) LeagueTransactions(ctx context.Context, leagueID string, week int) ([]sleeper.Transaction, error) {
 	return c.sleeper.GetLeagueTransactions(ctx, leagueID, week)
 }
 

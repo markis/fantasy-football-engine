@@ -155,112 +155,112 @@ func (c *Client) GetNFLState(ctx context.Context) (*models.NFLState, error) {
 }
 
 // GetUserInfo returns user info by username or user ID.
-func (c *Client) GetUserInfo(ctx context.Context, usernameOrID string) (map[string]any, error) {
-	var result map[string]any
-	if err := c.get(ctx, "user/"+usernameOrID, &result); err != nil {
-		return nil, err
+func (c *Client) GetUserInfo(ctx context.Context, usernameOrID string) (User, error) {
+	var raw map[string]any
+	if err := c.get(ctx, "user/"+usernameOrID, &raw); err != nil {
+		return User{}, err
 	}
-	return result, nil
+	return ParseUser(raw), nil
 }
 
 // GetUserLeagues returns a user's leagues for a season.
-func (c *Client) GetUserLeagues(ctx context.Context, userID, season string) ([]map[string]any, error) {
-	var result []map[string]any
-	if err := c.get(ctx, fmt.Sprintf("user/%s/leagues/nfl/%s", userID, season), &result); err != nil {
+func (c *Client) GetUserLeagues(ctx context.Context, userID, season string) ([]League, error) {
+	var raw []map[string]any
+	if err := c.get(ctx, fmt.Sprintf("user/%s/leagues/nfl/%s", userID, season), &raw); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return ParseLeagues(raw), nil
 }
 
 // GetLeagueInfo returns league info.
-func (c *Client) GetLeagueInfo(ctx context.Context, leagueID string) (map[string]any, error) {
-	var result map[string]any
-	if err := c.get(ctx, "league/"+leagueID, &result); err != nil {
-		return nil, err
+func (c *Client) GetLeagueInfo(ctx context.Context, leagueID string) (League, error) {
+	var raw map[string]any
+	if err := c.get(ctx, "league/"+leagueID, &raw); err != nil {
+		return League{}, err
 	}
-	return result, nil
+	return ParseLeague(raw), nil
 }
 
 // GetLeagueRosters returns rosters for a league.
-func (c *Client) GetLeagueRosters(ctx context.Context, leagueID string) ([]map[string]any, error) {
-	var result []map[string]any
-	if err := c.get(ctx, "league/"+leagueID+"/rosters", &result); err != nil {
+func (c *Client) GetLeagueRosters(ctx context.Context, leagueID string) ([]Roster, error) {
+	var raw []map[string]any
+	if err := c.get(ctx, "league/"+leagueID+"/rosters", &raw); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return ParseRosters(raw), nil
 }
 
 // GetLeagueUsers returns users/managers for a league.
-func (c *Client) GetLeagueUsers(ctx context.Context, leagueID string) ([]map[string]any, error) {
-	var result []map[string]any
-	if err := c.get(ctx, "league/"+leagueID+"/users", &result); err != nil {
+func (c *Client) GetLeagueUsers(ctx context.Context, leagueID string) ([]User, error) {
+	var raw []map[string]any
+	if err := c.get(ctx, "league/"+leagueID+"/users", &raw); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return ParseUsers(raw), nil
 }
 
 // GetLeagueMatchups returns matchups for a league/week.
-func (c *Client) GetLeagueMatchups(ctx context.Context, leagueID string, week int) ([]map[string]any, error) {
-	var result []map[string]any
-	if err := c.get(ctx, fmt.Sprintf("league/%s/matchups/%d", leagueID, week), &result); err != nil {
+func (c *Client) GetLeagueMatchups(ctx context.Context, leagueID string, week int) ([]Matchup, error) {
+	var raw []map[string]any
+	if err := c.get(ctx, fmt.Sprintf("league/%s/matchups/%d", leagueID, week), &raw); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return ParseMatchups(raw), nil
 }
 
 // GetLeagueTransactions returns transactions for a league/week.
-func (c *Client) GetLeagueTransactions(ctx context.Context, leagueID string, week int) ([]map[string]any, error) {
-	var result []map[string]any
-	if err := c.get(ctx, fmt.Sprintf("league/%s/transactions/%d", leagueID, week), &result); err != nil {
+func (c *Client) GetLeagueTransactions(ctx context.Context, leagueID string, week int) ([]Transaction, error) {
+	var raw []map[string]any
+	if err := c.get(ctx, fmt.Sprintf("league/%s/transactions/%d", leagueID, week), &raw); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return ParseTransactions(raw), nil
 }
 
 // GetLeagueDrafts returns drafts for a league.
-func (c *Client) GetLeagueDrafts(ctx context.Context, leagueID string) ([]map[string]any, error) {
-	var result []map[string]any
-	if err := c.get(ctx, "league/"+leagueID+"/drafts", &result); err != nil {
+func (c *Client) GetLeagueDrafts(ctx context.Context, leagueID string) ([]Draft, error) {
+	var raw []map[string]any
+	if err := c.get(ctx, "league/"+leagueID+"/drafts", &raw); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return ParseDrafts(raw), nil
 }
 
 // GetLeagueTradedPicks returns traded picks for a league.
-func (c *Client) GetLeagueTradedPicks(ctx context.Context, leagueID string) ([]map[string]any, error) {
-	var result []map[string]any
-	if err := c.get(ctx, "league/"+leagueID+"/traded_picks", &result); err != nil {
+func (c *Client) GetLeagueTradedPicks(ctx context.Context, leagueID string) ([]TradedPick, error) {
+	var raw []map[string]any
+	if err := c.get(ctx, "league/"+leagueID+"/traded_picks", &raw); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return ParseTradedPicks(raw), nil
 }
 
 // GetDraftInfo returns draft info.
-func (c *Client) GetDraftInfo(ctx context.Context, draftID string) (map[string]any, error) {
-	var result map[string]any
-	if err := c.get(ctx, "draft/"+draftID, &result); err != nil {
-		return nil, err
+func (c *Client) GetDraftInfo(ctx context.Context, draftID string) (Draft, error) {
+	var raw map[string]any
+	if err := c.get(ctx, "draft/"+draftID, &raw); err != nil {
+		return Draft{}, err
 	}
-	return result, nil
+	return ParseDraft(raw), nil
 }
 
 // GetDraftPicks returns picks for a draft.
-func (c *Client) GetDraftPicks(ctx context.Context, draftID string) ([]map[string]any, error) {
-	var result []map[string]any
-	if err := c.get(ctx, "draft/"+draftID+"/picks", &result); err != nil {
+func (c *Client) GetDraftPicks(ctx context.Context, draftID string) ([]DraftPick, error) {
+	var raw []map[string]any
+	if err := c.get(ctx, "draft/"+draftID+"/picks", &raw); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return ParseDraftPicks(raw), nil
 }
 
 // GetTrendingPlayers returns trending players.
-func (c *Client) GetTrendingPlayers(ctx context.Context, trendType string, lookbackHours, limit int) ([]map[string]any, error) {
-	var result []map[string]any
+func (c *Client) GetTrendingPlayers(ctx context.Context, trendType string, lookbackHours, limit int) ([]TrendingPlayer, error) {
+	var raw []map[string]any
 	path := fmt.Sprintf("players/nfl/trending/%s?lookback_hours=%d&limit=%d", trendType, lookbackHours, limit)
-	if err := c.get(ctx, path, &result); err != nil {
+	if err := c.get(ctx, path, &raw); err != nil {
 		return nil, err
 	}
-	return result, nil
+	return ParseTrendingPlayers(raw), nil
 }
 
 // FetchPlayerDump fetches the full Sleeper NFL player database (~16MB JSON).

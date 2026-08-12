@@ -2,26 +2,33 @@ package sleeper
 
 import "ff-engine/internal/util"
 
-// League is a typed view of one entry from /league/<id> (league info) and
-// /user/<id>/leagues/nfl/<season> (a user's leagues). Both endpoints return
-// the same league-object shape. The client methods stay map-typed to
-// preserve the MCP passthrough; this is the opt-in typed path.
+// League models one league object from /league/<id> (league info) and
+// /user/<id>/leagues/nfl/<season> (a user's leagues); both endpoints return
+// the same shape. It is produced by ParseLeague from the raw decoded map —
+// the client decodes into maps then parses, because Sleeper sends some scalar
+// fields as strings in some records and numbers in others (and total_rosters
+// is always a number).
 //
-// LeagueID is the snowflake string (always present). Name/Season/Status/
-// PreviousLeagueID are *string so a JSON null decodes to nil and persists as
-// SQL NULL (previous_league_id is genuinely null for first-year leagues);
-// present values keep their string form. TotalRosters is int (always present
-// for real leagues). RosterPositions is coerced []string. Settings is the
-// opaque nested object (type, best_ball, waiver_budget, ...).
+// JSON tags mirror Sleeper's snake_case keys so the struct round-trips
+// faithfully when marshaled for the MCP passthrough. Nullable text fields use
+// *string so a JSON null decodes to nil (and persists as SQL NULL rather than
+// ""); present values keep their string form. Settings/ScoringSettings are the
+// opaque nested objects (type, best_ball, waiver_budget / ppr, ...) and stay
+// map[string]any since only a few subkeys are read and the shape is loose.
 type League struct {
-	LeagueID         string
-	Name             *string
-	Season           *string
-	Status           *string
-	TotalRosters     int
-	RosterPositions  []string
-	Settings         map[string]any
-	PreviousLeagueID *string
+	LeagueID         string         `json:"league_id"`
+	Name             *string        `json:"name"`
+	Season           *string        `json:"season"`
+	Status           *string        `json:"status"`
+	Sport            *string        `json:"sport"`
+	SeasonType       *string        `json:"season_type"`
+	TotalRosters     int            `json:"total_rosters"`
+	RosterPositions  []string       `json:"roster_positions"`
+	Settings         map[string]any `json:"settings"`
+	ScoringSettings  map[string]any `json:"scoring_settings"`
+	DraftID          *string        `json:"draft_id"`
+	Avatar           *string        `json:"avatar"`
+	PreviousLeagueID *string        `json:"previous_league_id"`
 }
 
 // ParseLeague builds a League from one raw league object.
@@ -31,9 +38,14 @@ func ParseLeague(m map[string]any) League {
 		Name:             strPtr(m["name"]),
 		Season:           strPtr(m["season"]),
 		Status:           strPtr(m["status"]),
+		Sport:            strPtr(m["sport"]),
+		SeasonType:       strPtr(m["season_type"]),
 		TotalRosters:     util.ToInt(m["total_rosters"]),
 		RosterPositions:  util.ToStringSlice(m["roster_positions"]),
 		Settings:         util.AsMap(m["settings"]),
+		ScoringSettings:  util.AsMap(m["scoring_settings"]),
+		DraftID:          strPtr(m["draft_id"]),
+		Avatar:           strPtr(m["avatar"]),
 		PreviousLeagueID: strPtr(m["previous_league_id"]),
 	}
 }

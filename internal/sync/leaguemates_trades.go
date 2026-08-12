@@ -116,12 +116,12 @@ func (s *LeaguemateTradesSyncer) processLeagueTrades(ctx context.Context, lg lea
 			slog.Warn("get transactions", "league", lg.id, "week", week, "err", err)
 			continue
 		}
-		for _, txn := range txns {
-			t := sleeper.ParseTransaction(txn)
+		for i := range txns {
+			t := &txns[i]
 			if t.Type != "trade" || t.Status != "complete" {
 				continue
 			}
-			if s.storeTrade(ctx, &t, txn, lg.id, lg.isMarkisLeague, watchSet) {
+			if s.storeTrade(ctx, t, lg.id, lg.isMarkisLeague, watchSet) {
 				stored++
 			}
 		}
@@ -132,7 +132,6 @@ func (s *LeaguemateTradesSyncer) processLeagueTrades(ctx context.Context, lg lea
 func (s *LeaguemateTradesSyncer) storeTrade(
 	ctx context.Context,
 	t *sleeper.Transaction,
-	rawTxn map[string]any,
 	leagueID string,
 	isMarkisLeague bool,
 	watchSet map[string]bool,
@@ -141,7 +140,7 @@ func (s *LeaguemateTradesSyncer) storeTrade(
 		return false
 	}
 
-	raw, err := json.Marshal(rawTxn)
+	raw, err := json.Marshal(t)
 	if err != nil {
 		slog.Warn("failed to marshal transaction", "txn_id", t.TxnID, "err", err)
 		raw = []byte("{}")

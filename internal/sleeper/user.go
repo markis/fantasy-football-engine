@@ -2,20 +2,23 @@ package sleeper
 
 import "ff-engine/internal/util"
 
-// User is a typed view of one entry from /league/<id>/users (and the
-// /user/<id> object), produced by ParseUser. The client methods stay
-// map-typed to preserve the MCP passthrough; this is the opt-in typed path.
+// User models one entry from /league/<id>/users (and the /user/<id> object),
+// produced by ParseUser. It covers the fields the codebase consumes plus
+// is_owner (commissioner flag) so the struct round-trips faithfully when
+// marshaled for the MCP passthrough.
 //
 // The ID/display fields use *FlexString so a JSON null decodes to nil
 // (distinct from an empty string) while a present string/number yields its
 // fmt.Sprint string form — matching the prior fmt.Sprint(u["..."]) access.
-// Metadata is the opaque nested object (team_name, ...).
+// IsOwner is *bool (nil for null). Metadata is the opaque nested object
+// (team_name, ...).
 type User struct {
-	UserID      *FlexString
-	Username    *FlexString
-	DisplayName *FlexString
-	Avatar      *FlexString
-	Metadata    map[string]any
+	UserID      *FlexString    `json:"user_id"`
+	Username    *FlexString    `json:"username"`
+	DisplayName *FlexString    `json:"display_name"`
+	Avatar      *FlexString    `json:"avatar"`
+	IsOwner     *bool          `json:"is_owner"`
+	Metadata    map[string]any `json:"metadata"`
 }
 
 // ParseUser builds a User from one raw /league/<id>/users entry.
@@ -25,6 +28,7 @@ func ParseUser(m map[string]any) User {
 		Username:    flexStrPtr(m["username"]),
 		DisplayName: flexStrPtr(m["display_name"]),
 		Avatar:      flexStrPtr(m["avatar"]),
+		IsOwner:     boolPtr(m["is_owner"]),
 		Metadata:    util.AsMap(m["metadata"]),
 	}
 }

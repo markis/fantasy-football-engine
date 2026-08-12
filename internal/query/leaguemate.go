@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"ff-engine/internal/sleeper"
 	"ff-engine/internal/util"
 )
 
@@ -419,39 +420,39 @@ func buildTradeValueOut(trades []tradeRow, byTxn map[string][]map[string]any, mg
 
 // --- Sleeper API passthrough tools (league/user/draft endpoints) ---
 
-func (s *Service) GetUserInfo(ctx context.Context, usernameOrID string) (map[string]any, error) {
+func (s *Service) GetUserInfo(ctx context.Context, usernameOrID string) (sleeper.User, error) {
 	return s.sleeper.GetUserInfo(ctx, usernameOrID)
 }
 
-func (s *Service) GetUserLeagues(ctx context.Context, userID, season string) ([]map[string]any, error) {
+func (s *Service) GetUserLeagues(ctx context.Context, userID, season string) ([]sleeper.League, error) {
 	return s.sleeper.GetUserLeagues(ctx, userID, season)
 }
 
-func (s *Service) GetLeagueInfo(ctx context.Context, leagueID string) (map[string]any, error) {
+func (s *Service) GetLeagueInfo(ctx context.Context, leagueID string) (sleeper.League, error) {
 	return s.sleeper.GetLeagueInfo(ctx, leagueID)
 }
 
-func (s *Service) GetLeagueRosters(ctx context.Context, leagueID string) ([]map[string]any, error) {
+func (s *Service) GetLeagueRosters(ctx context.Context, leagueID string) ([]sleeper.Roster, error) {
 	return s.sleeper.GetLeagueRosters(ctx, leagueID)
 }
 
-func (s *Service) GetLeagueUsers(ctx context.Context, leagueID string) ([]map[string]any, error) {
+func (s *Service) GetLeagueUsers(ctx context.Context, leagueID string) ([]sleeper.User, error) {
 	return s.sleeper.GetLeagueUsers(ctx, leagueID)
 }
 
-func (s *Service) GetLeagueMatchups(ctx context.Context, leagueID string, week int) ([]map[string]any, error) {
+func (s *Service) GetLeagueMatchups(ctx context.Context, leagueID string, week int) ([]sleeper.Matchup, error) {
 	return s.sleeper.GetLeagueMatchups(ctx, leagueID, week)
 }
 
-func (s *Service) GetLeagueTransactions(ctx context.Context, leagueID string, week int) ([]map[string]any, error) {
+func (s *Service) GetLeagueTransactions(ctx context.Context, leagueID string, week int) ([]sleeper.Transaction, error) {
 	return s.sleeper.GetLeagueTransactions(ctx, leagueID, week)
 }
 
-func (s *Service) GetLeagueDrafts(ctx context.Context, leagueID string) ([]map[string]any, error) {
+func (s *Service) GetLeagueDrafts(ctx context.Context, leagueID string) ([]sleeper.Draft, error) {
 	return s.sleeper.GetLeagueDrafts(ctx, leagueID)
 }
 
-func (s *Service) GetLeagueTradedPicks(ctx context.Context, leagueID string) ([]map[string]any, error) {
+func (s *Service) GetLeagueTradedPicks(ctx context.Context, leagueID string) ([]sleeper.TradedPick, error) {
 	return s.sleeper.GetLeagueTradedPicks(ctx, leagueID)
 }
 

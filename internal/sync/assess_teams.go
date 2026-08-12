@@ -36,12 +36,11 @@ func (a *TeamAssessor) Assess(ctx context.Context) (*TeamAssessResult, error) {
 			continue // draft-prep mode
 		}
 
-		rawRosters, err := a.sleeper.GetLeagueRosters(ctx, leagueID)
+		rosters, err := a.sleeper.GetLeagueRosters(ctx, leagueID)
 		if err != nil {
 			slog.Warn("get rosters for assessment", "league", leagueID, "err", err)
 			continue
 		}
-		rosters := sleeper.ParseRosters(rawRosters)
 
 		// Find Markis's roster
 		var myRoster *sleeper.Roster
