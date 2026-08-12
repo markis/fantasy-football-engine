@@ -33,5 +33,11 @@ VOLUME ["/data"]
 
 EXPOSE 3100
 
+# Docker HEALTHCHECK: distroless has no shell/curl/wget, so exec the binary's
+# `health` subcommand, which HTTP-probes the daemon's own /readyz endpoint.
+# start-period gives migrations + scheduler init room before a miss counts.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD ["/ff-engine", "health"]
+
 ENTRYPOINT ["/ff-engine"]
 CMD ["-config", "/config/config.yaml"]

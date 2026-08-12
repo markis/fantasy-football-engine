@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -16,6 +18,7 @@ import (
 	"ff-engine/internal/corpus"
 	"ff-engine/internal/db"
 	"ff-engine/internal/embed"
+	"ff-engine/internal/health"
 	"ff-engine/internal/llm"
 	"ff-engine/internal/mcp"
 	"ff-engine/internal/pipeline"
@@ -38,6 +41,15 @@ func evergreenPatterns(es []config.EvergreenPattern) []string {
 }
 
 func main() {
+	// `health` subcommand: Docker HEALTHCHECK on distroless images, where no
+	// shell/curl/wget is available. It HTTP-probes the running daemon's
+	// /readyz endpoint and exits 0 (healthy) / 1 (unhealthy). It loads no
+	// config and touches no DB — the daemon's own /readyz does the dependency
+	// check, so this exercises the real serving path.
+	if len(os.Args) > 1 && os.Args[1] == "health" {
+		os.Exit(runHealthCheck(os.Args[2:]))
+	}
+
 	configPath := flag.String("config", "config.yaml", "Path to config file")
 	flag.Parse()
 
@@ -68,6 +80,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer pool.Close()
+
+	// Readiness checker: pings the daemon's own Postgres pool. Exposed at
+	// GET /readyz and consumed by Kubernetes HTTP probes and the `health`
+	// subcommand (Docker HEALTHCHECK) alike.
+	healthChecker := health.New(pool)
 
 	// Initialize clients
 	embedClient := embed.New(cfg.Embeddings.URL, cfg.Embeddings.Model)
@@ -106,6 +123,7 @@ func main() {
 
 	// Initialize MCP server
 	mcpServer := mcp.New(cfg.Server.MCPAddr, queryService)
+	mcpServer.SetHealthChecker(healthChecker)
 
 	// Initialize scheduler
 	sched, err := scheduler.New(cfg.Scheduler.Timezone)
@@ -361,4 +379,35 @@ func registerSteps(
 		_, errPublish := publisher.Publish(ctx, "weekly", false)
 		return errors.Join(errAssess, errPublish)
 	})
+}
+
+// runHealthCheck implements the `health` subcommand for Docker HEALTHCHECK on
+// distroless images (no curl/wget). It HTTP-GETs the running daemon's
+// /readyz endpoint and returns 0 on HTTP 200, 1 otherwise. Only the port is
+// needed — the daemon's /readyz performs the actual dependency probe against
+// its own Postgres pool, so this exercises the real serving path rather than
+// opening a fresh DB connection.
+func runHealthCheck(args []string) int {
+	fs := flag.NewFlagSet("health", flag.ExitOnError)
+	addr := fs.String("addr", "127.0.0.1:3100", "daemon address to probe")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "http://"+*addr+"/readyz", http.NoBody)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "healthcheck: %v\n", err)
+		return 1
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "healthcheck: %v\n", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "healthcheck: status %d\n", resp.StatusCode)
+		return 1
+	}
+	return 0
 }

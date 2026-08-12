@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"ff-engine/internal/health"
 	"ff-engine/internal/query"
 )
 
@@ -57,6 +58,7 @@ type Server struct {
 	tools   map[string]Tool
 	mu      sync.RWMutex
 	trigger func(ctx context.Context, step string) error
+	checker *health.Checker
 }
 
 // Tool is an MCP tool definition.
@@ -81,6 +83,12 @@ func New(addr string, queryService *query.Service) *Server {
 // SetTrigger sets the pipeline trigger function (for trigger_pipeline tool).
 func (s *Server) SetTrigger(fn func(ctx context.Context, step string) error) {
 	s.trigger = fn
+}
+
+// SetHealthChecker sets the readiness checker exposed at GET /readyz. When
+// unset, /readyz falls back to the liveness response (no dependency probe).
+func (s *Server) SetHealthChecker(c *health.Checker) {
+	s.checker = c
 }
 
 // registerTools registers all MCP tools.
@@ -569,6 +577,9 @@ func (s *Server) registerTool(tool Tool) {
 func (s *Server) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleHTTP)
+	mux.HandleFunc("/health", s.handleHTTP)
+	mux.HandleFunc("/healthz", s.handleHTTP)
+	mux.HandleFunc("/readyz", s.handleReady)
 	mux.HandleFunc("/mcp", s.handleMCP)
 
 	server := &http.Server{
@@ -587,9 +598,11 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// handleHTTP is a simple health check endpoint.
+// handleHTTP is the liveness endpoint (GET /, /health, /healthz). It proves
+// the process is up and the HTTP server is serving; it performs no dependency
+// checks. Use /readyz for dependency-gated readiness.
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path == "/" || r.URL.Path == "/health" {
+	if r.URL.Path == "/" || r.URL.Path == "/health" || r.URL.Path == "/healthz" {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(map[string]any{
 			"status":  "ok",
@@ -601,6 +614,21 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// handleReady is the readiness endpoint (GET /readyz). It delegates to the
+// health Checker, which pings the daemon's own Postgres pool. When no checker
+// is wired it falls back to the liveness response so the endpoint never 5xxs
+// purely due to misconfiguration.
+func (s *Server) handleReady(w http.ResponseWriter, r *http.Request) {
+	if s.checker == nil {
+		s.handleHTTP(w, r)
+		return
+	}
+	s.mu.RLock()
+	n := len(s.tools)
+	s.mu.RUnlock()
+	s.checker.Handler(func() int { return n }).ServeHTTP(w, r)
 }
 
 // handleMCP handles MCP JSON-RPC requests over HTTP.
