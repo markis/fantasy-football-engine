@@ -30,6 +30,11 @@ const (
 	colTitle       = "title"
 	srcFantasyCalc = "FantasyCalc"
 	statusFound    = "found"
+
+	// Ranking column qualifiers used in SQL fragments.
+	rankColTradeValue = "r.trade_value"
+	rankColOverall    = "r.overall_rank"
+	rankColPosRank    = "r.position_rank"
 )
 
 var errRosterNotFound = errors.New("roster not found")
@@ -355,9 +360,9 @@ func (s *Service) GetRankings(
 		market = 14 // Dynasty Daddy default
 	}
 
-	valueCol := "r.trade_value"
-	overallCol := "r.overall_rank"
-	posRankCol := "r.position_rank"
+	valueCol := rankColTradeValue
+	overallCol := rankColOverall
+	posRankCol := rankColPosRank
 	if superflex && source != srcFantasyCalc {
 		valueCol = "r.sf_trade_value"
 		overallCol = "r.sf_overall_rank"
@@ -728,10 +733,10 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 // (single 1QB+SF row), superflex selects the sf_ column.
 func tradeValueColumn(source string, superflex bool) string {
 	if source == srcFantasyCalc {
-		return "r.trade_value"
+		return rankColTradeValue
 	}
 	if superflex {
 		return "r.sf_trade_value"
 	}
-	return "r.trade_value"
+	return rankColTradeValue
 }
