@@ -2,8 +2,7 @@
 //
 // It centralizes a few idioms (string-pointer dereferencing, []any to []string
 // coercion) that were previously copy-pasted verbatim into several packages,
-// and exposes thin wrappers over github.com/samber/lo for the collection
-// operations that recur in the codebase.
+// implemented with only the standard library.
 package util
 
 import (
@@ -11,8 +10,6 @@ import (
 	"fmt"
 	"strconv"
 	"time"
-
-	"github.com/samber/lo"
 )
 
 // NilStr is the stringification of a nil any value: fmt.Sprint(nil) == "<nil>".
@@ -20,14 +17,23 @@ import (
 // literal string, so callers treat it as equivalent to empty.
 const NilStr = "<nil>"
 
+func FromPtr[T any](x *T) T {
+	if x == nil {
+		var zero T
+		return zero
+	}
+
+	return *x
+}
+
 // StrOrEmpty dereferences a string pointer, returning "" for nil.
 func StrOrEmpty(s *string) string {
-	return lo.FromPtr(s)
+	return FromPtr(s)
 }
 
 // StrOr dereferences a string pointer, returning def when it is nil or empty.
 func StrOr(s *string, def string) string {
-	if v := lo.FromPtr(s); v != "" {
+	if v := FromPtr(s); v != "" {
 		return v
 	}
 	return def
@@ -49,10 +55,17 @@ func ToStringSlice(v any) []string {
 	if !ok {
 		return nil
 	}
-	return lo.Filter(
-		lo.Map(arr, func(item any, _ int) string { return fmt.Sprint(item) }),
-		func(s string, _ int) bool { return s != "" && s != NilStr },
-	)
+
+	result := make([]string, 0, len(arr))
+	for _, item := range arr {
+		s := fmt.Sprint(item)
+		if s == "" || s == NilStr {
+			continue
+		}
+
+		result = append(result, s)
+	}
+	return result
 }
 
 // ToInt coerces a decoded-JSON value (float64, int, json.Number, or numeric

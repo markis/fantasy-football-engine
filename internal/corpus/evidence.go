@@ -12,8 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/samber/lo"
-
 	"ff-engine/internal/models"
 	"ff-engine/internal/util"
 )
@@ -464,16 +462,26 @@ func buildDecisionRelevance(matchedPlayers []string, ownership map[string][][2]s
 // evidenceOwnerReason builds the human-readable "reason" string describing
 // which leagues/roles the matched players belong to.
 func evidenceOwnerReason(matchedPlayers []string, ownership map[string][][2]string) string {
-	var ownerReasons []string
+	seen := make(map[string]struct{})
+	ownerReasons := make([]string, 0)
+
 	for _, sid := range matchedPlayers {
 		for _, pair := range ownership[sid] {
-			ownerReasons = append(ownerReasons, fmt.Sprintf("%s in %s", pair[1], pair[0]))
+			reason := fmt.Sprintf("%s in %s", pair[1], pair[0])
+			if _, exists := seen[reason]; exists {
+				continue
+			}
+
+			seen[reason] = struct{}{}
+			ownerReasons = append(ownerReasons, reason)
 		}
 	}
+
 	if len(ownerReasons) == 0 {
 		return "decision-relevant"
 	}
-	return "Mentions " + strings.Join(lo.Uniq(ownerReasons), ", ")
+
+	return "Mentions " + strings.Join(ownerReasons, ", ")
 }
 
 // evidenceRelevanceFlags reports whether any matched player is owned on the

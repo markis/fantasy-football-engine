@@ -15,12 +15,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/samber/lo"
-
 	"ff-engine/internal/db"
 	"ff-engine/internal/models"
 	"ff-engine/internal/sleeper"
-	"ff-engine/internal/util"
 )
 
 // Common provides shared helpers for the corpus publisher.
@@ -166,7 +163,7 @@ func (c *Common) LeagueTransactions(ctx context.Context, leagueID string, week i
 // MyRoster returns Markis's roster from a league's rosters, or nil if absent.
 func (c *Common) MyRoster(rosters []sleeper.Roster) *sleeper.Roster {
 	for i := range rosters {
-		if util.StrOrEmpty(rosters[i].OwnerID.Ptr()) == models.MarkisUserID {
+		if rosters[i].OwnerID != nil && *rosters[i].OwnerID.Ptr() == models.MarkisUserID {
 			return &rosters[i]
 		}
 	}
@@ -174,9 +171,21 @@ func (c *Common) MyRoster(rosters []sleeper.Roster) *sleeper.Roster {
 }
 
 func (c *Common) AllRosterPlayerIDs(rosters []sleeper.Roster) []string {
-	return lo.Uniq(lo.FlatMap(rosters, func(r sleeper.Roster, _ int) []string {
-		return []string(r.Players)
-	}))
+	seen := make(map[string]struct{})
+	playerIDs := make([]string, 0, len(rosters))
+
+	for i := range rosters {
+		for _, playerID := range rosters[i].Players {
+			if _, exists := seen[playerID]; exists {
+				continue
+			}
+
+			seen[playerID] = struct{}{}
+			playerIDs = append(playerIDs, playerID)
+		}
+	}
+
+	return playerIDs
 }
 
 // --- Player/ranking queries ---

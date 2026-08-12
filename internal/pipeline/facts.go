@@ -12,8 +12,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/pgvector/pgvector-go"
 
-	"github.com/samber/lo"
-
 	"ff-engine/internal/db"
 	"ff-engine/internal/embed"
 	"ff-engine/internal/llm"
@@ -300,9 +298,18 @@ func parseFactsJSON(content string) []llmFact {
 	if start == -1 || end == -1 || end <= start {
 		return nil
 	}
+
 	var facts []llmFact
 	if err := json.Unmarshal([]byte(content[start:end+1]), &facts); err != nil {
 		return nil
 	}
-	return lo.Filter(facts, func(f llmFact, _ int) bool { return f.Fact != "" })
+
+	filtered := make([]llmFact, 0, len(facts))
+	for _, fact := range facts {
+		if fact.Fact != "" {
+			filtered = append(filtered, fact)
+		}
+	}
+
+	return filtered
 }
