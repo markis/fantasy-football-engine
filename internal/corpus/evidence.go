@@ -15,6 +15,7 @@ import (
 	"github.com/samber/lo"
 
 	"ff-engine/internal/models"
+	"ff-engine/internal/util"
 )
 
 const (
@@ -36,14 +37,13 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 	items := p.queryRelevantItems(ctx, watchIDs, nameIndex)
 
 	// Build current records
-	current := make(map[string]map[string]any)
+	current := make(map[string]*EvidenceRecord)
 	for _, item := range items {
 		rec := p.buildEvidenceRecord(ctx, item, ownership)
-		id, ok := rec["id"].(string)
-		if !ok {
+		if rec.ID == "" {
 			continue // Skip records without valid id
 		}
-		current[id] = rec
+		current[rec.ID] = &rec
 	}
 
 	// Load previous records
@@ -74,7 +74,7 @@ func (p *Publisher) renderEvidence(ctx context.Context, targetDir, prevDir strin
 
 // writeCurrentRecords writes each current evidence record to disk and
 // returns the ids that are new relative to prevRecords.
-func writeCurrentRecords(recDir string, current, prevRecords map[string]map[string]any) []string {
+func writeCurrentRecords(recDir string, current, prevRecords map[string]*EvidenceRecord) []string {
 	var added []string
 	for rid, rec := range current {
 		filename := strings.Replace(rid, "sha256:", "", 1) + ".json"
@@ -90,13 +90,13 @@ func writeCurrentRecords(recDir string, current, prevRecords map[string]map[stri
 
 // writeSupersededRecords marks previous records that no longer appear in
 // current as superseded, writes them back to disk, and returns their ids.
-func writeSupersededRecords(recDir string, current, prevRecords map[string]map[string]any) ([]string, error) {
+func writeSupersededRecords(recDir string, current, prevRecords map[string]*EvidenceRecord) ([]string, error) {
 	var superseded []string
 	for rid, prev := range prevRecords {
 		if _, ok := current[rid]; ok {
 			continue
 		}
-		prev["status"] = "superseded"
+		prev.Status = "superseded"
 		filename := strings.Replace(rid, "sha256:", "", 1) + ".json"
 		if err := WriteJSON(filepath.Join(recDir, filename), prev); err != nil {
 			return nil, err
@@ -108,20 +108,20 @@ func writeSupersededRecords(recDir string, current, prevRecords map[string]map[s
 
 // buildEvidenceIndexMarkdown renders the evidence/index.md content from the
 // current records, sorted by published date descending.
-func (p *Publisher) buildEvidenceIndexMarkdown(current map[string]map[string]any, superseded []string) string {
+func (p *Publisher) buildEvidenceIndexMarkdown(current map[string]*EvidenceRecord, superseded []string) string {
 	var lines []string
 	lines = append(lines, "# Evidence Index", "",
 		fmt.Sprintf("_Current records: %d · superseded preserved: %d · window: last %d days. Generated %s._",
 			len(current), len(superseded), evidenceWindowDays, p.common.NowISO()), "",
 		"| Published | Topic | Title | Players | Source |", "|---|---|---|---|---|")
 
-	sortedRecs := make([]map[string]any, 0, len(current))
+	sortedRecs := make([]*EvidenceRecord, 0, len(current))
 	for _, rec := range current {
 		sortedRecs = append(sortedRecs, rec)
 	}
 	// Sort by published_at, newest first.
 	sort.SliceStable(sortedRecs, func(i, j int) bool {
-		return getStr(sortedRecs[i], "published_at") > getStr(sortedRecs[j], "published_at")
+		return util.StrOrEmpty(sortedRecs[i].PublishedAt) > util.StrOrEmpty(sortedRecs[j].PublishedAt)
 	})
 	for _, rec := range sortedRecs {
 		lines = append(lines, evidenceIndexRow(rec))
@@ -130,32 +130,30 @@ func (p *Publisher) buildEvidenceIndexMarkdown(current map[string]map[string]any
 }
 
 // evidenceIndexRow renders a single markdown table row for an evidence record.
-func evidenceIndexRow(rec map[string]any) string {
-	pub := getStr(rec, "published_at")
+func evidenceIndexRow(rec *EvidenceRecord) string {
+	pub := util.StrOrEmpty(rec.PublishedAt)
 	if len(pub) > 10 {
 		pub = pub[:10]
 	}
 	players := ""
-	if pids, ok := rec["player_ids"].([]string); ok {
-		var playersSb89 strings.Builder
-		for i, pid := range pids {
-			if i >= 4 {
-				break
-			}
-			if i > 0 {
-				playersSb89.WriteString(", ")
-			}
-			playersSb89.WriteString(strings.TrimPrefix(pid, "nfl:"))
+	var playersSb89 strings.Builder
+	for i, pid := range rec.PlayerIDs {
+		if i >= 4 {
+			break
 		}
-		players += playersSb89.String()
+		if i > 0 {
+			playersSb89.WriteString(", ")
+		}
+		playersSb89.WriteString(strings.TrimPrefix(pid, "nfl:"))
 	}
-	title := getStr(rec, "title")
+	players += playersSb89.String()
+	title := rec.Title
 	if len(title) > 60 {
 		title = title[:60]
 	}
 	title = strings.ReplaceAll(title, "|", "/")
 	return fmt.Sprintf("| %s | %s | %s | %s | %s |",
-		pub, getStr(rec, "topic"), title, players, getStr(rec, "publisher"))
+		pub, rec.Topic, title, players, rec.Publisher)
 }
 
 func (p *Publisher) buildWatchSet(
@@ -278,7 +276,7 @@ func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameInde
 	return result
 }
 
-func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any, ownership map[string][][2]string) map[string]any {
+func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any, ownership map[string][][2]string) EvidenceRecord {
 	urlStr := evidenceItemURL(item)
 	summary := evidenceSummary(item, urlStr)
 	recID := EvidenceID(urlStr, evidenceContentHashSeed(item, summary))
@@ -297,24 +295,24 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 	claims := p.factsForItem(ctx, item["id"])
 	relevance := buildDecisionRelevance(matchedPlayers, ownership)
 
-	return map[string]any{
-		"id":                 recID,
-		colCanonicalURL:      urlStr,
-		"title":              titleStr,
-		"player_ids":         playerIDs,
-		"team_ids":           teamIDs,
-		"topic":              topic,
-		"publisher":          publisher,
-		"source_type":        "secondary",
-		"published_at":       publishedAt,
-		"retrieved_at":       fetchedAt,
-		"updated_at":         updatedAt,
-		"summary":            summary,
-		"claims":             claims,
-		"decision_relevance": relevance,
-		colStatus:            colCurrent,
-		"content_hash":       ContentHash(summary),
-		"supersedes":         []any{},
+	return EvidenceRecord{
+		ID:                recID,
+		CanonicalURL:      urlStr,
+		Title:             titleStr,
+		PlayerIDs:         playerIDs,
+		TeamIDs:           teamIDs,
+		Topic:             topic,
+		Publisher:         publisher,
+		SourceType:        "secondary",
+		PublishedAt:       publishedAt,
+		RetrievedAt:       fetchedAt,
+		UpdatedAt:         updatedAt,
+		Summary:           summary,
+		Claims:            claims,
+		DecisionRelevance: relevance,
+		Status:            colCurrent,
+		ContentHash:       ContentHash(summary),
+		Supersedes:        []string{},
 	}
 }
 
@@ -429,21 +427,22 @@ func evidenceTopic(item map[string]any) string {
 // back to the current time when the item has none.
 //
 
-func (p *Publisher) evidenceTimestamps(item map[string]any) (any, any, any) {
-	var publishedAt, fetchedAt, updatedAt any
+func (p *Publisher) evidenceTimestamps(item map[string]any) (*string, string, *string) {
+	var publishedAt, updatedAt *string
 	if v, ok := item["published_at"].(*time.Time); ok && v != nil {
-		publishedAt = v.UTC().Format("2006-01-02T15:04:05Z")
+		s := v.UTC().Format("2006-01-02T15:04:05Z")
+		publishedAt = &s
 	}
-	fetched := ""
+	fetchedAt := ""
 	if v, ok := item["fetched_at"].(*time.Time); ok && v != nil {
-		fetched = v.UTC().Format("2006-01-02T15:04:05Z")
+		fetchedAt = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
-	if fetched == "" {
-		fetched = p.common.NowISO()
+	if fetchedAt == "" {
+		fetchedAt = p.common.NowISO()
 	}
-	fetchedAt = fetched
 	if v, ok := item["updated_at"].(*time.Time); ok && v != nil {
-		updatedAt = v.UTC().Format("2006-01-02T15:04:05Z")
+		s := v.UTC().Format("2006-01-02T15:04:05Z")
+		updatedAt = &s
 	}
 	return publishedAt, fetchedAt, updatedAt
 }
@@ -451,14 +450,14 @@ func (p *Publisher) evidenceTimestamps(item map[string]any) (any, any, any) {
 // buildDecisionRelevance computes the decision_relevance block for an
 // evidence record based on which of the matched players are owned or
 // rostered by rivals.
-func buildDecisionRelevance(matchedPlayers []string, ownership map[string][][2]string) map[string]any {
+func buildDecisionRelevance(matchedPlayers []string, ownership map[string][][2]string) EvidenceDecisionRelevance {
 	reason := evidenceOwnerReason(matchedPlayers, ownership)
 	relevantToRoster, relevantToTradeTarget := evidenceRelevanceFlags(matchedPlayers, ownership)
-	return map[string]any{
-		"relevant_to_roster":       relevantToRoster,
-		"relevant_to_trade_target": relevantToTradeTarget,
-		"relevant_to_pick_value":   false,
-		"reason":                   reason,
+	return EvidenceDecisionRelevance{
+		RelevantToRoster:      relevantToRoster,
+		RelevantToTradeTarget: relevantToTradeTarget,
+		RelevantToPickValue:   false,
+		Reason:                reason,
 	}
 }
 
@@ -496,8 +495,8 @@ func evidenceRelevanceFlags(matchedPlayers []string, ownership map[string][][2]s
 	return relevantToRoster, relevantToTradeTarget
 }
 
-func (p *Publisher) factsForItem(ctx context.Context, itemID any) []map[string]any {
-	claims := make([]map[string]any, 0)
+func (p *Publisher) factsForItem(ctx context.Context, itemID any) []EvidenceClaim {
+	claims := make([]EvidenceClaim, 0)
 	rows, err := p.common.pool.Query(ctx,
 		"SELECT fact_text, confidence FROM fact WHERE news_item_id = $1 ORDER BY occurred_at DESC",
 		itemID)
@@ -519,17 +518,17 @@ func (p *Publisher) factsForItem(ctx context.Context, itemID any) []map[string]a
 		if conf != nil && (*conf == "high" || *conf == "medium" || *conf == "low") {
 			confStr = *conf
 		}
-		claims = append(claims, map[string]any{
-			"id":          ClaimID(text),
-			"text":        text,
-			colConfidence: confStr,
+		claims = append(claims, EvidenceClaim{
+			ID:         ClaimID(text),
+			Text:       text,
+			Confidence: confStr,
 		})
 	}
 	return claims
 }
 
-func loadExistingRecords(recordsDir string) map[string]map[string]any {
-	result := make(map[string]map[string]any)
+func loadExistingRecords(recordsDir string) map[string]*EvidenceRecord {
+	result := make(map[string]*EvidenceRecord)
 	root, err := os.OpenRoot(recordsDir)
 	if err != nil {
 		return result
@@ -547,10 +546,10 @@ func loadExistingRecords(recordsDir string) map[string]map[string]any {
 		if err != nil {
 			continue
 		}
-		var rec map[string]any
+		var rec EvidenceRecord
 		if json.Unmarshal(data, &rec) == nil {
-			if id, ok := rec["id"].(string); ok {
-				result[id] = rec
+			if rec.ID != "" {
+				result[rec.ID] = &rec
 			}
 		}
 	}

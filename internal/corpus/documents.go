@@ -162,3 +162,43 @@ type ChangeLogEntry struct {
 	ContentHash string   `json:"content_hash"`
 	Summary     string   `json:"summary"`
 }
+
+// EvidenceRecord is one evidence/records/<id>.json document, matching
+// evidence-record.schema.json. PublishedAt/UpdatedAt are nullable (nil ->
+// JSON null); Claims is the typed claims array; DecisionRelevance is the
+// typed nested object.
+type EvidenceRecord struct {
+	ID                string                    `json:"id"`
+	CanonicalURL      string                    `json:"canonical_url"`
+	Title             string                    `json:"title"`
+	PlayerIDs         []string                  `json:"player_ids"`
+	TeamIDs           []string                  `json:"team_ids"`
+	Topic             string                    `json:"topic"`
+	Publisher         string                    `json:"publisher"`
+	SourceType        string                    `json:"source_type"`
+	PublishedAt       *string                   `json:"published_at"`
+	RetrievedAt       string                    `json:"retrieved_at"`
+	UpdatedAt         *string                   `json:"updated_at"`
+	Summary           string                    `json:"summary"`
+	Claims            []EvidenceClaim           `json:"claims"`
+	DecisionRelevance EvidenceDecisionRelevance `json:"decision_relevance"`
+	Status            string                    `json:"status"`
+	ContentHash       string                    `json:"content_hash"`
+	Supersedes        []string                  `json:"supersedes"`
+}
+
+// EvidenceClaim is one entry in an EvidenceRecord claims array.
+type EvidenceClaim struct {
+	ID         string `json:"id"`
+	Text       string `json:"text"`
+	Confidence string `json:"confidence"` // enum high/medium/low
+}
+
+// EvidenceDecisionRelevance is the decision_relevance block of an evidence
+// record.
+type EvidenceDecisionRelevance struct {
+	RelevantToRoster      bool   `json:"relevant_to_roster"`
+	RelevantToTradeTarget bool   `json:"relevant_to_trade_target"`
+	RelevantToPickValue   bool   `json:"relevant_to_pick_value"`
+	Reason                string `json:"reason"`
+}

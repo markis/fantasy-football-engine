@@ -131,3 +131,35 @@ func TestChangeLogEntryStructRoundTrip(t *testing.T) {
 	}
 	assertSchemaRoundTrip(t, "change-log.schema.json", entry)
 }
+
+func TestEvidenceRecordStructRoundTrip(t *testing.T) {
+	sha := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+	pub := "2026-08-10T00:00:00Z"
+	rec := EvidenceRecord{
+		ID:           sha, // matches ^sha256:[0-9a-f]{64}$
+		CanonicalURL: "https://example.com/article",
+		Title:        "Test Article",
+		PlayerIDs:    []string{"nfl:1234"},
+		TeamIDs:      []string{},
+		Topic:        "injury",
+		Publisher:    "ESPN",
+		SourceType:   "secondary",
+		PublishedAt:  &pub, // nullable, present
+		RetrievedAt:  "2026-08-10T00:00:00Z",
+		UpdatedAt:    nil, // nullable, present as null
+		Summary:      "Player is out with a knee injury.",
+		Claims: []EvidenceClaim{
+			{ID: "claim:0123456789abcdef", Text: "Player is out", Confidence: "high"},
+		},
+		DecisionRelevance: EvidenceDecisionRelevance{
+			RelevantToRoster:      true,
+			RelevantToTradeTarget: false,
+			RelevantToPickValue:   false,
+			Reason:                "Mentions owned player",
+		},
+		Status:      "current",
+		ContentHash: sha,
+		Supersedes:  []string{},
+	}
+	assertSchemaRoundTrip(t, "evidence-record.schema.json", rec)
+}
