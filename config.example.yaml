@@ -20,7 +20,7 @@ llm:
   provider: "ollama-cloud"
   url: "https://ollama.com"
   model: "minimax-m3"
-  api_key: ""                # from env OLLAMA_API_KEY or pass show news/ollama-cloud
+  api_key: ""                # from env OLLAMA_API_KEY or docker secret ollama-cloud
   timeout_secs: 300
   max_concurrency: 4         # gate fan-out
 
@@ -52,7 +52,7 @@ fantasypros:
 corpus:
   repo_dir: "/data/corpus"
   git_url: "https://github.com/markis/fantasy-football-corpus"
-  git_pat: ""                # from env FF_GITHUB_PAT or pass show football/fantasy-github-pat
+  git_pat: ""                # from env FF_GITHUB_PAT or docker secret fantasy-github-pat
   author_name: "Markis Taylor"
   author_email: "m@rkis.net"
 

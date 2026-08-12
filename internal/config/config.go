@@ -1,12 +1,10 @@
 package config
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,9 +14,13 @@ import (
 )
 
 var (
-	errEmptyPassPath = errors.New("empty pass path")
-	errEmptyPassOut  = errors.New("pass show: empty output")
+	errEmptySecretName = errors.New("empty secret name")
+	errEmptySecret     = errors.New("secret file is empty")
+	errSecretEscape    = errors.New("secret name escapes secrets directory")
 )
+
+// defaultSecretsDir is where Docker (and most runtimes) mount secrets.
+const defaultSecretsDir = "/run/secrets"
 
 // Config is the top-level daemon configuration loaded from YAML.
 type Config struct {
@@ -57,7 +59,7 @@ type LLMConfig struct {
 	URL            string `default:"https://ollama.com" yaml:"url"`
 	Model          string `default:"minimax-m3"         yaml:"model"`
 	APIKey         string `yaml:"apiKey"`
-	APIKeyPass     string `default:"news/ollama-cloud"  yaml:"apiKeyPass"`
+	APIKeyPass     string `default:"ollama-cloud"       yaml:"apiKeyPass"`
 	TimeoutSecs    int    `default:"300"                yaml:"timeoutSecs"`
 	MaxConcurrency int    `default:"4"                  yaml:"maxConcurrency"`
 }
@@ -84,15 +86,15 @@ type EvergreenPattern struct {
 }
 
 type FantasyProsConfig struct {
-	APIKeyPass string `default:"football/fantasypros-api"     yaml:"apiKeyPass"`
-	CookiePass string `default:"football/fantasypros-cookies" yaml:"cookiePass"`
+	APIKeyPass string `default:"fantasypros-api"     yaml:"apiKeyPass"`
+	CookiePass string `default:"fantasypros-cookies" yaml:"cookiePass"`
 }
 
 type CorpusConfig struct {
 	RepoDir     string `yaml:"repoDir"`
 	GitURL      string `default:"https://github.com/markis/fantasy-football-corpus" yaml:"gitUrl"`
 	GitPAT      string `yaml:"gitPat"`
-	GitPATPass  string `default:"football/fantasy-github-pat"                       yaml:"gitPatPass"`
+	GitPATPass  string `default:"fantasy-github-pat"                       yaml:"gitPatPass"`
 	AuthorName  string `default:"Markis Taylor"                                     yaml:"authorName"`
 	AuthorEmail string `default:"m@rkis.net"                                        yaml:"authorEmail"`
 }
@@ -117,7 +119,7 @@ type JobConfig struct {
 	Mode     string `yaml:"mode"`
 }
 
-// Load reads the YAML config file and resolves secrets from env vars / pass.
+// Load reads the YAML config file and resolves secrets from env vars / docker secrets.
 func Load(path string) (*Config, error) {
 	// filepath.Clean makes the variable path a "cleaned" value that gosec
 	// recognizes as safe (G304), avoiding a //nolint directive.
@@ -136,33 +138,36 @@ func Load(path string) (*Config, error) {
 	return &cfg, nil
 }
 
-// resolveSecrets resolves ${ENV_VAR} references and pass-store fallbacks.
+// resolveSecrets resolves ${ENV_VAR} references and docker-secret fallbacks.
+// Secret fields name a file under the secrets directory (default
+// /run/secrets, override with FF_SECRETS_DIR); the file contents are the
+// secret value.
 func (c *Config) resolveSecrets() {
 	// Database DSN
 	c.Database.DSN = expandEnv(c.Database.DSN)
 
-	// LLM API key: env OLLAMA_API_KEY, or pass show <api_key_pass>
+	// LLM API key: env OLLAMA_API_KEY, or docker secret <api_key_pass>
 	if c.LLM.APIKey == "" {
 		c.LLM.APIKey = os.Getenv("OLLAMA_API_KEY")
 	}
 	if c.LLM.APIKey == "" {
-		key, err := passShow(context.Background(), c.LLM.APIKeyPass)
+		key, err := readSecret(c.LLM.APIKeyPass)
 		if err != nil {
-			slog.Warn("LLM API key not found", "pass_path", c.LLM.APIKeyPass, "err", err)
+			slog.Warn("LLM API key not found", "secret", c.LLM.APIKeyPass, "err", err)
 		} else {
 			c.LLM.APIKey = key
 		}
 	}
 	c.LLM.APIKey = expandEnv(c.LLM.APIKey)
 
-	// Corpus Git PAT: env FF_GITHUB_PAT, or pass show <git_pat_pass>
+	// Corpus Git PAT: env FF_GITHUB_PAT, or docker secret <git_pat_pass>
 	if c.Corpus.GitPAT == "" {
 		c.Corpus.GitPAT = os.Getenv("FF_GITHUB_PAT")
 	}
 	if c.Corpus.GitPAT == "" {
-		key, err := passShow(context.Background(), c.Corpus.GitPATPass)
+		key, err := readSecret(c.Corpus.GitPATPass)
 		if err != nil {
-			slog.Warn("Git PAT not found", "pass_path", c.Corpus.GitPATPass, "err", err)
+			slog.Warn("Git PAT not found", "secret", c.Corpus.GitPATPass, "err", err)
 		} else {
 			c.Corpus.GitPAT = key
 		}
@@ -175,29 +180,41 @@ func expandEnv(s string) string {
 	return os.Expand(s, os.Getenv)
 }
 
-// passShow retrieves a secret from the pass password store.
-func passShow(ctx context.Context, path string) (string, error) {
-	if path == "" {
-		return "", errEmptyPassPath
+// secretsDir returns the directory where secret files are mounted.
+// Defaults to /run/secrets (Docker convention); override with FF_SECRETS_DIR
+// for other runtimes (e.g. a Kubernetes projected volume mount).
+func secretsDir() string {
+	if d := os.Getenv("FF_SECRETS_DIR"); d != "" {
+		return d
 	}
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctxWithTimeout, "pass", "show", path) // #nosec G204 -- pass-store secret id from config, not user input
-	cmd.Env = os.Environ()
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("pass show %s: %w", path, err)
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) == 0 {
-		return "", errEmptyPassOut
-	}
-	return strings.TrimSpace(lines[0]), nil
+	return defaultSecretsDir
 }
 
-// PassShow is the exported version for other packages (FantasyPros API key, cookies).
-func PassShow(ctx context.Context, path string) (string, error) {
-	return passShow(ctx, path)
+// readSecret reads a secret file from the secrets directory and returns its
+// trimmed contents. The name is resolved relative to the secrets directory;
+// traversal outside that directory is rejected.
+func readSecret(name string) (string, error) {
+	if name == "" {
+		return "", errEmptySecretName
+	}
+	dir := secretsDir()
+	path := filepath.Clean(filepath.Join(dir, name)) // #nosec G304 -- trusted secret id from config, confined below
+	if path != dir && !strings.HasPrefix(path, dir+string(os.PathSeparator)) {
+		return "", fmt.Errorf("%w: %s", errSecretEscape, name)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read secret %s: %w", name, err)
+	}
+	if len(data) == 0 {
+		return "", errEmptySecret
+	}
+	return strings.TrimSpace(string(data)), nil
+}
+
+// ReadSecret is the exported version for other packages (FantasyPros API key, cookies).
+func ReadSecret(name string) (string, error) {
+	return readSecret(name)
 }
 
 // LLMTimeout returns the LLM timeout as a duration.

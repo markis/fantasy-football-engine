@@ -51,7 +51,7 @@ type FPNewsResult struct {
 func (f *FPNewsFetcher) Fetch(ctx context.Context) (*FPNewsResult, error) {
 	result := &FPNewsResult{Status: "ok"}
 
-	apiKey, err := config.PassShow(ctx, f.cfg.FantasyPros.APIKeyPass)
+	apiKey, err := config.ReadSecret(f.cfg.FantasyPros.APIKeyPass)
 	if err != nil {
 		return nil, fmt.Errorf("get FP API key: %w", err)
 	}

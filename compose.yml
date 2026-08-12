@@ -30,8 +30,12 @@ services:
       FF_PG_PASSWORD: ${FF_PG_PASSWORD}
       OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
       FF_GITHUB_PAT: ${FF_GITHUB_PAT:-}
-      GNUPGHOME: /data/.gnupg
-      PASSWORD_STORE_DIR: /data/.password-store
+      FF_SECRETS_DIR: /run/secrets
+    secrets:
+      - ollama-cloud
+      - fantasypros-api
+      - fantasypros-cookies
+      - fantasy-github-pat
     depends_on:
       ff-pg:
         condition: service_healthy
@@ -46,3 +50,13 @@ volumes:
 networks:
   homelab-shared:
     external: true
+
+secrets:
+  ollama-cloud:
+    file: ./secrets/ollama-cloud
+  fantasypros-api:
+    file: ./secrets/fantasypros-api
+  fantasypros-cookies:
+    file: ./secrets/fantasypros-cookies
+  fantasy-github-pat:
+    file: ./secrets/fantasy-github-pat
