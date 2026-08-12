@@ -21,17 +21,17 @@ var (
 
 // Config is the top-level daemon configuration loaded from YAML.
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	Database    DatabaseConfig    `yaml:"database"`
-	Embeddings  EmbeddingsConfig  `yaml:"embeddings"`
-	LLM         LLMConfig         `yaml:"llm"`
-	Sleeper     SleeperConfig     `yaml:"sleeper"`
-	Sources     []SourceConfig    `yaml:"sources"`
+	Server      ServerConfig       `yaml:"server"`
+	Database    DatabaseConfig     `yaml:"database"`
+	Embeddings  EmbeddingsConfig   `yaml:"embeddings"`
+	LLM         LLMConfig          `yaml:"llm"`
+	Sleeper     SleeperConfig      `yaml:"sleeper"`
+	Sources     []SourceConfig     `yaml:"sources"`
 	Evergreen   []EvergreenPattern `yaml:"evergreen"`
-	FantasyPros FantasyProsConfig `yaml:"fantasyPros"`
-	Corpus      CorpusConfig      `yaml:"corpus"`
-	Telemetry   TelemetryConfig   `yaml:"telemetry"`
-	Scheduler   SchedulerConfig   `yaml:"scheduler"`
+	FantasyPros FantasyProsConfig  `yaml:"fantasyPros"`
+	Corpus      CorpusConfig       `yaml:"corpus"`
+	Telemetry   TelemetryConfig    `yaml:"telemetry"`
+	Scheduler   SchedulerConfig    `yaml:"scheduler"`
 }
 
 type ServerConfig struct {
@@ -78,8 +78,8 @@ type SourceConfig struct {
 // so they don't surface as current news. Patterns are matched as substrings
 // against the item's canonical URL (case-sensitive).
 type EvergreenPattern struct {
-	Pattern  string `yaml:"pattern"`
-	Reason   string `yaml:"reason"`
+	Pattern string `yaml:"pattern"`
+	Reason  string `yaml:"reason"`
 }
 
 type FantasyProsConfig struct {

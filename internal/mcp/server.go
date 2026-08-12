@@ -40,6 +40,8 @@ const (
 	paramPosition     = "position"
 	paramSuperflex    = "superflex"
 	paramLeagueID     = "league_id"
+	paramUserID       = "user_id"
+	paramWeek         = "week"
 	paramStep         = "step"
 	paramQuery        = "query"
 	paramPlayerID     = "player_id"
@@ -291,14 +293,14 @@ func (s *Server) registerTools() {
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
 				paramLeagueID:  map[string]any{schemaType: schemaTypeString},
-				"user_id":      map[string]any{schemaType: schemaTypeString, schemaDefault: "558115100726579200"},
+				paramUserID:    map[string]any{schemaType: schemaTypeString, schemaDefault: "558115100726579200"},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 			schemaRequired: []string{paramLeagueID},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			leagueID := getStr(args, paramLeagueID)
-			userID := getStr(args, "user_id")
+			userID := getStr(args, paramUserID)
 			if userID == "" {
 				userID = "558115100726579200"
 			}
@@ -351,17 +353,17 @@ func (s *Server) registerTools() {
 		InputSchema: map[string]any{
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
-				"user_id": map[string]any{schemaType: schemaTypeString},
-				"season":  map[string]any{schemaType: schemaTypeString, schemaDefault: "2026"},
+				paramUserID: map[string]any{schemaType: schemaTypeString},
+				"season":    map[string]any{schemaType: schemaTypeString, schemaDefault: "2026"},
 			},
-			schemaRequired: []any{"user_id"},
+			schemaRequired: []any{paramUserID},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			season := getStr(args, "season")
 			if season == "" {
 				season = "2026"
 			}
-			return s.query.GetUserLeagues(ctx, getStr(args, "user_id"), season)
+			return s.query.GetUserLeagues(ctx, getStr(args, paramUserID), season)
 		},
 	})
 	s.registerTool(Tool{
@@ -413,12 +415,12 @@ func (s *Server) registerTools() {
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
 				paramLeagueID: map[string]any{schemaType: schemaTypeString},
-				"week":         map[string]any{schemaType: schemaTypeInteger},
+				paramWeek:     map[string]any{schemaType: schemaTypeInteger},
 			},
-			schemaRequired: []any{paramLeagueID, "week"},
+			schemaRequired: []any{paramLeagueID, paramWeek},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
-			return s.query.GetLeagueMatchups(ctx, getStr(args, paramLeagueID), getInt(args, "week", 0))
+			return s.query.GetLeagueMatchups(ctx, getStr(args, paramLeagueID), getInt(args, paramWeek, 0))
 		},
 	})
 	s.registerTool(Tool{
@@ -428,12 +430,12 @@ func (s *Server) registerTools() {
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
 				paramLeagueID: map[string]any{schemaType: schemaTypeString},
-				"week":         map[string]any{schemaType: schemaTypeInteger},
+				paramWeek:     map[string]any{schemaType: schemaTypeInteger},
 			},
-			schemaRequired: []any{paramLeagueID, "week"},
+			schemaRequired: []any{paramLeagueID, paramWeek},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
-			return s.query.GetLeagueTransactions(ctx, getStr(args, paramLeagueID), getInt(args, "week", 0))
+			return s.query.GetLeagueTransactions(ctx, getStr(args, paramLeagueID), getInt(args, paramWeek, 0))
 		},
 	})
 	s.registerTool(Tool{
@@ -467,12 +469,14 @@ func (s *Server) registerTools() {
 
 	// Leaguemate intelligence (cross-league profiling; absorbed from the old stdio MCP)
 	s.registerTool(Tool{
-		Name:        "leaguemate_overlap",
-		Description: "For a Sleeper player_id, show which leaguemates own that player across ALL their leagues (yours + their others), with overlap counts. A leaguemate who owns a player in many leagues values them above market. Resolve a name to player_id with search_players first.",
+		Name: "leaguemate_overlap",
+		Description: "For a Sleeper player_id, show which leaguemates own that player across ALL their " +
+			"leagues (yours + their others), with overlap counts. A leaguemate who owns a player in " +
+			"many leagues values them above market. Resolve a name to player_id with search_players first.",
 		InputSchema: map[string]any{
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
-				paramPlayerID:   map[string]any{schemaType: schemaTypeString},
+				paramPlayerID:    map[string]any{schemaType: schemaTypeString},
 				"include_markis": map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 			schemaRequired: []any{paramPlayerID},
@@ -482,8 +486,10 @@ func (s *Server) registerTools() {
 		},
 	})
 	s.registerTool(Tool{
-		Name:        "manager_profile",
-		Description: "Build a cross-league dossier for a leaguemate by their Sleeper @username or display_name: every league they manage (flagging yours), aggregate standings, and players they hold in >=2 of their leagues. Use before any trade negotiation.",
+		Name: "manager_profile",
+		Description: "Build a cross-league dossier for a leaguemate by their Sleeper @username or " +
+			"display_name: every league they manage (flagging yours), aggregate standings, and players " +
+			"they hold in >=2 of their leagues. Use before any trade negotiation.",
 		InputSchema: map[string]any{
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
@@ -496,8 +502,10 @@ func (s *Server) registerTools() {
 		},
 	})
 	s.registerTool(Tool{
-		Name:        "player_trade_value",
-		Description: "Show what a player has ACTUALLY been traded for across all tracked leagues — the true-market-price anchor. Returns recent completed trades with the full package (players by name + picks). Resolve a name to player_id with search_players first.",
+		Name: "player_trade_value",
+		Description: "Show what a player has ACTUALLY been traded for across all tracked leagues — the " +
+			"true-market-price anchor. Returns recent completed trades with the full package (players by " +
+			"name + picks). Resolve a name to player_id with search_players first.",
 		InputSchema: map[string]any{
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{

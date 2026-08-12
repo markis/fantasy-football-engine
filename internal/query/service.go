@@ -19,8 +19,13 @@ import (
 const (
 	colPlayerID    = "player_id"
 	colFullName    = "full_name"
+	colName        = "name"
 	colPosition    = "position"
 	colTeam        = "team"
+	colLeagueID    = "league_id"
+	colUserID      = "user_id"
+	colLeagues     = "leagues"
+	colPlayer      = "player"
 	colTitle       = "title"
 	srcFantasyCalc = "FantasyCalc"
 	statusFound    = "found"
@@ -314,8 +319,8 @@ func (s *Service) GetPlayer(ctx context.Context, playerID string) (map[string]an
 	item := map[string]any{
 		colPlayerID: playerID,
 		colFullName: ptrStr(fullName),
-		"position":  ptrStr(pos),
-		"team":      ptrStr(teamAbbr),
+		colPosition: ptrStr(pos),
+		colTeam:     ptrStr(teamAbbr),
 		"active":    active,
 	}
 	if age != nil {
@@ -579,7 +584,7 @@ func (s *Service) EvaluateTrade(
 				ORDER BY %s DESC NULLS LAST LIMIT 1
 			`, valueCol, valueCol), source, market, q).Scan(&sleeperID, &fullName, &tradeValue)
 			if err != nil {
-				items = append(items, map[string]any{"name": name, statusFound: false})
+				items = append(items, map[string]any{colName: name, statusFound: false})
 				continue
 			}
 			val := 0
@@ -588,7 +593,7 @@ func (s *Service) EvaluateTrade(
 				total += val
 			}
 			items = append(items, map[string]any{
-				"player_id":   sleeperID,
+				colPlayerID:   sleeperID,
 				"full_name":   ptrStr(fullName),
 				"trade_value": val,
 				statusFound:   true,
@@ -615,7 +620,7 @@ func (s *Service) EvaluateTrade(
 		"get_total":      getTotal,
 		"value_delta":    delta,
 		"recommendation": recommendation,
-		"league_id":      leagueID,
+		colLeagueID:      leagueID,
 	}, nil
 }
 
@@ -693,10 +698,10 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 			totalValue += val
 		}
 		item := map[string]any{
-			"player_id":   sid,
+			colPlayerID:   sid,
 			"full_name":   ptrStr(r.fullName),
-			"position":    ptrStr(r.pos),
-			"team":        ptrStr(r.teamAbbr),
+			colPosition:   ptrStr(r.pos),
+			colTeam:       ptrStr(r.teamAbbr),
 			"trade_value": val,
 		}
 		if r.age != nil {
@@ -706,8 +711,8 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 	}
 
 	return map[string]any{
-		"league_id":    leagueID,
-		"user_id":      userID,
+		colLeagueID:    leagueID,
+		colUserID:      userID,
 		"roster":       rosterItems,
 		"total_value":  totalValue,
 		"player_count": len(rosterItems),

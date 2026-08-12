@@ -489,17 +489,19 @@ func (f *RSSFetcher) upsertNewsItem(
 
 	existingID := f.findExistingItem(ctx, sourceID, n.guid, n.cURLHash)
 	if existingID != nil {
-		updated, changed, uerr := f.updateExistingItem(ctx, existingID, &n.link, &n.cURL, &n.cURLHash, &n.title, &n.author, n.published,
+		changed, uerr := f.updateExistingItem(ctx, existingID, &n.link, &n.cURL, &n.cURLHash, &n.title, &n.author, n.published,
 			&n.contentHTML, &n.contentText, &n.summaryShort, &n.cHash, &n.simhash, rawDocID, n.bodyStatus)
 		// Evergreen items must stay retired even on re-ingest (a fresh pubDate
 		// update would otherwise leave a previously-de-flagged row flagged again
 		// if it was ever re-enriched). Force de-flag.
 		if uerr == nil && f.isEvergreen(n.cURL) {
-			_, _ = f.pool.Exec(ctx,
+			if _, dErr := f.pool.Exec(ctx,
 				"UPDATE news_item SET is_news = false, is_relevant = false, news_story = NULL WHERE id = $1",
-				*existingID)
+				*existingID); dErr != nil {
+				slog.Warn("de-flag evergreen item", "id", *existingID, "err", dErr)
+			}
 		}
-		return updated, changed, uerr
+		return false, changed, uerr
 	}
 
 	if insertErr := f.insertNewNewsItem(ctx, sourceID, sourceType, n.guid, rawDocID, &n); insertErr != nil {
@@ -510,11 +512,11 @@ func (f *RSSFetcher) upsertNewsItem(
 
 // updateExistingItem updates an existing news item if new content is longer.
 //
-//nolint:nonamedreturns // Multiple bool returns benefit from naming
+//nolint:nonamedreturns // Named return clarifies the changed/err semantics
 func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UUID,
 	link, cURL, cURLHash, title, author *string, published any,
 	contentHTML, contentText, summaryShort, cHash *string, sh *int64, rawDocID uuid.UUID, bodyStatus string,
-) (updated, changed bool, err error) {
+) (changed bool, err error) {
 	// Query existing content length
 	var existingTextLen int
 	q := "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1"
@@ -537,7 +539,7 @@ func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UU
 		`, link, cURL, cURLHash, title, author, published,
 			contentHTML, contentText, contentHTML, summaryShort, cHash, sh, rawDocID, bodyStatus, *existingID)
 		if err != nil {
-			return false, false, fmt.Errorf("update news item %s: %w", *existingID, err)
+			return false, fmt.Errorf("update news item %s: %w", *existingID, err)
 		}
 	} else {
 		// Update without content
@@ -551,8 +553,8 @@ func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UU
 		`, link, cURL, cURLHash, title, author, published,
 			summaryShort, cHash, sh, rawDocID, bodyStatus, *existingID)
 		if err != nil {
-			return false, false, fmt.Errorf("update news item %s: %w", *existingID, err)
+			return false, fmt.Errorf("update news item %s: %w", *existingID, err)
 		}
 	}
-	return false, true, nil
+	return true, nil
 }
