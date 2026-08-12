@@ -166,7 +166,7 @@ func (s *FPRankingsSyncer) processFPRankingRecord(ctx context.Context, p map[str
 		return fpRankOutcome{skipped: true}
 	}
 
-	_, err := s.pool.Exec(ctx, ` //nolint:goconst // SQL string contains literal '<nil>'
+	_, err := s.pool.Exec(ctx, `
 		INSERT INTO player_ranking (player_id, source, market, position, team,
 		                            overall_rank, position_rank, snapshot_date)
 		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, '<nil>'), $6, $7, CURRENT_DATE)

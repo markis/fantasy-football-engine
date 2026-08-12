@@ -22,10 +22,10 @@ type LeagueFormat struct {
 // to their scoring formats and FantasyCalc market IDs.
 var LeagueFormats = map[string]LeagueFormat{
 	"1343410990741479425": {Name: "Poor Life Choices", Teams: 18, NumQbs: 2, PPR: 1, TEP: tepPPPlus, Market: nil, Type: "redraft"},
-	"1312178509908545536": {Name: "Backyard Brawl", Teams: 12, NumQbs: 1, PPR: 1, TEP: typeNone, Market: intPtr(1), Type: typeType},
-	"1312183009700499456": {Name: "Mama Says Foosball", Teams: 12, NumQbs: 2, PPR: 1, TEP: tepPPPlus, Market: intPtr(2), Type: typeType},
-	"1312170789964898304": {Name: "Deja Vu Dynasty", Teams: 12, NumQbs: 2, PPR: 1, TEP: tepPPPlus, Market: intPtr(2), Type: typeType},
-	"1312051514470055936": {Name: "Dave is the best", Teams: 10, NumQbs: 2, PPR: 0, TEP: typeNone, Market: intPtr(3), Type: typeType},
+	"1312178509908545536": {Name: "Backyard Brawl", Teams: 12, NumQbs: 1, PPR: 1, TEP: typeNone, Market: new(1), Type: typeType},
+	"1312183009700499456": {Name: "Mama Says Foosball", Teams: 12, NumQbs: 2, PPR: 1, TEP: tepPPPlus, Market: new(2), Type: typeType},
+	"1312170789964898304": {Name: "Deja Vu Dynasty", Teams: 12, NumQbs: 2, PPR: 1, TEP: tepPPPlus, Market: new(2), Type: typeType},
+	"1312051514470055936": {Name: "Dave is the best", Teams: 10, NumQbs: 2, PPR: 0, TEP: typeNone, Market: new(3), Type: typeType},
 }
 
 // FormatCombo is a distinct dynasty format combo synced from FantasyCalc.
@@ -96,5 +96,3 @@ func AgeFactor(pos string, age *int) float64 {
 	}
 	return bands[len(bands)-1].Factor
 }
-
-func intPtr(v int) *int { return &v }

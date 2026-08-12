@@ -120,6 +120,7 @@ linters:
         - style
       disabled-checks:
         - whyNoLint
+        - unnamedResult  # conflicts with the nonamedreturns linter, which forbids named returns
 
     gosec:
       excludes:

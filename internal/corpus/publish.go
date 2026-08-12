@@ -223,8 +223,14 @@ func (p *Publisher) materialChanges(staging, corpus string) bool {
 		if !ok {
 			return true
 		}
-		sHash, _ := FileSHA256Bytes(sfull) //nolint:errcheck // Both files exist; error is impossible
-		cHash, _ := FileSHA256Bytes(cfull) //nolint:errcheck // Both files exist; error is impossible
+		sHash, err := FileSHA256Bytes(sfull)
+		if err != nil {
+			return true
+		}
+		cHash, err := FileSHA256Bytes(cfull)
+		if err != nil {
+			return true
+		}
 		if sHash != cHash {
 			return true
 		}
@@ -233,38 +239,48 @@ func (p *Publisher) materialChanges(staging, corpus string) bool {
 }
 
 func (p *Publisher) sync(staging, corpus string) error {
+	// os.Root (Go 1.24) confines file access to each directory tree, blocking
+	// path traversal and symlinks that escape it. gosec recognizes Root methods
+	// as safe (G304 only flags package-level os.ReadFile/Open/OpenFile/Create),
+	// so this needs no //nolint directives.
+	if err := os.MkdirAll(corpus, 0o750); err != nil {
+		return fmt.Errorf("create corpus root: %w", err)
+	}
+	corpusRoot, err := os.OpenRoot(corpus)
+	if err != nil {
+		return fmt.Errorf("open corpus root: %w", err)
+	}
+	defer corpusRoot.Close()
+
+	stagingRoot, err := os.OpenRoot(staging)
+	if err != nil {
+		return fmt.Errorf("open staging root: %w", err)
+	}
+	defer stagingRoot.Close()
+
 	stagingFiles := listSubstanceFiles(staging)
-	for rel, full := range stagingFiles {
-		dst := filepath.Join(corpus, rel)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
-			return fmt.Errorf("create directory for %s: %w", dst, err)
-		}
-		//nolint:gosec // path is internal storage path
-		data, err := os.ReadFile(full)
+	for rel := range stagingFiles {
+		data, err := rootReadAll(stagingRoot, rel)
 		if err != nil {
-			return fmt.Errorf("read file %s: %w", full, err)
+			return err
 		}
-		if err := os.WriteFile(dst, data, 0o600); err != nil { //nolint:gosec // paths are internal corpus paths, not user input
-			return fmt.Errorf("write file %s: %w", dst, err)
+		if err := rootWriteAll(corpusRoot, rel, data, 0o600); err != nil {
+			return err
 		}
 	}
+
 	// Copy extras
 	for _, extra := range []string{"evidence/index.md", fileManifest, "datasets/change-log.jsonl"} {
-		src := filepath.Join(staging, extra)
-		if _, err := os.Stat(src); err == nil {
-			dst := filepath.Join(corpus, extra)
-			if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
-				slog.Warn("failed to create destination directory", "path", filepath.Dir(dst), "err", err)
-				continue
-			}
-			data, err := os.ReadFile(src) //nolint:gosec // src is constructed from internal config paths, not user input
-			if err != nil {
-				slog.Warn("failed to read extra file", "src", src, "err", err)
-				continue
-			}
-			if err := os.WriteFile(dst, data, 0o600); err != nil { //nolint:gosec // paths are internal corpus paths, not user input
-				slog.Warn("failed to write extra file", "dst", dst, "err", err)
-			}
+		if _, err := stagingRoot.Stat(extra); err != nil {
+			continue
+		}
+		data, err := rootReadAll(stagingRoot, extra)
+		if err != nil {
+			slog.Warn("failed to read extra file", "src", extra, "err", err)
+			continue
+		}
+		if err := rootWriteAll(corpusRoot, extra, data, 0o600); err != nil {
+			slog.Warn("failed to write extra file", "dst", extra, "err", err)
 		}
 	}
 	return nil

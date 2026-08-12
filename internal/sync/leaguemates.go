@@ -83,13 +83,12 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 // upserts managers and roster players, and discovers other leagues 1-hop away.
 // It returns the number of roster player rows written and the discovered-league
 // count to add to the sync result (mirrors the original inline accumulation).
-//
-//nolint:nonamedreturns // Multiple int returns benefit from naming
 func (s *LeaguemateSyncer) processMarkisLeagueRosters(
 	ctx context.Context,
 	leagueID, season string,
 	seenLeagues, seenManagers map[string]bool,
-) (rosterRows, discoveredLeagues int) {
+) (int, int) {
+	var rosterRows, discoveredLeagues int
 	rosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
 	if err != nil {
 		slog.Warn("get rosters", "league", leagueID, "err", err)

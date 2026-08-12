@@ -49,9 +49,10 @@ func (p *Publisher) renderCurrent(ctx context.Context, targetDir string) (map[st
 func loadTeamState(targetDir string) map[string]any {
 	tsPath := filepath.Join(targetDir, "team", "team-state.json")
 	var ts map[string]any
-	if data, err := os.ReadFile(tsPath); err == nil { //nolint:gosec // path is internal storage path, not user input
-		//nolint:errcheck // Unmarshal failure results in empty map, which is safe
-		json.Unmarshal(data, &ts)
+	if data, err := readFileRooted(tsPath); err == nil {
+		if json.Unmarshal(data, &ts) != nil {
+			ts = nil
+		}
 	}
 	return ts
 }
@@ -138,22 +139,32 @@ func (p *Publisher) writeWeeklyTeamReview(curDir, now string, ts map[string]any)
 		"# Weekly Team Review", "",
 		fmt.Sprintf("_Generated %s._", now),
 	}
-	if ts != nil {
-		if leagues, ok := ts["leagues"].([]any); ok {
-			for _, lg := range leagues {
-				l, _ := lg.(map[string]any)               //nolint:errcheck // Type assertion returns empty map if fails
-				league, _ := l["league"].(map[string]any) //nolint:errcheck // Type assertion returns empty map if fails
-				team, _ := l["team"].(map[string]any)     //nolint:errcheck // Type assertion returns empty map if fails
-				if league == nil {
-					continue
-				}
-				lines = append(lines, "",
-					"## "+getStr(league, "name"), "",
-					fmt.Sprintf("- **Mode:** %v", team["competitive_mode"]))
-			}
-		}
+	dst := filepath.Join(curDir, "weekly-team-review.md")
+	if ts == nil {
+		return WriteText(dst, strings.Join(lines, "\n"))
 	}
-	return WriteText(filepath.Join(curDir, "weekly-team-review.md"), strings.Join(lines, "\n"))
+	leagues, ok := ts["leagues"].([]any)
+	if !ok {
+		return WriteText(dst, strings.Join(lines, "\n"))
+	}
+	for _, lg := range leagues {
+		l, ok := lg.(map[string]any)
+		if !ok {
+			continue
+		}
+		league, ok := l["league"].(map[string]any)
+		if !ok {
+			continue
+		}
+		var team map[string]any
+		if v, ok := l["team"].(map[string]any); ok {
+			team = v
+		}
+		lines = append(lines, "",
+			"## "+getStr(league, "name"), "",
+			fmt.Sprintf("- **Mode:** %v", team["competitive_mode"]))
+	}
+	return WriteText(dst, strings.Join(lines, "\n"))
 }
 
 // writeRookieDraftBoard renders current/rookie-draft-board.md (simplified — queries DB).
@@ -298,8 +309,8 @@ func (p *Publisher) renderManifest(_ context.Context, targetDir, prevDir string,
 
 // carryForwardChangeLog copies the prior run's change-log.jsonl forward, or creates an empty one.
 func carryForwardChangeLog(clPath, clPrev string) {
-	if data, err := os.ReadFile(clPrev); err == nil { //nolint:gosec // path is internal storage path, not user input
-		if err := os.WriteFile(clPath, data, 0o600); err != nil { //nolint:gosec // paths are internal corpus paths, not user input
+	if data, err := readFileRooted(clPrev); err == nil {
+		if err := os.WriteFile(clPath, data, 0o600); err != nil {
 			slog.Warn("failed to write change-log", "err", err)
 		}
 	} else {
@@ -312,19 +323,26 @@ func carryForwardChangeLog(clPath, clPrev string) {
 // appendEvidenceChangeLog appends change-log entries for evidence added/superseded this run,
 // returning the last change ID written and the total number of changes.
 //
-//nolint:gocritic // named returns rejected by nonamedreturns; second value is a plain computed count
+
 func appendEvidenceChangeLog(clPath, recDir, ts string, evidenceSummary map[string]any) (string, int) {
 	var lastChangeID string
+	recRoot, recErr := os.OpenRoot(recDir)
+	if recErr != nil {
+		slog.Warn("failed to open records dir for change log", "dir", recDir, "err", recErr)
+	}
+	if recRoot != nil {
+		defer recRoot.Close()
+	}
 	appendEvidenceChanges := func(ids []string, operation string) {
 		for _, rid := range ids {
 			filename := strings.Replace(rid, "sha256:", "", 1) + ".json"
 			contentHash := ""
-			//nolint:gosec // path is internal storage path
-			data, err := os.ReadFile(filepath.Join(recDir, filename))
-			if err == nil {
-				var rec map[string]any
-				if json.Unmarshal(data, &rec) == nil {
-					contentHash = getStr(rec, colContentHash)
+			if recRoot != nil {
+				if data, rErr := rootReadAll(recRoot, filename); rErr == nil {
+					var rec map[string]any
+					if json.Unmarshal(data, &rec) == nil {
+						contentHash = getStr(rec, colContentHash)
+					}
 				}
 			}
 			if contentHash == "" {
@@ -346,8 +364,14 @@ func appendEvidenceChangeLog(clPath, recDir, ts string, evidenceSummary map[stri
 			}
 		}
 	}
-	added, _ := evidenceSummary["added"].([]string)           //nolint:errcheck // Type assertion returns empty slice if fails
-	superseded, _ := evidenceSummary["superseded"].([]string) //nolint:errcheck // Type assertion returns empty slice if fails
+	var added []string
+	if v, ok := evidenceSummary["added"].([]string); ok {
+		added = v
+	}
+	var superseded []string
+	if v, ok := evidenceSummary["superseded"].([]string); ok {
+		superseded = v
+	}
 	appendEvidenceChanges(added, "added")
 	appendEvidenceChanges(superseded, "superseded")
 	return lastChangeID, len(added) + len(superseded)
@@ -382,6 +406,11 @@ func buildManifestFilesMeta(tFiles map[string]string) []map[string]any {
 // countCurrentEvidence counts evidence records with status "current" in recDir.
 func countCurrentEvidence(recDir string) int {
 	currentEvidence := 0
+	root, err := os.OpenRoot(recDir)
+	if err != nil {
+		return currentEvidence
+	}
+	defer root.Close()
 	entries, err := os.ReadDir(recDir)
 	if err != nil {
 		return currentEvidence
@@ -390,7 +419,7 @@ func countCurrentEvidence(recDir string) int {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(recDir, e.Name())) //nolint:gosec // path is internal storage path, not user input
+		data, err := rootReadAll(root, e.Name())
 		if err != nil {
 			continue
 		}
@@ -426,6 +455,11 @@ func buildManifestLeagueList() []map[string]any {
 
 func loadCurrentRecords(recordsDir string) []map[string]any {
 	var result []map[string]any
+	root, err := os.OpenRoot(recordsDir)
+	if err != nil {
+		return result
+	}
+	defer root.Close()
 	entries, err := os.ReadDir(recordsDir)
 	if err != nil {
 		return result
@@ -434,7 +468,7 @@ func loadCurrentRecords(recordsDir string) []map[string]any {
 		if !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(recordsDir, e.Name())) //nolint:gosec // path is internal storage path, not user input
+		data, err := rootReadAll(root, e.Name())
 		if err != nil {
 			continue
 		}
@@ -529,9 +563,7 @@ func walkFilesForManifest(root string) (map[string]string, error) {
 }
 
 func countJSONLFile(targetDir, rel string) int {
-	path := filepath.Join(targetDir, rel)
-	//nolint:gosec // path is internal storage path
-	data, err := os.ReadFile(path)
+	data, err := readFileRooted(filepath.Join(targetDir, rel))
 	if err != nil {
 		return 0
 	}

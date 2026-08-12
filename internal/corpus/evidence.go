@@ -156,14 +156,18 @@ func evidenceIndexRow(rec map[string]any) string {
 		pub, getStr(rec, "topic"), title, players, getStr(rec, "publisher"))
 }
 
-//nolint:nakedret,nonamedreturns // Named return values are necessary for clarity with multiple complex returns
 func (p *Publisher) buildWatchSet(
 	ctx context.Context,
 ) (
-	watchIDs []string,
-	nameIndex map[string][]string,
-	ownership map[string][][2]string,
+	[]string,
+	map[string][]string,
+	map[string][][2]string,
 ) {
+	var (
+		watchIDs  []string
+		nameIndex map[string][]string
+		ownership map[string][][2]string
+	)
 	watchIDsSet := make(map[string]bool)
 	ownership = make(map[string][][2]string)
 
@@ -196,7 +200,7 @@ func (p *Publisher) buildWatchSet(
 	}
 	playerRows := p.common.PlayerRows(ctx, watchIDs)
 	nameIndex = BuildNameIndex(playerRows)
-	return
+	return watchIDs, nameIndex, ownership
 }
 
 func (p *Publisher) queryRelevantItems(ctx context.Context, _ []string, nameIndex map[string][]string) []map[string]any {
@@ -277,7 +281,10 @@ func (p *Publisher) buildEvidenceRecord(ctx context.Context, item map[string]any
 	summary := evidenceSummary(item, urlStr)
 	recID := EvidenceID(urlStr, evidenceContentHashSeed(item, summary))
 
-	matchedPlayers, _ := item["matched_players"].([]string) //nolint:errcheck // External data may not have field
+	var matchedPlayers []string
+	if v, ok := item["matched_players"].([]string); ok {
+		matchedPlayers = v
+	}
 	playerIDs := evidencePlayerIDs(matchedPlayers)
 	teamIDs := evidenceTeamIDs(item)
 	publisher := evidencePublisher(item)
@@ -369,7 +376,10 @@ func evidencePlayerIDs(matchedPlayers []string) []string {
 // evidenceTeamIDs resolves entity team names (e.g. "Philadelphia Eagles")
 // against the canonical name->abbreviation table into namespaced team ids.
 func evidenceTeamIDs(item map[string]any) []string {
-	entities, _ := item["entities"].([]string) //nolint:errcheck // External data may not have field
+	var entities []string
+	if v, ok := item["entities"].([]string); ok {
+		entities = v
+	}
 	teamIDs := make([]string, 0, len(entities))
 	for _, e := range entities {
 		if abbr, ok := models.TeamAbbrForName(e); ok {
@@ -416,8 +426,9 @@ func evidenceTopic(item map[string]any) string {
 // a news item, formatting them as RFC3339-ish UTC strings. fetchedAt falls
 // back to the current time when the item has none.
 //
-//nolint:nonamedreturns // Named return values are necessary for clarity with multiple similar-typed returns
-func (p *Publisher) evidenceTimestamps(item map[string]any) (publishedAt, fetchedAt, updatedAt any) {
+
+func (p *Publisher) evidenceTimestamps(item map[string]any) (any, any, any) {
+	var publishedAt, fetchedAt, updatedAt any
 	if v, ok := item["published_at"].(*time.Time); ok && v != nil {
 		publishedAt = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
@@ -432,7 +443,7 @@ func (p *Publisher) evidenceTimestamps(item map[string]any) (publishedAt, fetche
 	if v, ok := item["updated_at"].(*time.Time); ok && v != nil {
 		updatedAt = v.UTC().Format("2006-01-02T15:04:05Z")
 	}
-	return
+	return publishedAt, fetchedAt, updatedAt
 }
 
 // buildDecisionRelevance computes the decision_relevance block for an
@@ -476,8 +487,9 @@ func evidenceOwnerReason(matchedPlayers []string, ownership map[string][][2]stri
 // evidenceRelevanceFlags reports whether any matched player is owned on the
 // user's roster and/or rostered by a rival (trade target).
 //
-//nolint:nonamedreturns // Named return values are necessary for clarity with multiple bool returns
-func evidenceRelevanceFlags(matchedPlayers []string, ownership map[string][][2]string) (relevantToRoster, relevantToTradeTarget bool) {
+
+func evidenceRelevanceFlags(matchedPlayers []string, ownership map[string][][2]string) (bool, bool) {
+	var relevantToRoster, relevantToTradeTarget bool
 	for _, sid := range matchedPlayers {
 		for _, pair := range ownership[sid] {
 			if pair[1] == "owned" {
@@ -525,6 +537,11 @@ func (p *Publisher) factsForItem(ctx context.Context, itemID any) []map[string]a
 
 func loadExistingRecords(recordsDir string) map[string]map[string]any {
 	result := make(map[string]map[string]any)
+	root, err := os.OpenRoot(recordsDir)
+	if err != nil {
+		return result
+	}
+	defer root.Close()
 	entries, err := os.ReadDir(recordsDir)
 	if err != nil {
 		return result
@@ -533,8 +550,7 @@ func loadExistingRecords(recordsDir string) map[string]map[string]any {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		//nolint:gosec // path is internal storage path
-		data, err := os.ReadFile(filepath.Join(recordsDir, entry.Name()))
+		data, err := rootReadAll(root, entry.Name())
 		if err != nil {
 			continue
 		}

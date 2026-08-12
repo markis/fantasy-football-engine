@@ -73,7 +73,7 @@ func (s *Scheduler) AddJob(job *config.JobConfig) error {
 	}
 
 	_, err := s.cron.AddFunc(job.Schedule, func() {
-		s.runJob(job, stepFn)
+		s.runJob(context.Background(), job, stepFn)
 	})
 	if err != nil {
 		return fmt.Errorf("add cron job %s: %w", job.Name, err)
@@ -82,7 +82,7 @@ func (s *Scheduler) AddJob(job *config.JobConfig) error {
 	return nil
 }
 
-func (s *Scheduler) runJob(job *config.JobConfig, fn StepFunc) {
+func (s *Scheduler) runJob(parent context.Context, job *config.JobConfig, fn StepFunc) {
 	s.mu.Lock()
 	if s.running[job.Name] {
 		s.mu.Unlock()
@@ -97,7 +97,10 @@ func (s *Scheduler) runJob(job *config.JobConfig, fn StepFunc) {
 		s.mu.Unlock()
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+	// Detach the caller's cancellation so the job runs to completion
+	// independent of the triggering request (or cron tick), while
+	// inheriting its values and applying the per-job timeout.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 1*time.Hour)
 	defer cancel()
 
 	start := time.Now()
@@ -175,7 +178,9 @@ func (s *Scheduler) TriggerStep(ctx context.Context, step string, job *config.Jo
 		return fmt.Errorf("%w: %s", errStepNotRegistered, step)
 	}
 	job.Step = step
-	//nolint:contextcheck,gosec // intentional: background job creates its own context from Background()
-	go s.runJob(job, fn)
+	// Detach the caller's cancellation so the step runs to completion
+	// independent of the request lifetime, while keeping its values and
+	// the per-job timeout (see runJob's context.WithoutCancel).
+	go s.runJob(ctx, job, fn)
 	return nil
 }

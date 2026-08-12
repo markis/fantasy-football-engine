@@ -150,9 +150,18 @@ func (s *LeaguemateTradesSyncer) storeTrade(
 		raw = []byte("{}")
 	}
 
-	adds, _ := txn["adds"].(map[string]any)     //nolint:errcheck // Type assertion returns empty map if fails
-	drops, _ := txn["drops"].(map[string]any)   //nolint:errcheck // Type assertion returns empty map if fails
-	draftPicks, _ := txn["draft_picks"].([]any) //nolint:errcheck // Type assertion returns empty slice if fails
+	adds, ok := txn["adds"].(map[string]any)
+	if !ok {
+		adds = map[string]any{}
+	}
+	drops, ok := txn["drops"].(map[string]any)
+	if !ok {
+		drops = map[string]any{}
+	}
+	draftPicks, ok := txn["draft_picks"].([]any)
+	if !ok {
+		draftPicks = nil
+	}
 
 	involvesWatchSet := tradeInvolvesWatchSet(adds, drops, watchSet)
 

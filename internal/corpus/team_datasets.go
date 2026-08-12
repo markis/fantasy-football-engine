@@ -196,7 +196,10 @@ func countBenchSlots(leagueInfo map[string]any) int {
 // (the league's total waiver budget must come from settings, not be
 // assumed — leagues can configure any total; 100 is Sleeper's own default).
 func computeFaabRemaining(myRoster, leagueInfo map[string]any) int {
-	settings, _ := myRoster["settings"].(map[string]any) //nolint:errcheck // Type assertion returns empty map if fails
+	var settings map[string]any
+	if v, ok := myRoster["settings"].(map[string]any); ok {
+		settings = v
+	}
 	faab := 0
 	if v, ok := settings["waiver_budget_used"]; ok {
 		if n, ok := v.(float64); ok {
@@ -410,10 +413,19 @@ func renderRosterMarkdown(leagues []map[string]any, now string) string {
 	var mdLines []string
 	mdLines = append(mdLines, "# Roster", "", fmt.Sprintf("_Generated %s._", now), "")
 	for _, lg := range leagues {
-		l, _ := lg["league"].(map[string]any) //nolint:errcheck // Map guaranteed by buildLeagueState
-		t, _ := lg["team"].(map[string]any)   //nolint:errcheck // Map guaranteed by buildLeagueState
+		var l map[string]any
+		if v, ok := lg["league"].(map[string]any); ok {
+			l = v
+		}
+		var t map[string]any
+		if v, ok := lg["team"].(map[string]any); ok {
+			t = v
+		}
 		mdLines = append(mdLines, fmt.Sprintf("## %s", l["name"]), "")
-		roster, _ := t["roster"].([]map[string]any) //nolint:errcheck // Roster guaranteed by buildLeagueState
+		var roster []map[string]any
+		if v, ok := t["roster"].([]map[string]any); ok {
+			roster = v
+		}
 		for _, r := range roster {
 			mdLines = append(mdLines, fmt.Sprintf("- %s (%s, %s) — value: %v",
 				r["full_name"], r["position"], r["nfl_team"], r["trade_value"]))
@@ -630,13 +642,18 @@ func writeNewsEventsJSONL(targetDir, dsDir string) int {
 		slog.Warn("failed to read evidence records directory", "path", recDir, "err", err)
 		entries = nil
 	}
+	root, rootErr := os.OpenRoot(recDir)
+	if rootErr != nil {
+		slog.Warn("failed to open evidence records dir root", "path", recDir, "err", rootErr)
+		return 0
+	}
+	defer root.Close()
 	newsCount := 0
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".json") {
 			continue
 		}
-		//nolint:gosec // path is internal storage path
-		data, err := os.ReadFile(filepath.Join(recDir, entry.Name()))
+		data, err := rootReadAll(root, entry.Name())
 		if err != nil {
 			continue
 		}
@@ -699,8 +716,13 @@ func appendJSONLFile(path string, obj any) {
 		return
 	}
 	data = append(data, '\n')
-	//nolint:gosec // path is internal storage path
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		slog.Warn("failed to open JSONL dir", "path", path, "err", err)
+		return
+	}
+	defer root.Close()
+	f, err := root.OpenFile(filepath.Base(path), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		slog.Warn("failed to open JSONL file", "path", path, "err", err)
 		return

@@ -117,11 +117,15 @@ func (f *RSSFetcher) doConditionalFetch(ctx context.Context, feedURL string, eta
 // readAndParseFeed reads the response body and parses it as an RSS/Atom
 // feed, also returning the marshaled response headers and content type for
 // raw-document storage.
-//
-//nolint:nonamedreturns // named returns used as working variables built up incrementally below
 func (f *RSSFetcher) readAndParseFeed(
 	resp *http.Response,
-) (body string, feed *gofeed.Feed, headersJSON []byte, contentType string, err error) {
+) (string, *gofeed.Feed, []byte, string, error) {
+	var (
+		body        string
+		feed        *gofeed.Feed
+		headersJSON []byte
+		contentType string
+	)
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", nil, nil, "", fmt.Errorf("read body: %w", err)
@@ -343,9 +347,8 @@ func extractAuthor(item *gofeed.Item) string {
 
 // extractContentFields derives HTML content, a short plain-text summary, and
 // plain-text content from a feed entry's content:encoded/description fields.
-//
-//nolint:nonamedreturns // named returns used as working variables built up incrementally below
-func extractContentFields(item *gofeed.Item) (contentHTML, summaryShort, contentText string) {
+func extractContentFields(item *gofeed.Item) (string, string, string) {
+	var contentHTML, summaryShort, contentText string
 	// content:encoded (RSS 2.0) or Atom content
 	if item.Content != "" {
 		contentHTML = item.Content
@@ -481,10 +484,9 @@ func (f *RSSFetcher) insertNewNewsItem(
 	return nil
 }
 
-//nolint:nonamedreturns // Multiple bool returns benefit from naming
 func (f *RSSFetcher) upsertNewsItem(
 	ctx context.Context, sourceID uuid.UUID, sourceType string, item *gofeed.Item, rawDocID uuid.UUID,
-) (isNew, isUpdated bool, err error) {
+) (bool, bool, error) {
 	n := normalizeFeedItem(item)
 
 	existingID := f.findExistingItem(ctx, sourceID, n.guid, n.cURLHash)
@@ -511,12 +513,10 @@ func (f *RSSFetcher) upsertNewsItem(
 }
 
 // updateExistingItem updates an existing news item if new content is longer.
-//
-//nolint:nonamedreturns // Named return clarifies the changed/err semantics
 func (f *RSSFetcher) updateExistingItem(ctx context.Context, existingID *uuid.UUID,
 	link, cURL, cURLHash, title, author *string, published any,
 	contentHTML, contentText, summaryShort, cHash *string, sh *int64, rawDocID uuid.UUID, bodyStatus string,
-) (changed bool, err error) {
+) (bool, error) {
 	// Query existing content length
 	var existingTextLen int
 	q := "SELECT COALESCE(length(content_text), 0) FROM news_item WHERE id = $1"

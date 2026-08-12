@@ -78,6 +78,14 @@ func schemaForPath(rel string) (*jsonschema.Schema, bool) {
 func Validate(target string) []string {
 	var errors []string
 
+	// Open the target tree as an os.Root so all reads are confined to it:
+	// gosec G304 doesn't flag Root methods, and path traversal is blocked.
+	root, rootErr := os.OpenRoot(target)
+	if rootErr != nil {
+		return []string{"open target directory: " + rootErr.Error()}
+	}
+	defer root.Close()
+
 	// JSON parse + secret scan + JSON-schema validation over all tracked files
 	if err := filepath.Walk(target, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
@@ -96,10 +104,9 @@ func Validate(target string) []string {
 		if strings.HasPrefix(rel, ".git") || strings.HasPrefix(rel, ".staging") {
 			return nil
 		}
-		//nolint:gosec // path comes from internal filepath.Walk, not user input
-		data, err := os.ReadFile(path)
+		data, err := rootReadAll(root, rel)
 		if err != nil {
-			return fmt.Errorf("read file %s: %w", path, err)
+			return fmt.Errorf("read file %s: %w", rel, err)
 		}
 		content := string(data)
 		errors = append(errors, validateSecrets(rel, content)...)
@@ -177,8 +184,7 @@ func validateJSONLFile(rel, content string) []string {
 func validateManifest(target string) []string {
 	var errors []string
 	manifestPath := filepath.Join(target, "corpus-manifest.json")
-	//nolint:gosec // manifestPath is from internal config path, not user input
-	data, err := os.ReadFile(manifestPath)
+	data, err := readFileRooted(manifestPath)
 	if err != nil {
 		return errors
 	}
