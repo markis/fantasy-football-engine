@@ -290,13 +290,13 @@ func buildPlayerSlotRecord(sid string, pr *PlayerRow, rk *RankingRow, slot strin
 	}
 	return RosterSlot{
 		SleeperPlayerID: sid,
-		FullName:        util.NilIfEmpty(util.StrOrEmpty(pr.FullName)),
-		Position:        util.NilIfEmpty(util.StrOrEmpty(pr.Position)),
-		NflTeam:         util.NilIfEmpty(util.StrOrEmpty(pr.TeamAbbr)),
+		FullName:        util.NilIfEmpty(pr.FullName),
+		Position:        util.NilIfEmpty(pr.Position),
+		NflTeam:         util.NilIfEmpty(pr.TeamAbbr),
 		Slot:            slot,
 		TradeValue:      tradeValue,
 		Age:             pr.Age,
-		InjuryStatus:    util.NilIfEmpty(util.StrOrEmpty(pr.InjuryStatus)),
+		InjuryStatus:    util.NilIfEmpty(pr.InjuryStatus),
 	}
 }
 

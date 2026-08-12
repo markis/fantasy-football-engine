@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -118,8 +118,15 @@ func (p *Publisher) buildEvidenceIndexMarkdown(current map[string]*EvidenceRecor
 		sortedRecs = append(sortedRecs, rec)
 	}
 	// Sort by published_at, newest first.
-	sort.SliceStable(sortedRecs, func(i, j int) bool {
-		return util.StrOrEmpty(sortedRecs[i].PublishedAt) > util.StrOrEmpty(sortedRecs[j].PublishedAt)
+	slices.SortStableFunc(sortedRecs, func(a, b *EvidenceRecord) int {
+		var ap, bp string
+		if a.PublishedAt != nil {
+			ap = *a.PublishedAt
+		}
+		if b.PublishedAt != nil {
+			bp = *b.PublishedAt
+		}
+		return strings.Compare(bp, ap)
 	})
 	for _, rec := range sortedRecs {
 		lines = append(lines, evidenceIndexRow(rec))
@@ -423,8 +430,6 @@ func evidenceTopic(item map[string]any) string {
 // evidenceTimestamps resolves the published/fetched/updated timestamps for
 // a news item, formatting them as RFC3339-ish UTC strings. fetchedAt falls
 // back to the current time when the item has none.
-//
-
 func (p *Publisher) evidenceTimestamps(item map[string]any) (*string, string, *string) {
 	var publishedAt, updatedAt *string
 	if v, ok := item["published_at"].(*time.Time); ok && v != nil {

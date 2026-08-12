@@ -17,23 +17,24 @@ import (
 // literal string, so callers treat it as equivalent to empty.
 const NilStr = "<nil>"
 
-func FromPtr[T any](x *T) T {
-	if x == nil {
+// ValueOrEmpty dereferences a pointer, returning "" for nil.
+func ValueOrEmpty[T any](v *T) T {
+	if v == nil {
 		var zero T
 		return zero
 	}
 
-	return *x
+	return *v
 }
 
 // StrOrEmpty dereferences a string pointer, returning "" for nil.
 func StrOrEmpty(s *string) string {
-	return FromPtr(s)
+	return ValueOrEmpty(s)
 }
 
 // StrOr dereferences a string pointer, returning def when it is nil or empty.
 func StrOr(s *string, def string) string {
-	if v := FromPtr(s); v != "" {
+	if v := ValueOrEmpty(s); v != "" {
 		return v
 	}
 	return def
@@ -41,11 +42,11 @@ func StrOr(s *string, def string) string {
 
 // NilIfEmpty returns nil for an empty string, otherwise a pointer to it, so
 // nullable schema fields marshal to JSON null instead of "".
-func NilIfEmpty(s string) *string {
-	if s == "" {
+func NilIfEmpty(s *string) *string {
+	if s == nil || *s == "" {
 		return nil
 	}
-	return &s
+	return s
 }
 
 // ToStringSlice coerces a []any (as produced by encoding/json) into []string,
