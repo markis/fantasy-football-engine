@@ -175,7 +175,7 @@ func (c *Common) MyRoster(rosters []sleeper.Roster) *sleeper.Roster {
 
 func (c *Common) AllRosterPlayerIDs(rosters []sleeper.Roster) []string {
 	return lo.Uniq(lo.FlatMap(rosters, func(r sleeper.Roster, _ int) []string {
-		return r.Players
+		return []string(r.Players)
 	}))
 }
 

@@ -8,7 +8,7 @@ import (
 
 // transactionDocsSample mirrors the /league/<id>/transactions docs trade
 // example, trimmed to the fields the codebase consumes (adds/drops null on
-// this trade; the parser must tolerate their absence as nil maps).
+// this trade; the struct must tolerate their absence as nil maps).
 const transactionDocsSample = `[
   {
     "type": "trade",
@@ -59,31 +59,30 @@ func eqStr(t *testing.T, name, got, want string) {
 	}
 }
 
-func eqTime(t *testing.T, name string, got *time.Time, wantMs int64) {
+func eqTime(t *testing.T, name string, got *EpochMs, wantMs int64) {
 	t.Helper()
 	if got == nil {
 		t.Errorf("%s: got nil, want %d", name, wantMs)
 		return
 	}
-	if !got.Equal(time.UnixMilli(wantMs).UTC()) {
-		t.Errorf("%s: got %v, want %v", name, got, time.UnixMilli(wantMs).UTC())
+	if !time.Time(*got).Equal(time.UnixMilli(wantMs).UTC()) {
+		t.Errorf("%s: got %v, want %v", name, time.Time(*got), time.UnixMilli(wantMs).UTC())
 	}
 }
 
 func TestParseTransactionsDocsSample(t *testing.T) {
-	var raw []map[string]any
-	if err := json.Unmarshal([]byte(transactionDocsSample), &raw); err != nil {
+	var txns []Transaction
+	if err := json.Unmarshal([]byte(transactionDocsSample), &txns); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	txns := ParseTransactions(raw)
 	eqInt(t, "len", len(txns), 2)
 
 	t0 := txns[0]
-	eqStr(t, "TxnID", t0.TxnID, "434852362033561600")
-	eqStr(t, "Type", t0.Type, "trade")
-	eqStr(t, "Status", t0.Status, "complete")
-	eqStr(t, "Creator", t0.Creator, "160000000000000000")
-	eqInt(t, "Leg", t0.Leg, 1)
+	eqStr(t, "TxnID", string(t0.TxnID), "434852362033561600")
+	eqStr(t, "Type", string(t0.Type), "trade")
+	eqStr(t, "Status", string(t0.Status), "complete")
+	eqStr(t, "Creator", string(t0.Creator), "160000000000000000")
+	eqInt(t, "Leg", int(t0.Leg), 1)
 	eqInt(t, "RosterIDs[0]", t0.RosterIDs[0], 2)
 	eqInt(t, "RosterIDs[1]", t0.RosterIDs[1], 1)
 	eqInt(t, "ConsenterIDs[1]", t0.ConsenterIDs[1], 1)
@@ -95,14 +94,14 @@ func TestParseTransactionsDocsSample(t *testing.T) {
 		t.Errorf("Drops: want nil for null, got %#v", t0.Drops)
 	}
 	eqInt(t, "DraftPicks len", len(t0.DraftPicks), 2)
-	eqStr(t, "DraftPicks[0].Season", t0.DraftPicks[0].Season, "2019")
-	eqInt(t, "DraftPicks[0].Round", t0.DraftPicks[0].Round, 5)
-	eqInt(t, "DraftPicks[0].RosterID", t0.DraftPicks[0].RosterID, 1)
-	eqInt(t, "DraftPicks[0].OwnerID", t0.DraftPicks[0].OwnerID, 2)
+	eqStr(t, "DraftPicks[0].Season", string(t0.DraftPicks[0].Season), "2019")
+	eqInt(t, "DraftPicks[0].Round", int(t0.DraftPicks[0].Round), 5)
+	eqInt(t, "DraftPicks[0].RosterID", int(t0.DraftPicks[0].RosterID), 1)
+	eqInt(t, "DraftPicks[0].OwnerID", int(t0.DraftPicks[0].OwnerID), 2)
 	eqTime(t, "Created", t0.Created, 1558039391576)
 	eqTime(t, "StatusUpdated", t0.StatusUpdated, 1558039402803)
 
-	// Second txn: adds/drops present -> map[string]int; creator null -> "".
+	// Second txn: adds/drops present -> map[string]any; creator null -> "".
 	t1 := txns[1]
 	if v, ok := t1.Adds["2315"]; !ok || v != float64(1) {
 		t.Errorf("Adds[2315]: got %#v, want float64(1)", t1.Adds)
@@ -110,6 +109,32 @@ func TestParseTransactionsDocsSample(t *testing.T) {
 	if v, ok := t1.Drops["1736"]; !ok || v != float64(1) {
 		t.Errorf("Drops[1736]: got %#v, want float64(1)", t1.Drops)
 	}
-	eqStr(t, "Creator[1]", t1.Creator, "")
+	eqStr(t, "Creator[1]", string(t1.Creator), "")
 	eqInt(t, "DraftPicks[1] len", len(t1.DraftPicks), 0)
+}
+
+// TestEpochMsRoundtrip guards the client cache path: get() re-marshals a
+// decoded struct to store it, then re-decodes on cache hit. EpochMs.MarshalJSON
+// emits RFC3339, so UnmarshalJSON must accept RFC3339 (in addition to epoch-ms)
+// or cached timestamps would be lost on the second access.
+func TestEpochMsRoundtrip(t *testing.T) {
+	var txn Transaction
+	if err := json.Unmarshal([]byte(`{"created": 1558039391576}`), &txn); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := time.UnixMilli(1558039391576).UTC()
+	if txn.Created == nil || !time.Time(*txn.Created).Equal(want) {
+		t.Fatalf("decode: got %#v", txn.Created)
+	}
+	raw, err := json.Marshal(txn)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var again Transaction
+	if err := json.Unmarshal(raw, &again); err != nil {
+		t.Fatalf("re-decode: %v", err)
+	}
+	if again.Created == nil || !time.Time(*again.Created).Equal(want) {
+		t.Errorf("roundtrip: got %#v, want %v", again.Created, want)
+	}
 }

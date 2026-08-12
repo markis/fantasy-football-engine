@@ -50,7 +50,7 @@ func eqLen(t *testing.T, name string, got any, want int) {
 	switch s := got.(type) {
 	case []string:
 		n = len(s)
-	case []map[string]any:
+	case FlexStringSlice:
 		n = len(s)
 	}
 	if n != want {
@@ -81,15 +81,14 @@ func eqMapKey(t *testing.T, name string, m map[string]any, key string, want any)
 }
 
 func TestParseRostersDocsSample(t *testing.T) {
-	var raw []map[string]any
-	if err := json.Unmarshal([]byte(rosterDocsSample), &raw); err != nil {
+	var ros []Roster
+	if err := json.Unmarshal([]byte(rosterDocsSample), &ros); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	ros := ParseRosters(raw)
 	eqInt(t, "len", len(ros), 2)
 
 	r0 := ros[0]
-	eqInt(t, "RosterID", r0.RosterID, 1)
+	eqInt(t, "RosterID", int(r0.RosterID), 1)
 	eqFlexStr(t, "OwnerID", r0.OwnerID, "188815879448829952")
 	eqLen(t, "Players", r0.Players, 6)
 	if r0.Players[0] != "1046" {
@@ -106,7 +105,7 @@ func TestParseRostersDocsSample(t *testing.T) {
 
 	// Second roster: null owner_id -> nil OwnerID (not "" or "<nil>").
 	r1 := ros[1]
-	eqInt(t, "RosterID[1]", r1.RosterID, 2)
+	eqInt(t, "RosterID[1]", int(r1.RosterID), 2)
 	if r1.OwnerID != nil {
 		t.Errorf("OwnerID[1]: want nil for null, got %#v", r1.OwnerID)
 	}
@@ -116,11 +115,15 @@ func TestParseRostersDocsSample(t *testing.T) {
 }
 
 func TestParseRosterNumericOwnerID(t *testing.T) {
-	// If Sleeper ever sends owner_id as a (small) number, it must coerce to the
-	// same string fmt.Sprint would produce, preserving the existing comparison
-	// sites. Real snowflake owner ids arrive as JSON strings; huge numbers would
-	// be lossy in both the old and new code, so this uses an exact float64.
-	r := ParseRoster(map[string]any{"roster_id": float64(7), "owner_id": float64(42)})
-	eqInt(t, "RosterID", r.RosterID, 7)
+	// If Sleeper ever sends owner_id as a number, it must coerce to the same
+	// string form a present value would produce, preserving the existing
+	// comparison sites. Real snowflake owner ids arrive as JSON strings; huge
+	// numbers would be lossy, so this uses an exact integer literal.
+	const in = `{"roster_id": 7, "owner_id": 42}`
+	var r Roster
+	if err := json.Unmarshal([]byte(in), &r); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	eqInt(t, "RosterID", int(r.RosterID), 7)
 	eqFlexStr(t, "OwnerID", r.OwnerID, "42")
 }

@@ -1,12 +1,5 @@
 package sleeper
 
-import (
-	"bytes"
-	"encoding/json"
-	"errors"
-	"fmt"
-)
-
 // Player models one entry in the /players/nfl dump (the value object; the
 // player_id is the map key returned by FetchPlayerDump). Fields are typed
 // where the Sleeper API is consistent, and use *FlexString for the external
@@ -59,43 +52,5 @@ type Player struct {
 	NewsUpdated           any         `json:"news_updated"`
 }
 
-// errFlexStringDecode is returned by FlexString.UnmarshalJSON when the JSON
-// value is neither a string nor a number.
-var errFlexStringDecode = errors.New("FlexString: cannot decode JSON value")
-
-// FlexString is a string that unmarshals from a JSON string OR number,
-// coercing the number to its decimal string form. A null produces a nil
-// pointer when used as *FlexString (encoding/json sets the pointer to nil
-// without calling UnmarshalJSON). It exists because Sleeper encodes several
-// external ID fields as numbers in some player records and strings in others
-// (e.g. rotoworld_id arrives as 8356, espn_id as "").
-type FlexString string
-
-// UnmarshalJSON accepts a JSON string or number, coercing to FlexString.
-func (f *FlexString) UnmarshalJSON(b []byte) error {
-	b = bytes.TrimSpace(b)
-	if len(b) == 0 {
-		return nil
-	}
-	var s string
-	if err := json.Unmarshal(b, &s); err == nil {
-		*f = FlexString(s)
-		return nil
-	}
-	var n json.Number
-	if err := json.Unmarshal(b, &n); err == nil {
-		*f = FlexString(string(n))
-		return nil
-	}
-	return fmt.Errorf("%w: %s", errFlexStringDecode, b)
-}
-
-// Ptr returns a *string copy of f, or nil if f is nil. Used to feed the
-// external ID columns (TEXT, nullable) when persisting.
-func (f *FlexString) Ptr() *string {
-	if f == nil {
-		return nil
-	}
-	s := string(*f)
-	return &s
-}
+// FlexString and its UnmarshalJSON/Ptr live in helpers.go alongside the other
+// lenient types; Player is decoded directly via encoding/json.

@@ -61,7 +61,7 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 		if result.LeaguesSeen >= maxLeagues {
 			break
 		}
-		leagueID := lg.LeagueID
+		leagueID := string(lg.LeagueID)
 		if seenLeagues[leagueID] {
 			continue
 		}
@@ -113,7 +113,7 @@ func (s *LeaguemateSyncer) processMarkisLeagueRosters(
 		}
 		seenManagers[ownerID] = true
 
-		rid := roster.RosterID
+		rid := int(roster.RosterID)
 
 		// Upsert league_manager
 		user := userMap[ownerID]
@@ -167,10 +167,10 @@ func (s *LeaguemateSyncer) storeRosterPlayers(
 	roster *sleeper.Roster,
 	warnMsg string,
 ) int {
-	players := roster.Players
-	starters := roster.Starters
-	taxi := roster.Taxi
-	reserve := roster.Reserve
+	players := []string(roster.Players)
+	starters := []string(roster.Starters)
+	taxi := []string(roster.Taxi)
+	reserve := []string(roster.Reserve)
 
 	rows := 0
 	for _, pid := range players {
@@ -189,7 +189,7 @@ func (s *LeaguemateSyncer) storeRosterPlayers(
 }
 
 func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg *sleeper.League, isMarkis bool, discoveredVia string) {
-	leagueID := lg.LeagueID
+	leagueID := string(lg.LeagueID)
 	rosterPositions, err := json.Marshal(lg.RosterPositions)
 	if err != nil {
 		slog.Warn("failed to marshal roster positions", "league_id", leagueID, "err", err)
@@ -218,9 +218,9 @@ func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg *sleeper.League,
 			roster_positions = EXCLUDED.roster_positions, settings = EXCLUDED.settings,
 			is_markis_league = league.is_markis_league OR EXCLUDED.is_markis_league,
 			last_synced_at = now()
-	`, leagueID, lg.Name, lg.Season, "nfl", lg.Status, lg.TotalRosters,
+	`, leagueID, lg.Name.Ptr(), lg.Season.Ptr(), "nfl", lg.Status.Ptr(), int(lg.TotalRosters),
 		hasSuperflex(lg), isBestBall(lg), leagueType,
-		rosterPositions, settings, lg.PreviousLeagueID,
+		rosterPositions, settings, lg.PreviousLeagueID.Ptr(),
 		isMarkis, nilIfEmpty(discoveredVia)); err != nil {
 		slog.Warn("upsert league", "id", leagueID, "err", err)
 	}
@@ -318,7 +318,7 @@ func (s *LeaguemateSyncer) syncOtherManagerLeagues(
 	rosterRows := 0
 	for i := range parsedOthers {
 		ol := &parsedOthers[i]
-		olID := ol.LeagueID
+		olID := string(ol.LeagueID)
 		if seenLeagues[olID] || count >= maxLeagues {
 			continue
 		}
@@ -360,7 +360,7 @@ func (s *LeaguemateSyncer) syncDiscoveredLeague(
 			continue
 		}
 		seenManagers[olOwnerID] = true
-		rrid := olRoster.RosterID
+		rrid := int(olRoster.RosterID)
 		s.upsertLeagueManager(ctx, olID, olOwnerID, rrid, olUserMap[olOwnerID], false, olOwnerID == models.MarkisUserID)
 
 		rosterRows += s.storeRosterPlayers(ctx, olID, rrid, olRoster, "failed to insert other league roster player")

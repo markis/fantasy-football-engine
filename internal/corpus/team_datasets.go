@@ -147,7 +147,7 @@ func buildRosterOwnerMap(rosters []sleeper.Roster) map[int]string {
 		if r.OwnerID != nil {
 			owner = util.StrOrEmpty(r.OwnerID.Ptr())
 		}
-		rosterOwner[r.RosterID] = owner
+		rosterOwner[int(r.RosterID)] = owner
 	}
 	return rosterOwner
 }
@@ -214,7 +214,7 @@ type rosterBuckets struct {
 // buildRosterSlots partitions Markis's roster into active roster, taxi
 // squad, and injured reserve slot records.
 func (p *Publisher) buildRosterSlots(ctx context.Context, myRoster *sleeper.Roster, starterSlots []string) rosterBuckets {
-	starters := myRoster.Starters
+	starters := []string(myRoster.Starters)
 	starterSlot := make(map[string]string, len(starters))
 	for i, pid := range starters {
 		if pid == "" || pid == "0" || i >= len(starterSlots) {
@@ -222,10 +222,10 @@ func (p *Publisher) buildRosterSlots(ctx context.Context, myRoster *sleeper.Rost
 		}
 		starterSlot[pid] = starterSlots[i]
 	}
-	taxiSet := stringSet(myRoster.Taxi)
-	reserveSet := stringSet(myRoster.Reserve)
+	taxiSet := stringSet([]string(myRoster.Taxi))
+	reserveSet := stringSet([]string(myRoster.Reserve))
 
-	players := myRoster.Players
+	players := []string(myRoster.Players)
 	playerRows := p.common.PlayerRows(ctx, players)
 	rkRows := p.common.RankingRows(ctx, players, "Dynasty Daddy", 14)
 
@@ -305,7 +305,7 @@ func buildPlayerSlotRecord(sid string, pr *PlayerRow, rk *RankingRow, slot strin
 func (p *Publisher) buildFuturePicks(
 	ctx context.Context, leagueID string, myRoster *sleeper.Roster, rosterOwner map[int]string,
 ) []FuturePick {
-	markisRosterID := strconv.Itoa(myRoster.RosterID)
+	markisRosterID := strconv.Itoa(int(myRoster.RosterID))
 	tradedPicks, err := p.common.LeagueTradedPicks(ctx, leagueID)
 	if err != nil {
 		slog.Warn("failed to get league traded picks", "league_id", leagueID, "err", err)
@@ -313,20 +313,20 @@ func (p *Publisher) buildFuturePicks(
 	}
 	var futurePicks []FuturePick
 	for _, pick := range tradedPicks {
-		if strconv.Itoa(pick.OwnerID) != markisRosterID {
+		if strconv.Itoa(int(pick.OwnerID)) != markisRosterID {
 			continue
 		}
-		originalTeam := strconv.Itoa(pick.RosterID)
-		if name, ok := rosterOwner[pick.RosterID]; ok {
+		originalTeam := strconv.Itoa(int(pick.RosterID))
+		if name, ok := rosterOwner[int(pick.RosterID)]; ok {
 			originalTeam = name
 		}
-		currentOwner := strconv.Itoa(pick.OwnerID)
-		if name, ok := rosterOwner[pick.OwnerID]; ok {
+		currentOwner := strconv.Itoa(int(pick.OwnerID))
+		if name, ok := rosterOwner[int(pick.OwnerID)]; ok {
 			currentOwner = name
 		}
 		futurePicks = append(futurePicks, FuturePick{
-			Season:       pick.Season,
-			Round:        pick.Round,
+			Season:       int(pick.Season),
+			Round:        int(pick.Round),
 			OriginalTeam: originalTeam,
 			CurrentOwner: currentOwner,
 		})

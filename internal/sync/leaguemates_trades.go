@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -157,7 +158,7 @@ func (s *LeaguemateTradesSyncer) storeTrade(
 
 	involvesWatchSet := tradeInvolvesWatchSet(adds, drops, watchSet)
 
-	if err := s.insertTradeTransaction(ctx, t.TxnID, leagueID, t, isMarkisLeague, involvesWatchSet, raw); err != nil {
+	if err := s.insertTradeTransaction(ctx, string(t.TxnID), leagueID, t, isMarkisLeague, involvesWatchSet, raw); err != nil {
 		slog.Warn("store trade", "id", t.TxnID, "err", err)
 		return false
 	}
@@ -166,13 +167,13 @@ func (s *LeaguemateTradesSyncer) storeTrade(
 	// leaguemate_trade_asset (dedup relies on this delete always running
 	// before the inserts below), so a failed delete must abort rather than
 	// fall through into inserting a second, duplicate set of rows.
-	if err := s.deleteTradeAssets(ctx, t.TxnID); err != nil {
+	if err := s.deleteTradeAssets(ctx, string(t.TxnID)); err != nil {
 		slog.Warn("delete trade assets", "id", t.TxnID, "err", err)
 		return false
 	}
 
-	s.insertPlayerTradeAssets(ctx, t.TxnID, leagueID, adds, drops, watchSet)
-	s.insertPickTradeAssets(ctx, t.TxnID, leagueID, t.DraftPicks)
+	s.insertPlayerTradeAssets(ctx, string(t.TxnID), leagueID, adds, drops, watchSet)
+	s.insertPickTradeAssets(ctx, string(t.TxnID), leagueID, t.DraftPicks)
 
 	return true
 }
@@ -207,10 +208,10 @@ func (s *LeaguemateTradesSyncer) insertTradeTransaction(
 			is_markis_league, involves_watch_set, raw, last_synced_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, now())
 		ON CONFLICT (transaction_id) DO UPDATE SET last_synced_at = now()
-	`, txnID, leagueID, "trade", t.Status,
-		nilIfEmpty(t.Creator), t.Leg,
-		t.RosterIDs, t.ConsenterIDs,
-		t.Created, t.StatusUpdated,
+	`, txnID, leagueID, "trade", string(t.Status),
+		nilIfEmpty(string(t.Creator)), int(t.Leg),
+		[]int(t.RosterIDs), []int(t.ConsenterIDs),
+		(*time.Time)(t.Created), (*time.Time)(t.StatusUpdated),
 		isMarkisLeague, involvesWatchSet, raw)
 	if err != nil {
 		return fmt.Errorf("upsert trade transaction %s: %w", txnID, err)
@@ -270,7 +271,7 @@ func (s *LeaguemateTradesSyncer) insertPickTradeAssets(ctx context.Context, txnI
 				pick_season, pick_round, pick_roster_id, from_roster_id, to_roster_id)
 			VALUES ($1, $2, $3, 'pick', $4, $5, $6, $7, $8)
 		`, uuid.New(), txnID, leagueID,
-			nilIfEmpty(pick.Season), pick.Round, pick.RosterID, pick.PreviousOwnerID, pick.OwnerID); err != nil {
+			nilIfEmpty(string(pick.Season)), int(pick.Round), int(pick.RosterID), int(pick.PreviousOwnerID), int(pick.OwnerID)); err != nil {
 			slog.Warn("failed to insert trade asset (pick)", "err", err)
 		}
 	}

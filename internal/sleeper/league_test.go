@@ -36,25 +36,24 @@ const leagueDocsSample = `[
 ]`
 
 func TestParseLeaguesDocsSample(t *testing.T) {
-	var raw []map[string]any
-	if err := json.Unmarshal([]byte(leagueDocsSample), &raw); err != nil {
+	var leagues []League
+	if err := json.Unmarshal([]byte(leagueDocsSample), &leagues); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	leagues := ParseLeagues(raw)
 	eqInt(t, "len", len(leagues), 2)
 
 	l0 := leagues[0]
-	eqStr(t, "LeagueID", l0.LeagueID, "289646328504385536")
-	if l0.Name == nil || *l0.Name != "Sleeperbot Dynasty" {
+	eqStr(t, "LeagueID", string(l0.LeagueID), "289646328504385536")
+	if l0.Name == nil || string(*l0.Name) != "Sleeperbot Dynasty" {
 		t.Errorf("Name: got %#v", l0.Name)
 	}
-	if l0.Season == nil || *l0.Season != "2018" {
+	if l0.Season == nil || string(*l0.Season) != "2018" {
 		t.Errorf("Season: got %#v", l0.Season)
 	}
-	if l0.Status == nil || *l0.Status != "in_season" {
+	if l0.Status == nil || string(*l0.Status) != "in_season" {
 		t.Errorf("Status: got %#v", l0.Status)
 	}
-	eqInt(t, "TotalRosters", l0.TotalRosters, 12)
+	eqInt(t, "TotalRosters", int(l0.TotalRosters), 12)
 	eqInt(t, "RosterPositions len", len(l0.RosterPositions), 10)
 	if l0.RosterPositions[7] != "SUPER_FLEX" {
 		t.Errorf("RosterPositions[7]: got %q", l0.RosterPositions[7])
@@ -71,7 +70,7 @@ func TestParseLeaguesDocsSample(t *testing.T) {
 	if l1.Settings != nil {
 		t.Errorf("Settings[1]: want nil for null, got %#v", l1.Settings)
 	}
-	if l1.PreviousLeagueID == nil || *l1.PreviousLeagueID != "198946952535085056" {
+	if l1.PreviousLeagueID == nil || string(*l1.PreviousLeagueID) != "198946952535085056" {
 		t.Errorf("PreviousLeagueID[1]: got %#v", l1.PreviousLeagueID)
 	}
 }

@@ -24,11 +24,10 @@ const userDocsSample = `[
 ]`
 
 func TestParseUsersDocsSample(t *testing.T) {
-	var raw []map[string]any
-	if err := json.Unmarshal([]byte(userDocsSample), &raw); err != nil {
+	var users []User
+	if err := json.Unmarshal([]byte(userDocsSample), &users); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	users := ParseUsers(raw)
 	eqInt(t, "len", len(users), 2)
 
 	u0 := users[0]
@@ -61,31 +60,34 @@ const tradedPicksDocsSample = `[
 ]`
 
 func TestParseTradedPicksDocsSample(t *testing.T) {
-	var raw []map[string]any
-	if err := json.Unmarshal([]byte(tradedPicksDocsSample), &raw); err != nil {
+	var picks []TradedPick
+	if err := json.Unmarshal([]byte(tradedPicksDocsSample), &picks); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	picks := ParseTradedPicks(raw)
 	eqInt(t, "len", len(picks), 2)
 
 	p0 := picks[0]
-	eqInt(t, "Season", p0.Season, 2019) // string "2019" coerced to int
-	eqInt(t, "Round", p0.Round, 5)
-	eqInt(t, "RosterID", p0.RosterID, 1)
-	eqInt(t, "OwnerID", p0.OwnerID, 2)
+	eqInt(t, "Season", int(p0.Season), 2019) // string "2019" coerced to int
+	eqInt(t, "Round", int(p0.Round), 5)
+	eqInt(t, "RosterID", int(p0.RosterID), 1)
+	eqInt(t, "OwnerID", int(p0.OwnerID), 2)
 
 	p1 := picks[1]
-	eqInt(t, "Season[1]", p1.Season, 2020)
-	eqInt(t, "RosterID[1]", p1.RosterID, 2)
-	eqInt(t, "OwnerID[1]", p1.OwnerID, 1)
+	eqInt(t, "Season[1]", int(p1.Season), 2020)
+	eqInt(t, "RosterID[1]", int(p1.RosterID), 2)
+	eqInt(t, "OwnerID[1]", int(p1.OwnerID), 1)
 }
 
-// TestParseTradedPickNull asserts absent/null pick fields coerce to 0 (the
-// util.ToInt default), so downstream int usage never panics.
+// TestParseTradedPickNull asserts null pick fields coerce to 0 (the FlexInt
+// default), so downstream int usage never panics.
 func TestParseTradedPickNull(t *testing.T) {
-	p := ParseTradedPick(map[string]any{"season": nil, "round": nil, "roster_id": nil, "owner_id": nil})
-	eqInt(t, "Season", p.Season, 0)
-	eqInt(t, "Round", p.Round, 0)
-	eqInt(t, "RosterID", p.RosterID, 0)
-	eqInt(t, "OwnerID", p.OwnerID, 0)
+	const in = `{"season": null, "round": null, "roster_id": null, "owner_id": null}`
+	var p TradedPick
+	if err := json.Unmarshal([]byte(in), &p); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	eqInt(t, "Season", int(p.Season), 0)
+	eqInt(t, "Round", int(p.Round), 0)
+	eqInt(t, "RosterID", int(p.RosterID), 0)
+	eqInt(t, "OwnerID", int(p.OwnerID), 0)
 }
