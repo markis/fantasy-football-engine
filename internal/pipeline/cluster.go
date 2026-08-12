@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"ff-engine/internal/db"
+	"ff-engine/internal/util"
 )
 
 // Clusterer matches items to existing story clusters or creates new ones.
@@ -94,7 +95,7 @@ func (c *Clusterer) processItem(ctx context.Context, itemID uuid.UUID) (string, 
 	}
 
 	// Create new cluster
-	if err := c.createCluster(ctx, itemID, ptrStr(title), sourceID); err != nil {
+	if err := c.createCluster(ctx, itemID, util.StrOrEmpty(title), sourceID); err != nil {
 		return "not_assigned", err
 	}
 	return "created", nil

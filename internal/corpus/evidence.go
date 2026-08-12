@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
+
 	"ff-engine/internal/models"
 )
 
@@ -180,7 +182,7 @@ func (p *Publisher) buildWatchSet(
 		myRoster := p.common.MyRoster(rosters)
 		myPlayers := make(map[string]bool)
 		if myRoster != nil {
-			for _, pid := range toStringSlice(myRoster["players"]) {
+			for _, pid := range myRoster.Players {
 				myPlayers[pid] = true
 			}
 		}
@@ -472,16 +474,7 @@ func evidenceOwnerReason(matchedPlayers []string, ownership map[string][][2]stri
 	if len(ownerReasons) == 0 {
 		return "decision-relevant"
 	}
-	// Dedupe
-	seen := make(map[string]bool)
-	var unique []string
-	for _, r := range ownerReasons {
-		if !seen[r] {
-			seen[r] = true
-			unique = append(unique, r)
-		}
-	}
-	return "Mentions " + strings.Join(unique, ", ")
+	return "Mentions " + strings.Join(lo.Uniq(ownerReasons), ", ")
 }
 
 // evidenceRelevanceFlags reports whether any matched player is owned on the

@@ -197,6 +197,11 @@ linters:
           - gosec
           - noctx
           - wrapcheck
+      # The sleeper package is an external-API client; its struct tags mirror
+      # Sleeper's snake_case JSON keys, not the repo's internal camelCase.
+      - path: internal/sleeper/.*\.go
+        linters:
+          - tagliatelle
 
     paths:
       - vendor

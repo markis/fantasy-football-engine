@@ -12,6 +12,7 @@ import (
 
 	"ff-engine/internal/db"
 	"ff-engine/internal/llm"
+	"ff-engine/internal/util"
 )
 
 var errStoryValidation = errors.New("story validation failed")
@@ -128,10 +129,10 @@ func (g *StoryGenerator) generateOne(ctx context.Context, itemID uuid.UUID) erro
 		return fmt.Errorf("query news item %s: %w", itemID, err)
 	}
 
-	summaryStr := strings.TrimSpace(ptrStr(summary))
+	summaryStr := strings.TrimSpace(util.StrOrEmpty(summary))
 	bodyExcerpt := ""
 	if summaryStr == "" {
-		bodyExcerpt = truncate(ptrStr(body), 600)
+		bodyExcerpt = truncate(util.StrOrEmpty(body), 600)
 	}
 	if summaryStr == "" && bodyExcerpt == "" {
 		return nil
@@ -139,8 +140,8 @@ func (g *StoryGenerator) generateOne(ctx context.Context, itemID uuid.UUID) erro
 
 	facts := g.compactFacts(ctx, itemID)
 	prompt := fmt.Sprintf(storyPrompt,
-		ptrStrOr(title, "(untitled)"),
-		ptrStrOr(summary, "(no summary)"),
+		util.StrOr(title, "(untitled)"),
+		util.StrOr(summary, "(no summary)"),
 		bodyExcerpt,
 		strings.Join(facts, "\n"))
 
@@ -226,11 +227,4 @@ func validateStory(text string) string {
 	}
 	text = strings.TrimSpace(whitespaceRe.ReplaceAllString(text, " "))
 	return text
-}
-
-func ptrStrOr(s *string, def string) string {
-	if s == nil || *s == "" {
-		return def
-	}
-	return *s
 }

@@ -11,6 +11,7 @@ import (
 	"ff-engine/internal/db"
 	"ff-engine/internal/models"
 	"ff-engine/internal/sleeper"
+	"ff-engine/internal/util"
 )
 
 // LeaguemateSyncer builds the 1-hop manager graph from Sleeper.
@@ -171,10 +172,10 @@ func (s *LeaguemateSyncer) storeRosterPlayers(
 	roster map[string]any,
 	warnMsg string,
 ) int {
-	players := toStringSlice(roster["players"])
-	starters := toStringSlice(roster["starters"])
-	taxi := toStringSlice(roster["taxi"])
-	reserve := toStringSlice(roster["reserve"])
+	players := util.ToStringSlice(roster["players"])
+	starters := util.ToStringSlice(roster["starters"])
+	taxi := util.ToStringSlice(roster["taxi"])
+	reserve := util.ToStringSlice(roster["reserve"])
 
 	rows := 0
 	for _, pid := range players {
@@ -319,24 +320,6 @@ func isBestBall(lg map[string]any) bool {
 	}
 	v := toInt(settings["best_ball"])
 	return v != nil && *v == 1
-}
-
-func toStringSlice(v any) []string {
-	if v == nil {
-		return nil
-	}
-	arr, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	result := make([]string, 0, len(arr))
-	for _, item := range arr {
-		s := fmt.Sprint(item)
-		if s != "" && s != nilStr {
-			result = append(result, s)
-		}
-	}
-	return result
 }
 
 func contains(arr []string, s string) bool {

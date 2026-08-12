@@ -12,9 +12,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/pgvector/pgvector-go"
 
+	"github.com/samber/lo"
+
 	"ff-engine/internal/db"
 	"ff-engine/internal/embed"
 	"ff-engine/internal/llm"
+	"ff-engine/internal/util"
 )
 
 var errNoFactBody = errors.New("no fact body available")
@@ -155,12 +158,12 @@ func (f *FactExtractor) loadFactSource(ctx context.Context, itemID uuid.UUID) (*
 		return nil, fmt.Errorf("query news item %s: %w", itemID, err)
 	}
 
-	body := ptrStr(content)
+	body := util.StrOrEmpty(content)
 	if body == "" {
-		body = ptrStr(summary)
+		body = util.StrOrEmpty(summary)
 	}
 	if body == "" {
-		body = ptrStr(title)
+		body = util.StrOrEmpty(title)
 	}
 	if strings.TrimSpace(body) == "" {
 		return nil, errNoFactBody
@@ -169,7 +172,7 @@ func (f *FactExtractor) loadFactSource(ctx context.Context, itemID uuid.UUID) (*
 		body = body[:maxBodyChars]
 	}
 
-	return &factSource{title: ptrStr(title), body: body, publishedAt: publishedAt, createdAt: createdAt}, nil
+	return &factSource{title: util.StrOrEmpty(title), body: body, publishedAt: publishedAt, createdAt: createdAt}, nil
 }
 
 // filterValidFacts trims fact text and drops facts that are too short or
@@ -301,11 +304,5 @@ func parseFactsJSON(content string) []llmFact {
 	if err := json.Unmarshal([]byte(content[start:end+1]), &facts); err != nil {
 		return nil
 	}
-	var result []llmFact
-	for _, f := range facts {
-		if f.Fact != "" {
-			result = append(result, f)
-		}
-	}
-	return result
+	return lo.Filter(facts, func(f llmFact, _ int) bool { return f.Fact != "" })
 }

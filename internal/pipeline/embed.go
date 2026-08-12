@@ -10,6 +10,7 @@ import (
 
 	"ff-engine/internal/db"
 	"ff-engine/internal/embed"
+	"ff-engine/internal/util"
 )
 
 // Embedder generates and stores embeddings for news items.
@@ -58,12 +59,12 @@ func (e *Embedder) fetchPendingEmbedItems(ctx context.Context, limit int) ([]emb
 		if err := rows.Scan(&id, &title, &summary, &content); err != nil {
 			return nil, fmt.Errorf("scan embed item: %w", err)
 		}
-		text := ptrStr(content)
+		text := util.StrOrEmpty(content)
 		if text == "" {
-			text = ptrStr(summary)
+			text = util.StrOrEmpty(summary)
 		}
 		if text == "" {
-			text = ptrStr(title)
+			text = util.StrOrEmpty(title)
 		}
 		if text != "" {
 			items = append(items, embedItem{id: id, text: text})

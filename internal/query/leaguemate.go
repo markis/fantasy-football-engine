@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ff-engine/internal/util"
 )
 
 // --- Leaguemate intelligence tools (ported from the Python Sleeper MCP) ---
@@ -24,9 +26,9 @@ func (s *Service) LeaguemateOverlap(ctx context.Context, playerID string, includ
 		"SELECT full_name, position, team FROM player WHERE sleeper_player_id = $1", playerID,
 	).Scan(&name, &pos, &team)
 	if err == nil {
-		player[colName] = ptrStr(name)
-		player[colPosition] = ptrStr(pos)
-		player[colTeam] = ptrStr(team)
+		player[colName] = util.StrOrEmpty(name)
+		player[colPosition] = util.StrOrEmpty(pos)
+		player[colTeam] = util.StrOrEmpty(team)
 	}
 
 	var markisOwns bool
@@ -74,13 +76,13 @@ func (s *Service) LeaguemateOverlap(ctx context.Context, playerID string, includ
 		}
 		owners = append(owners, map[string]any{
 			colUserID:                userID,
-			"username":               ptrStr(uname),
-			"display_name":           ptrStr(dname),
+			"username":               util.StrOrEmpty(uname),
+			"display_name":           util.StrOrEmpty(dname),
 			"in_my_leagues":          inMy,
 			"in_my_leagues_count":    inMyCount,
 			"in_other_leagues_count": inOtherCount,
 			"total_leagues":          total,
-			colLeagues:               ptrStr(leagues),
+			colLeagues:               util.StrOrEmpty(leagues),
 		})
 	}
 	if owners == nil {
@@ -139,13 +141,13 @@ func (s *Service) ManagerProfile(ctx context.Context, username string) (map[stri
 			continue
 		}
 		leagues = append(leagues, map[string]any{
-			colName:            ptrStr(lName),
+			colName:            util.StrOrEmpty(lName),
 			colLeagueID:        leagueID,
 			"is_markis_league": boolPtrVal(isMarkis),
-			"status":           ptrStr(status),
+			"status":           util.StrOrEmpty(status),
 			"has_superflex":    boolPtrVal(hasSF),
 			"is_best_ball":     boolPtrVal(isBB),
-			"team_name":        ptrStr(teamName),
+			"team_name":        util.StrOrEmpty(teamName),
 			"wins":             intPtrVal(wins),
 			"losses":           intPtrVal(losses),
 			"ties":             intPtrVal(ties),
@@ -202,11 +204,11 @@ func (s *Service) ManagerProfile(ctx context.Context, username string) (map[stri
 			continue
 		}
 		mostHeld = append(mostHeld, map[string]any{
-			colPlayerID:          ptrStr(pid),
-			colName:              ptrStr(fName),
-			colPosition:          ptrStr(pos),
-			colTeam:              ptrStr(team),
-			"injury_status":      ptrStr(inj),
+			colPlayerID:          util.StrOrEmpty(pid),
+			colName:              util.StrOrEmpty(fName),
+			colPosition:          util.StrOrEmpty(pos),
+			colTeam:              util.StrOrEmpty(team),
+			"injury_status":      util.StrOrEmpty(inj),
 			"leagues_owned":      leaguesOwned,
 			"in_my_leagues":      inMy,
 			"starting_somewhere": starting,
@@ -220,8 +222,8 @@ func (s *Service) ManagerProfile(ctx context.Context, username string) (map[stri
 	}
 
 	return map[string]any{
-		"username":     ptrStr(uname),
-		"display_name": ptrStr(dname),
+		"username":     util.StrOrEmpty(uname),
+		"display_name": util.StrOrEmpty(dname),
 		colUserID:      uid,
 		colLeagues:     leagues,
 		"standings":    standings,
@@ -328,20 +330,20 @@ func buildTradeAsset(assetType string, pid, fName, pos, team, pickSeason *string
 	if assetType == colPlayer {
 		asset = map[string]any{
 			"type":      colPlayer,
-			colPlayerID: ptrStr(pid),
-			colName:     ptrStr(fName),
-			colPosition: ptrStr(pos),
-			colTeam:     ptrStr(team),
+			colPlayerID: util.StrOrEmpty(pid),
+			colName:     util.StrOrEmpty(fName),
+			colPosition: util.StrOrEmpty(pos),
+			colTeam:     util.StrOrEmpty(team),
 		}
 	} else {
 		asset = map[string]any{
 			"type":   "pick",
-			"desc":   fmt.Sprintf("%s R%d", ptrStr(pickSeason), intPtrOr(pickRound, 0)),
-			"season": ptrStr(pickSeason),
+			"desc":   fmt.Sprintf("%s R%d", util.StrOrEmpty(pickSeason), intPtrOr(pickRound, 0)),
+			"season": util.StrOrEmpty(pickSeason),
 			"round":  intPtrOr(pickRound, 0),
 		}
 	}
-	asset["raw_pid"] = ptrStr(pid)
+	asset["raw_pid"] = util.StrOrEmpty(pid)
 	return asset
 }
 
@@ -363,9 +365,9 @@ func (s *Service) fetchLeagueManagers(ctx context.Context, leagueIDs []string) (
 		if scanErr := mRows.Scan(&lgID, &rosterID, &uname, &dname); scanErr != nil {
 			continue
 		}
-		name := ptrStr(dname)
+		name := util.StrOrEmpty(dname)
 		if name == "" {
-			name = ptrStr(uname)
+			name = util.StrOrEmpty(uname)
 		}
 		mgr[lgID+"|"+strconv.Itoa(rosterID)] = name
 	}

@@ -265,13 +265,13 @@ func (c *Client) GetTrendingPlayers(ctx context.Context, trendType string, lookb
 
 // FetchPlayerDump fetches the full Sleeper NFL player database (~16MB JSON).
 // This is NOT cached due to size.
-func (c *Client) FetchPlayerDump(ctx context.Context) (map[string]map[string]any, error) {
+func (c *Client) FetchPlayerDump(ctx context.Context) (map[string]*Player, error) {
 	resp, err := c.doGet(ctx, "players/nfl")
 	if err != nil {
 		return nil, fmt.Errorf("fetch player dump: %w", err)
 	}
 	defer resp.Body.Close()
-	var result map[string]map[string]any
+	var result map[string]*Player
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("decode player dump: %w", err)
 	}

@@ -84,81 +84,67 @@ func (s *PlayerSyncer) Sync(ctx context.Context) (*PlayerSyncResult, error) {
 	return result, nil
 }
 
-func projectPlayer(pid string, p map[string]any) []any {
-	cols := []string{
-		"first_name", "last_name", "full_name", "search_full_name",
-		colPosition, "fantasy_positions", colTeam, "team_abbr", "status", "active",
-		"injury_status", "injury_body_part", "injury_notes", "injury_start_date",
-		"age", "years_exp", "birth_date", "height", "weight", "college", "number",
-		"depth_chart_position", "depth_chart_order",
-		"practice_participation", "practice_description",
-		"gsis_id", colEspnID, colRotowireID, colRotoWorldID, colYahooID,
-		colSportradarID, "stats_id", "news_updated",
+func projectPlayer(pid string, p *sleeper.Player) []any {
+	// active is bool/number/string/null in the dump; coerce to bool.
+	var active bool
+	switch v := p.Active.(type) {
+	case bool:
+		active = v
+	case float64:
+		active = v != 0
+	case string:
+		active = v == "true" || v == "True"
+	default:
+		active = false
 	}
 
-	vals := make([]any, len(cols))
-	colIndex := make(map[string]int, len(cols))
-	for i, col := range cols {
-		vals[i] = p[col]
-		colIndex[col] = i
-	}
-
-	// Convert numeric IDs to strings
-	for _, name := range []string{colEspnID, colRotowireID, "rotoworld_id", "yahoo_id", colSportradarID, colStatsID} {
-		idx := colIndex[name]
-		if vals[idx] != nil {
-			vals[idx] = fmt.Sprint(vals[idx])
+	// news_updated is an epoch-ms number or null; convert to a timestamp.
+	newsUpdated := p.NewsUpdated
+	switch x := newsUpdated.(type) {
+	case float64:
+		newsUpdated = time.UnixMilli(int64(x)).UTC()
+	case json.Number:
+		if n, err := x.Int64(); err == nil {
+			newsUpdated = time.UnixMilli(n).UTC()
 		}
 	}
 
-	// Convert news_updated epoch ms to timestamp
-	newsUpdatedIdx := colIndex["news_updated"]
-	if vals[newsUpdatedIdx] != nil {
-		switch v := vals[newsUpdatedIdx].(type) {
-		case float64:
-			ts := time.UnixMilli(int64(v)).UTC()
-			vals[newsUpdatedIdx] = ts
-		case json.Number:
-			if n, err := v.Int64(); err == nil {
-				vals[newsUpdatedIdx] = time.UnixMilli(n).UTC()
-			}
-		}
+	return []any{
+		pid,
+		p.FirstName,
+		p.LastName,
+		p.FullName,
+		p.SearchFullName,
+		p.Position,
+		p.FantasyPositions,
+		p.Team,
+		p.TeamAbbr,
+		p.Status,
+		active,
+		p.InjuryStatus,
+		p.InjuryBodyPart,
+		p.InjuryNotes,
+		p.InjuryStartDate,
+		p.Age,
+		p.YearsExp,
+		p.BirthDate,
+		p.Height,
+		p.Weight,
+		p.College,
+		p.Number,
+		p.DepthChartPosition, // int or string; pgx coerces to TEXT
+		p.DepthChartOrder,
+		p.PracticeParticipation,
+		p.PracticeDescription,
+		p.GsisID,
+		p.EspnID.Ptr(),
+		p.RotowireID.Ptr(),
+		p.RotoworldID.Ptr(),
+		p.YahooID.Ptr(),
+		p.SportradarID.Ptr(),
+		p.StatsID.Ptr(),
+		newsUpdated,
 	}
-
-	// fantasy_positions as string array
-	fantasyPositionsIdx := colIndex["fantasy_positions"]
-	if v, ok := vals[fantasyPositionsIdx].([]any); ok {
-		arr := make([]string, 0, len(v))
-		for _, item := range v {
-			arr = append(arr, fmt.Sprint(item))
-		}
-		vals[fantasyPositionsIdx] = arr
-	}
-
-	// active as bool
-	activeIdx := colIndex["active"]
-	if vals[activeIdx] != nil {
-		switch v := vals[activeIdx].(type) {
-		case bool:
-			vals[activeIdx] = v
-		case float64:
-			vals[activeIdx] = v != 0
-		case string:
-			vals[activeIdx] = v == "true" || v == "True"
-		default:
-			vals[activeIdx] = false
-		}
-	} else {
-		vals[activeIdx] = false
-	}
-
-	// Prepend sleeper_player_id
-	all := make([]any, 0, len(vals)+1)
-	all = append(all, pid)
-	all = append(all, vals...)
-
-	_ = cols
-	return all
 }
 
 // pgxBatch accumulates player rows and executes them in batches.

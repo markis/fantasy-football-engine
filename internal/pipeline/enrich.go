@@ -14,6 +14,7 @@ import (
 	"ff-engine/internal/db"
 	"ff-engine/internal/llm"
 	"ff-engine/internal/models"
+	"ff-engine/internal/util"
 )
 
 // Enricher classifies fantasy relevance and extracts entities/topics.
@@ -127,9 +128,9 @@ func (e *Enricher) enrichOne(ctx context.Context, itemID uuid.UUID) (bool, error
 		return false, fmt.Errorf("scan news item %s: %w", itemID, err)
 	}
 
-	titleStr := ptrStr(title)
-	summaryStr := ptrStr(summary)
-	contentStr := ptrStr(content)
+	titleStr := util.StrOrEmpty(title)
+	summaryStr := util.StrOrEmpty(summary)
+	contentStr := util.StrOrEmpty(content)
 	text := contentStr
 	if text == "" {
 		text = summaryStr
@@ -279,11 +280,4 @@ func computeQuality(contentText, summaryShort string) float64 {
 	default:
 		return 0.1
 	}
-}
-
-func ptrStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }

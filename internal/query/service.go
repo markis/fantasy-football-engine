@@ -14,6 +14,7 @@ import (
 	"ff-engine/internal/embed"
 	"ff-engine/internal/models"
 	"ff-engine/internal/sleeper"
+	"ff-engine/internal/util"
 )
 
 const (
@@ -92,10 +93,10 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 		}
 		item := map[string]any{
 			"id":         id.String(),
-			colTitle:     ptrStr(title),
-			"url":        ptrStr(url),
+			colTitle:     util.StrOrEmpty(title),
+			"url":        util.StrOrEmpty(url),
 			"similarity": similarity,
-			"source":     ptrStr(sourceName),
+			"source":     util.StrOrEmpty(sourceName),
 		}
 		if publishedAt != nil {
 			item["published_at"] = publishedAt.UTC().Format(time.RFC3339)
@@ -146,7 +147,7 @@ func (s *Service) GetStories(ctx context.Context, hours, limit int) ([]map[strin
 		}
 		item := map[string]any{
 			"id":            id.String(),
-			"title":         ptrStr(repTitle),
+			"title":         util.StrOrEmpty(repTitle),
 			"item_count":    itemCount,
 			"first_seen_at": firstSeen.UTC().Format(time.RFC3339),
 			"last_seen_at":  lastSeen.UTC().Format(time.RFC3339),
@@ -237,9 +238,9 @@ func (s *Service) GetRecentNews(ctx context.Context, limit int, relevantOnly boo
 		}
 		item := map[string]any{
 			"id":          id.String(),
-			"title":       ptrStr(title),
-			"url":         ptrStr(url),
-			"source":      ptrStr(sourceName),
+			"title":       util.StrOrEmpty(title),
+			"url":         util.StrOrEmpty(url),
+			"source":      util.StrOrEmpty(sourceName),
 			"is_relevant": isRelevant,
 		}
 		if publishedAt != nil {
@@ -286,9 +287,9 @@ func (s *Service) SearchPlayers(ctx context.Context, query string, position *str
 		}
 		item := map[string]any{
 			colPlayerID: sleeperID,
-			colFullName: ptrStr(fullName),
-			colPosition: ptrStr(pos),
-			colTeam:     ptrStr(teamAbbr),
+			colFullName: util.StrOrEmpty(fullName),
+			colPosition: util.StrOrEmpty(pos),
+			colTeam:     util.StrOrEmpty(teamAbbr),
 			"active":    active,
 		}
 		if age != nil {
@@ -318,9 +319,9 @@ func (s *Service) GetPlayer(ctx context.Context, playerID string) (map[string]an
 	}
 	item := map[string]any{
 		colPlayerID: playerID,
-		colFullName: ptrStr(fullName),
-		colPosition: ptrStr(pos),
-		colTeam:     ptrStr(teamAbbr),
+		colFullName: util.StrOrEmpty(fullName),
+		colPosition: util.StrOrEmpty(pos),
+		colTeam:     util.StrOrEmpty(teamAbbr),
 		"active":    active,
 	}
 	if age != nil {
@@ -392,9 +393,9 @@ func (s *Service) GetRankings(
 		}
 		item := map[string]any{
 			colPlayerID: sleeperID,
-			colFullName: ptrStr(fullName),
-			colPosition: ptrStr(pos),
-			colTeam:     ptrStr(teamAbbr),
+			colFullName: util.StrOrEmpty(fullName),
+			colPosition: util.StrOrEmpty(pos),
+			colTeam:     util.StrOrEmpty(teamAbbr),
 		}
 		if tradeValue != nil {
 			item["trade_value"] = *tradeValue
@@ -485,13 +486,13 @@ func (s *Service) GetFreeAgents(
 	// Build owned set
 	owned := make(map[string]bool)
 	for _, r := range rosters {
-		for _, p := range toStringSlice(r["players"]) {
+		for _, p := range util.ToStringSlice(r["players"]) {
 			owned[p] = true
 		}
-		for _, p := range toStringSlice(r["taxi"]) {
+		for _, p := range util.ToStringSlice(r["taxi"]) {
 			owned[p] = true
 		}
-		for _, p := range toStringSlice(r["reserve"]) {
+		for _, p := range util.ToStringSlice(r["reserve"]) {
 			owned[p] = true
 		}
 	}
@@ -530,9 +531,9 @@ func (s *Service) GetFreeAgents(
 		}
 		item := map[string]any{
 			colPlayerID: sleeperID,
-			colFullName: ptrStr(fullName),
-			colPosition: ptrStr(pos),
-			colTeam:     ptrStr(teamAbbr),
+			colFullName: util.StrOrEmpty(fullName),
+			colPosition: util.StrOrEmpty(pos),
+			colTeam:     util.StrOrEmpty(teamAbbr),
 		}
 		if tradeValue != nil {
 			item["trade_value"] = *tradeValue
@@ -594,7 +595,7 @@ func (s *Service) EvaluateTrade(
 			}
 			items = append(items, map[string]any{
 				colPlayerID:   sleeperID,
-				"full_name":   ptrStr(fullName),
+				"full_name":   util.StrOrEmpty(fullName),
 				"trade_value": val,
 				statusFound:   true,
 			})
@@ -643,7 +644,7 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 		return nil, fmt.Errorf("%w for user %s in league %s", errRosterNotFound, userID, leagueID)
 	}
 
-	players := toStringSlice(myRoster["players"])
+	players := util.ToStringSlice(myRoster["players"])
 	lf, hasLF := models.LeagueFormats[leagueID]
 	source := "Dynasty Daddy"
 	market := 14
@@ -699,9 +700,9 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 		}
 		item := map[string]any{
 			colPlayerID:   sid,
-			"full_name":   ptrStr(r.fullName),
-			colPosition:   ptrStr(r.pos),
-			colTeam:       ptrStr(r.teamAbbr),
+			"full_name":   util.StrOrEmpty(r.fullName),
+			colPosition:   util.StrOrEmpty(r.pos),
+			colTeam:       util.StrOrEmpty(r.teamAbbr),
 			"trade_value": val,
 		}
 		if r.age != nil {
@@ -733,29 +734,4 @@ func tradeValueColumn(source string, superflex bool) string {
 		return "r.sf_trade_value"
 	}
 	return "r.trade_value"
-}
-
-func ptrStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
-func toStringSlice(v any) []string {
-	if v == nil {
-		return nil
-	}
-	arr, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	result := make([]string, 0, len(arr))
-	for _, item := range arr {
-		s := fmt.Sprint(item)
-		if s != "" && s != "<nil>" {
-			result = append(result, s)
-		}
-	}
-	return result
 }

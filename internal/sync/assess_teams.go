@@ -8,6 +8,7 @@ import (
 	"ff-engine/internal/db"
 	"ff-engine/internal/models"
 	"ff-engine/internal/sleeper"
+	"ff-engine/internal/util"
 )
 
 // TeamAssessor runs the weekly dynasty team-state assessment.
@@ -54,7 +55,7 @@ func (a *TeamAssessor) Assess(ctx context.Context) (*TeamAssessResult, error) {
 			continue
 		}
 
-		players := toStringSlice(myRoster["players"])
+		players := util.ToStringSlice(myRoster["players"])
 		valuation := a.valuePlayers(ctx, players, "Dynasty Daddy", 14)
 
 		// Compute win-now and future values

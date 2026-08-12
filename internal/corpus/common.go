@@ -15,9 +15,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/samber/lo"
+
 	"ff-engine/internal/db"
 	"ff-engine/internal/models"
 	"ff-engine/internal/sleeper"
+	"ff-engine/internal/util"
 )
 
 // Common provides shared helpers for the corpus publisher.
@@ -136,8 +139,12 @@ func (c *Common) SleeperGet(ctx context.Context, path string) (any, error) {
 	return c.sleeper.GetRaw(ctx, path)
 }
 
-func (c *Common) LeagueRosters(ctx context.Context, leagueID string) ([]map[string]any, error) {
-	return c.sleeper.GetLeagueRosters(ctx, leagueID)
+func (c *Common) LeagueRosters(ctx context.Context, leagueID string) ([]sleeper.Roster, error) {
+	raw, err := c.sleeper.GetLeagueRosters(ctx, leagueID)
+	if err != nil {
+		return nil, err
+	}
+	return sleeper.ParseRosters(raw), nil
 }
 
 func (c *Common) LeagueUsers(ctx context.Context, leagueID string) ([]map[string]any, error) {
@@ -156,35 +163,26 @@ func (c *Common) LeagueTransactions(ctx context.Context, leagueID string, week i
 	return c.sleeper.GetLeagueTransactions(ctx, leagueID, week)
 }
 
-func (c *Common) MyRoster(rosters []map[string]any) map[string]any {
-	for _, r := range rosters {
-		if fmt.Sprint(r["owner_id"]) == models.MarkisUserID {
-			return r
+// MyRoster returns Markis's roster from a league's rosters, or nil if absent.
+func (c *Common) MyRoster(rosters []sleeper.Roster) *sleeper.Roster {
+	for i := range rosters {
+		if util.StrOrEmpty(rosters[i].OwnerID.Ptr()) == models.MarkisUserID {
+			return &rosters[i]
 		}
 	}
 	return nil
 }
 
-func (c *Common) AllRosterPlayerIDs(rosters []map[string]any) []string {
-	ids := make(map[string]bool)
-	for _, r := range rosters {
-		for _, p := range toStringSlice(r["players"]) {
-			if p != "" {
-				ids[p] = true
-			}
-		}
-	}
-	result := make([]string, 0, len(ids))
-	for id := range ids {
-		result = append(result, id)
-	}
-	return result
+func (c *Common) AllRosterPlayerIDs(rosters []sleeper.Roster) []string {
+	return lo.Uniq(lo.FlatMap(rosters, func(r sleeper.Roster, _ int) []string {
+		return r.Players
+	}))
 }
 
 // --- Player/ranking queries ---
 
-func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string]map[string]any {
-	result := make(map[string]map[string]any)
+func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string]*PlayerRow {
+	result := make(map[string]*PlayerRow)
 	if len(sleeperIDs) == 0 {
 		return result
 	}
@@ -200,49 +198,21 @@ func (c *Common) PlayerRows(ctx context.Context, sleeperIDs []string) map[string
 		return result
 	}
 	defer rows.Close()
-	cols := []string{
-		colSleeperPlayerID, colFullName, "first_name", "last_name", "search_full_name",
-		colPosition, colTeam, "team_abbr", colAge, colInjuryStatus, "injury_body_part",
-		"injury_notes", colStatus, "active", "depth_chart_position", "depth_chart_order",
-		"last_synced_at",
-	}
 	for rows.Next() {
-		vals := make(map[string]any)
-		var sleeperID string
-		var fullName, firstName, lastName, searchName, position, team, teamAbbr,
-			injuryStatus, injuryBodyPart, injuryNotes, status, dcPos *string
-		var age, dcOrder *int
-		var active bool
-		var lastSynced time.Time
-		if err := rows.Scan(&sleeperID, &fullName, &firstName, &lastName, &searchName,
-			&position, &team, &teamAbbr, &age, &injuryStatus, &injuryBodyPart,
-			&injuryNotes, &status, &active, &dcPos, &dcOrder, &lastSynced); err != nil {
+		var r PlayerRow
+		if err := rows.Scan(&r.SleeperPlayerID, &r.FullName, &r.FirstName, &r.LastName,
+			&r.SearchFullName, &r.Position, &r.Team, &r.TeamAbbr, &r.Age,
+			&r.InjuryStatus, &r.InjuryBodyPart, &r.InjuryNotes, &r.Status, &r.Active,
+			&r.DepthChartPosition, &r.DepthChartOrder, &r.LastSyncedAt); err != nil {
 			continue
 		}
-		vals["sleeper_player_id"] = sleeperID
-		vals["full_name"] = fullName
-		vals["last_name"] = lastName
-		vals["search_full_name"] = searchName
-		vals["position"] = position
-		vals["team"] = team
-		vals["team_abbr"] = teamAbbr
-		vals["age"] = age
-		vals["injury_status"] = injuryStatus
-		vals["injury_body_part"] = injuryBodyPart
-		vals["injury_notes"] = injuryNotes
-		vals["status"] = status
-		vals["active"] = active
-		vals["depth_chart_position"] = dcPos
-		vals["depth_chart_order"] = dcOrder
-		vals["last_synced_at"] = lastSynced
-		_ = cols
-		result[sleeperID] = vals
+		result[r.SleeperPlayerID] = &r
 	}
 	return result
 }
 
-func (c *Common) RankingRows(ctx context.Context, sleeperIDs []string, source string, market int) map[string]map[string]any {
-	result := make(map[string]map[string]any)
+func (c *Common) RankingRows(ctx context.Context, sleeperIDs []string, source string, market int) map[string]*RankingRow {
+	result := make(map[string]*RankingRow)
 	if len(sleeperIDs) == 0 {
 		return result
 	}
@@ -260,33 +230,14 @@ func (c *Common) RankingRows(ctx context.Context, sleeperIDs []string, source st
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var sleeperID string
-		var tradeValue, sfTradeValue, redraftValue, overallRank, positionRank,
-			sfOverallRank, sfPositionRank, lastMonthValue, lastMonthValueSF *int
-		var avgADP *string
-		var snapshotDate time.Time
-		var dataDate *time.Time
-		if err := rows.Scan(&sleeperID, &tradeValue, &sfTradeValue, &redraftValue,
-			&overallRank, &positionRank, &sfOverallRank, &sfPositionRank,
-			&avgADP, &lastMonthValue, &lastMonthValueSF, &snapshotDate, &dataDate); err != nil {
+		var r RankingRow
+		if err := rows.Scan(&r.SleeperPlayerID, &r.TradeValue, &r.SfTradeValue,
+			&r.RedraftValue, &r.OverallRank, &r.PositionRank, &r.SfOverallRank,
+			&r.SfPositionRank, &r.AvgADP, &r.LastMonthValue, &r.LastMonthValueSF,
+			&r.SnapshotDate, &r.DataDate); err != nil {
 			continue
 		}
-		vals := map[string]any{
-			"sleeper_player_id":   sleeperID,
-			"trade_value":         tradeValue,
-			"sf_trade_value":      sfTradeValue,
-			"redraft_value":       redraftValue,
-			"overall_rank":        overallRank,
-			"position_rank":       positionRank,
-			"sf_overall_rank":     sfOverallRank,
-			"sf_position_rank":    sfPositionRank,
-			"avg_adp":             avgADP,
-			"last_month_value":    lastMonthValue,
-			"last_month_value_sf": lastMonthValueSF,
-			"snapshot_date":       snapshotDate,
-			"data_date":           dataDate,
-		}
-		result[sleeperID] = vals
+		result[r.SleeperPlayerID] = &r
 	}
 	return result
 }
@@ -307,15 +258,16 @@ func NormalizeName(n string) string {
 	return strings.TrimSpace(n)
 }
 
-func BuildNameIndex(playerRows map[string]map[string]any) map[string][]string {
+func BuildNameIndex(playerRows map[string]*PlayerRow) map[string][]string {
 	idx := make(map[string][]string)
 	for sid, p := range playerRows {
-		for _, k := range []string{"full_name", "search_full_name", "last_name"} {
-			if v, ok := p[k].(*string); ok && v != nil {
-				key := NormalizeName(*v)
-				if key != "" {
-					idx[key] = append(idx[key], sid)
-				}
+		for _, name := range []*string{p.FullName, p.SearchFullName, p.LastName} {
+			if name == nil {
+				continue
+			}
+			key := NormalizeName(*name)
+			if key != "" {
+				idx[key] = append(idx[key], sid)
 			}
 		}
 	}
@@ -512,24 +464,4 @@ func topicSetHasAny(tset map[string]bool, keywords []string) bool {
 		}
 	}
 	return false
-}
-
-// --- Helper ---
-
-func toStringSlice(v any) []string {
-	if v == nil {
-		return nil
-	}
-	arr, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-	result := make([]string, 0, len(arr))
-	for _, item := range arr {
-		s := fmt.Sprint(item)
-		if s != "" && s != nilStr {
-			result = append(result, s)
-		}
-	}
-	return result
 }

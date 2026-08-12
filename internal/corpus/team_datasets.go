@@ -11,43 +11,26 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"ff-engine/internal/models"
+	"ff-engine/internal/sleeper"
+	"ff-engine/internal/util"
 )
 
 // anyToInt coerces a decoded-JSON value (float64, string, or int) to an int,
-// returning 0 if it can't be interpreted as a number.
+// returning 0 if it can't be interpreted as a number. Delegates to
+// util.ToInt so there is a single source of truth for this coercion.
 func anyToInt(v any) int {
-	switch t := v.(type) {
-	case float64:
-		return int(t)
-	case int:
-		return t
-	case json.Number:
-		n, err := t.Int64()
-		if err != nil {
-			return 0
-		}
-		return int(n)
-	case string:
-		n, err := strconv.Atoi(t)
-		if err != nil {
-			return 0
-		}
-		return n
-	default:
-		return 0
-	}
+	return util.ToInt(v)
 }
 
-// nilIfEmpty returns nil for an empty string, otherwise a pointer to it —
-// so it marshals to JSON null instead of "" for nullable schema fields.
-func nilIfEmpty(s string) *string {
-	if s == "" {
-		return nil
+// intPtrStr returns the decimal string of i, or "" if i is nil. Mirrors the
+// *int handling of getStr for fields emitted as strings in players.jsonl.
+func intPtrStr(i *int) string {
+	if i == nil {
+		return ""
 	}
-	return &s
+	return strconv.Itoa(*i)
 }
 
 // dfltSlots ensures a nil slice marshals as [] rather than null, since the
@@ -161,10 +144,17 @@ func (p *Publisher) buildLeagueState(ctx context.Context, leagueID string, lf *m
 
 // buildRosterOwnerMap maps roster_id -> owner_id for every roster in a
 // league, used to resolve traded-pick ownership to display names.
-func buildRosterOwnerMap(rosters []map[string]any) map[int]string {
-	rosterOwner := make(map[int]string)
-	for _, r := range rosters {
-		rosterOwner[anyToInt(r["roster_id"])] = fmt.Sprint(r["owner_id"])
+func buildRosterOwnerMap(rosters []sleeper.Roster) map[int]string {
+	rosterOwner := make(map[int]string, len(rosters))
+	for i := range rosters {
+		r := &rosters[i]
+		// Preserve the prior fmt.Sprint(r["owner_id"]) sentinel: an orphaned
+		// roster (owner_id null) maps to "<nil>", not "".
+		owner := "<nil>"
+		if r.OwnerID != nil {
+			owner = util.StrOrEmpty(r.OwnerID.Ptr())
+		}
+		rosterOwner[r.RosterID] = owner
 	}
 	return rosterOwner
 }
@@ -173,7 +163,7 @@ func buildRosterOwnerMap(rosters []map[string]any) map[int]string {
 // excluding the bench slot.
 func nonBenchSlots(leagueInfo map[string]any) []string {
 	var starterSlots []string
-	for _, rp := range toStringSlice(leagueInfo["roster_positions"]) {
+	for _, rp := range util.ToStringSlice(leagueInfo["roster_positions"]) {
 		if rp != "BN" {
 			starterSlots = append(starterSlots, rp)
 		}
@@ -184,7 +174,7 @@ func nonBenchSlots(leagueInfo map[string]any) []string {
 // countBenchSlots returns how many bench slots the league's roster has.
 func countBenchSlots(leagueInfo map[string]any) int {
 	benchCount := 0
-	for _, rp := range toStringSlice(leagueInfo["roster_positions"]) {
+	for _, rp := range util.ToStringSlice(leagueInfo["roster_positions"]) {
 		if rp == "BN" {
 			benchCount++
 		}
@@ -195,13 +185,9 @@ func countBenchSlots(leagueInfo map[string]any) int {
 // computeFaabRemaining derives remaining waiver budget from league settings
 // (the league's total waiver budget must come from settings, not be
 // assumed — leagues can configure any total; 100 is Sleeper's own default).
-func computeFaabRemaining(myRoster, leagueInfo map[string]any) int {
-	var settings map[string]any
-	if v, ok := myRoster["settings"].(map[string]any); ok {
-		settings = v
-	}
+func computeFaabRemaining(myRoster *sleeper.Roster, leagueInfo map[string]any) int {
 	faab := 0
-	if v, ok := settings["waiver_budget_used"]; ok {
+	if v, ok := myRoster.Settings["waiver_budget_used"]; ok {
 		if n, ok := v.(float64); ok {
 			faab = int(n)
 		}
@@ -219,12 +205,10 @@ func computeFaabRemaining(myRoster, leagueInfo map[string]any) int {
 
 // resolveTeamName returns the roster's custom team name if set, otherwise
 // a default derived from the league name.
-func resolveTeamName(lf *models.LeagueFormat, myRoster map[string]any) string {
+func resolveTeamName(lf *models.LeagueFormat, myRoster *sleeper.Roster) string {
 	teamName := lf.Name + " (Markis)"
-	if md, ok := myRoster["metadata"].(map[string]any); ok {
-		if tn, ok := md["team_name"].(string); ok && tn != "" {
-			teamName = tn
-		}
+	if tn, ok := myRoster.Metadata["team_name"].(string); ok && tn != "" {
+		teamName = tn
 	}
 	return teamName
 }
@@ -238,8 +222,8 @@ type rosterBuckets struct {
 
 // buildRosterSlots partitions Markis's roster into active roster, taxi
 // squad, and injured reserve slot records.
-func (p *Publisher) buildRosterSlots(ctx context.Context, myRoster map[string]any, starterSlots []string) rosterBuckets {
-	starters := toStringSlice(myRoster["starters"])
+func (p *Publisher) buildRosterSlots(ctx context.Context, myRoster *sleeper.Roster, starterSlots []string) rosterBuckets {
+	starters := myRoster.Starters
 	starterSlot := make(map[string]string, len(starters))
 	for i, pid := range starters {
 		if pid == "" || pid == "0" || i >= len(starterSlots) {
@@ -247,10 +231,10 @@ func (p *Publisher) buildRosterSlots(ctx context.Context, myRoster map[string]an
 		}
 		starterSlot[pid] = starterSlots[i]
 	}
-	taxiSet := toStringSet(myRoster["taxi"])
-	reserveSet := toStringSet(myRoster["reserve"])
+	taxiSet := stringSet(myRoster.Taxi)
+	reserveSet := stringSet(myRoster.Reserve)
 
-	players := toStringSlice(myRoster["players"])
+	players := myRoster.Players
 	playerRows := p.common.PlayerRows(ctx, players)
 	rkRows := p.common.RankingRows(ctx, players, "Dynasty Daddy", 14)
 
@@ -274,10 +258,10 @@ func (p *Publisher) buildRosterSlots(ctx context.Context, myRoster map[string]an
 	return buckets
 }
 
-// toStringSet converts a decoded-JSON slice value into a lookup set.
-func toStringSet(v any) map[string]bool {
-	set := make(map[string]bool)
-	for _, s := range toStringSlice(v) {
+// stringSet builds a lookup set from a string slice.
+func stringSet(ss []string) map[string]bool {
+	set := make(map[string]bool, len(ss))
+	for _, s := range ss {
 		set[s] = true
 	}
 	return set
@@ -308,41 +292,36 @@ func resolvePlayerSlot(sid string, starterSlot map[string]string, taxiSet, reser
 
 // buildPlayerSlotRecord builds the JSON record for a single rostered player
 // already assigned to slot.
-func buildPlayerSlotRecord(sid string, pr, rk map[string]any, slot string) map[string]any {
-	fullName := getStr(pr, "full_name")
-	pos := getStr(pr, "position")
-	teamAbbr := getStr(pr, "team_abbr")
-	var age *int
-	if v, ok := pr["age"].(*int); ok {
-		age = v
-	}
-	injuryStatus := getStr(pr, "injury_status")
+func buildPlayerSlotRecord(sid string, pr *PlayerRow, rk *RankingRow, slot string) map[string]any {
+	fullName := util.StrOrEmpty(pr.FullName)
+	pos := util.StrOrEmpty(pr.Position)
+	teamAbbr := util.StrOrEmpty(pr.TeamAbbr)
+	age := pr.Age
+	injuryStatus := util.StrOrEmpty(pr.InjuryStatus)
 
 	var tradeValue *int
 	if rk != nil {
-		if v, ok := rk["trade_value"].(*int); ok {
-			tradeValue = v
-		}
+		tradeValue = rk.TradeValue
 	}
 
 	return map[string]any{
 		colSleeperPlayerID: sid,
-		colFullName:        nilIfEmpty(fullName),
-		colPosition:        nilIfEmpty(pos),
-		"nfl_team":         nilIfEmpty(teamAbbr),
+		colFullName:        util.NilIfEmpty(fullName),
+		colPosition:        util.NilIfEmpty(pos),
+		"nfl_team":         util.NilIfEmpty(teamAbbr),
 		"slot":             slot,
 		"trade_value":      tradeValue,
 		colAge:             age,
-		colInjuryStatus:    nilIfEmpty(injuryStatus),
+		colInjuryStatus:    util.NilIfEmpty(injuryStatus),
 	}
 }
 
 // buildFuturePicks returns the draft picks currently owned by Markis's
 // roster in a league, resolving original/current owners to display names.
 func (p *Publisher) buildFuturePicks(
-	ctx context.Context, leagueID string, myRoster map[string]any, rosterOwner map[int]string,
+	ctx context.Context, leagueID string, myRoster *sleeper.Roster, rosterOwner map[int]string,
 ) []map[string]any {
-	markisRosterID := fmt.Sprint(myRoster["roster_id"])
+	markisRosterID := strconv.Itoa(myRoster.RosterID)
 	tradedPicks, err := p.common.LeagueTradedPicks(ctx, leagueID)
 	if err != nil {
 		slog.Warn("failed to get league traded picks", "league_id", leagueID, "err", err)
@@ -486,33 +465,43 @@ func (p *Publisher) renderDatasets(ctx context.Context, targetDir string) (map[s
 
 // writePlayersJSONL writes datasets/players.jsonl, one record per watched
 // player, annotated with the leagues/roles that make it relevant.
-func writePlayersJSONL(dsDir string, watchIDs []string, pr map[string]map[string]any, ownership map[string][][2]string) {
+func writePlayersJSONL(dsDir string, watchIDs []string, pr map[string]*PlayerRow, ownership map[string][][2]string) {
 	playersPath := filepath.Join(dsDir, "players.jsonl")
 	if err := os.WriteFile(playersPath, []byte(""), 0o600); err != nil {
 		slog.Warn("failed to create players.jsonl", "err", err)
 	}
 	for _, sid := range sortedStringSlice(watchIDs) {
-		p := pr[sid]
-		if p == nil {
-			p = map[string]any{}
-		}
 		own := ownership[sid]
 		leagues := make([]map[string]string, 0, len(own))
 		for _, pair := range own {
 			leagues = append(leagues, map[string]string{"league": pair[0], "role": pair[1]})
 		}
+		p := pr[sid]
+		var fullName, pos, teamAbbr, status, injStatus, injBody, injNotes, ageStr string
+		var active any
+		if p != nil {
+			fullName = util.StrOrEmpty(p.FullName)
+			pos = util.StrOrEmpty(p.Position)
+			teamAbbr = util.StrOrEmpty(p.TeamAbbr)
+			ageStr = intPtrStr(p.Age)
+			status = util.StrOrEmpty(p.Status)
+			active = p.Active
+			injStatus = util.StrOrEmpty(p.InjuryStatus)
+			injBody = util.StrOrEmpty(p.InjuryBodyPart)
+			injNotes = util.StrOrEmpty(p.InjuryNotes)
+		}
 		rec := map[string]any{
 			"sleeper_player_id": sid,
 			"nfl_id":            "nfl:" + sid,
-			"full_name":         getStr(p, "full_name"),
-			"position":          getStr(p, "position"),
-			"nfl_team":          getStr(p, "team_abbr"),
-			"age":               getStr(p, "age"),
-			colStatus:           getStr(p, colStatus),
-			"active":            p["active"],
-			"injury_status":     getStr(p, "injury_status"),
-			"injury_body_part":  getStr(p, "injury_body_part"),
-			"injury_notes":      getStr(p, "injury_notes"),
+			"full_name":         fullName,
+			"position":          pos,
+			"nfl_team":          teamAbbr,
+			"age":               ageStr,
+			colStatus:           status,
+			"active":            active,
+			"injury_status":     injStatus,
+			"injury_body_part":  injBody,
+			"injury_notes":      injNotes,
 			"leagues":           leagues,
 		}
 		appendJSONLFile(playersPath, rec)
@@ -522,7 +511,7 @@ func writePlayersJSONL(dsDir string, watchIDs []string, pr map[string]map[string
 // writeSignalsJSONL writes datasets/player-signals.jsonl, emitting one
 // injury signal per watched player currently carrying an injury status.
 // Returns the number of signals written.
-func writeSignalsJSONL(dsDir string, watchIDs []string, pr map[string]map[string]any, now string) int {
+func writeSignalsJSONL(dsDir string, watchIDs []string, pr map[string]*PlayerRow, now string) int {
 	sigPath := filepath.Join(dsDir, "player-signals.jsonl")
 	if err := os.WriteFile(sigPath, []byte(""), 0o600); err != nil {
 		slog.Warn("failed to create player-signals.jsonl", "err", err)
@@ -533,13 +522,13 @@ func writeSignalsJSONL(dsDir string, watchIDs []string, pr map[string]map[string
 		if p == nil {
 			continue
 		}
-		injStatus := getStr(p, "injury_status")
+		injStatus := util.StrOrEmpty(p.InjuryStatus)
 		if injStatus == "" {
 			continue
 		}
 		obs := now
-		if v, ok := p["last_synced_at"].(time.Time); ok && !v.IsZero() {
-			obs = v.UTC().Format("2006-01-02T15:04:05Z")
+		if !p.LastSyncedAt.IsZero() {
+			obs = p.LastSyncedAt.UTC().Format("2006-01-02T15:04:05Z")
 		}
 		rec := map[string]any{
 			"signal_id":   SignalID("nfl:"+sid, "injury", injStatus, obs),
@@ -547,8 +536,8 @@ func writeSignalsJSONL(dsDir string, watchIDs []string, pr map[string]map[string
 			"signal_type": colInjury,
 			colValue: map[string]any{
 				colStatus:   injStatus,
-				"body_part": getStr(p, "injury_body_part"),
-				"notes":     getStr(p, "injury_notes"),
+				"body_part": util.StrOrEmpty(p.InjuryBodyPart),
+				"notes":     util.StrOrEmpty(p.InjuryNotes),
 			},
 			"source":            "Sleeper",
 			"source_url":        nil,
@@ -602,15 +591,14 @@ func (p *Publisher) writeValuationsJSONL(ctx context.Context, dsDir string, watc
 
 // writeValuationRecord appends a single trade-value record for a player,
 // if the ranking row has one. Returns 1 if a record was written, else 0.
-func writeValuationRecord(valPath, sid string, r map[string]any, source, fmtCtx, now string) int {
+func writeValuationRecord(valPath, sid string, r *RankingRow, source, fmtCtx, now string) int {
 	obs := now
-	if v, ok := r["data_date"].(*time.Time); ok && v != nil {
-		obs = v.UTC().Format("2006-01-02T15:04:05Z")
-	} else if v, ok := r["snapshot_date"].(time.Time); ok {
-		obs = v.UTC().Format("2006-01-02T15:04:05Z")
+	if r.DataDate != nil {
+		obs = r.DataDate.UTC().Format("2006-01-02T15:04:05Z")
+	} else if !r.SnapshotDate.IsZero() {
+		obs = r.SnapshotDate.UTC().Format("2006-01-02T15:04:05Z")
 	}
-	v, ok := r["trade_value"].(*int)
-	if !ok || v == nil {
+	if r.TradeValue == nil {
 		return 0
 	}
 	rec := map[string]any{
@@ -619,7 +607,7 @@ func writeValuationRecord(valPath, sid string, r map[string]any, source, fmtCtx,
 		"source":             source,
 		"valuation_type":     "trade-value",
 		"format_context":     fmtCtx,
-		"value":              *v,
+		"value":              *r.TradeValue,
 		"observed_at":        obs,
 		"source_url":         nil,
 		colConfidence:        colMedium,
@@ -681,10 +669,10 @@ func writeNewsEventsJSONL(targetDir, dsDir string) int {
 
 // writeEntitiesJSON writes datasets/entities.json summarizing the leagues,
 // teams, and player universe covered by this publish run.
-func writeEntitiesJSON(dsDir string, pr map[string]map[string]any, watchIDs []string, now string) error {
+func writeEntitiesJSON(dsDir string, pr map[string]*PlayerRow, watchIDs []string, now string) error {
 	teams := make(map[string]bool)
 	for _, p := range pr {
-		t := getStr(p, "team_abbr")
+		t := util.StrOrEmpty(p.TeamAbbr)
 		if t != "" {
 			teams[t] = true
 		}
