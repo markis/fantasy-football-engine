@@ -20,7 +20,7 @@ llm:
   provider: "ollama-cloud"
   url: "https://ollama.com"
   model: "minimax-m3"
-  api_key: ""                # from env OLLAMA_API_KEY or docker secret ollama-cloud
+  api_key: ""                # from env LLM_API_KEY or docker secret llm-api-key
   timeout_secs: 300
   max_concurrency: 4         # gate fan-out
 

@@ -28,11 +28,11 @@ services:
       - ff-corpus:/data/corpus
     environment:
       FF_PG_PASSWORD: ${FF_PG_PASSWORD}
-      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
       FF_GITHUB_PAT: ${FF_GITHUB_PAT:-}
       FF_SECRETS_DIR: /run/secrets
     secrets:
-      - ollama-cloud
+      - llm-api-key
       - fantasypros-api
       - fantasypros-cookies
       - fantasy-github-pat
@@ -52,8 +52,8 @@ networks:
     external: true
 
 secrets:
-  ollama-cloud:
-    file: ./secrets/ollama-cloud
+  llm-api-key:
+    file: ./secrets/llm-api-key
   fantasypros-api:
     file: ./secrets/fantasypros-api
   fantasypros-cookies:

@@ -26,7 +26,7 @@ fantasy-football-engine (Go daemon)
 ## Quick start
 
 1. Copy `config.example.yaml` to `config.yaml` and adjust
-2. Set environment variables: `FF_PG_PASSWORD`, `OLLAMA_API_KEY`, `FF_GITHUB_PAT`
+2. Set environment variables: `FF_PG_PASSWORD`, `LLM_API_KEY`, `FF_GITHUB_PAT`
 3. `docker compose up -d`
 4. Connect an MCP client to `http://localhost:3102/mcp`
 

@@ -59,7 +59,7 @@ type LLMConfig struct {
 	URL            string `default:"https://ollama.com" yaml:"url"`
 	Model          string `default:"minimax-m3"         yaml:"model"`
 	APIKey         string `yaml:"apiKey"`
-	APIKeyPass     string `default:"ollama-cloud"       yaml:"apiKeyPass"`
+	APIKeyPass     string `default:"llm-api-key"         yaml:"apiKeyPass"`
 	TimeoutSecs    int    `default:"300"                yaml:"timeoutSecs"`
 	MaxConcurrency int    `default:"4"                  yaml:"maxConcurrency"`
 }
@@ -146,9 +146,9 @@ func (c *Config) resolveSecrets() {
 	// Database DSN
 	c.Database.DSN = expandEnv(c.Database.DSN)
 
-	// LLM API key: env OLLAMA_API_KEY, or docker secret <api_key_pass>
+	// LLM API key: env LLM_API_KEY, or docker secret <api_key_pass>
 	if c.LLM.APIKey == "" {
-		c.LLM.APIKey = os.Getenv("OLLAMA_API_KEY")
+		c.LLM.APIKey = os.Getenv("LLM_API_KEY")
 	}
 	if c.LLM.APIKey == "" {
 		key, err := readSecret(c.LLM.APIKeyPass)
