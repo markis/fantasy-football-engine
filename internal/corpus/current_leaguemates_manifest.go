@@ -349,15 +349,15 @@ func appendEvidenceChangeLog(clPath, recDir, ts string, evidenceSummary map[stri
 				contentHash = ContentHash(rid)
 			}
 			changeID := ChangeID(ts, rid, operation)
-			entry := map[string]any{
-				"change_id":    changeID,
-				"timestamp":    ts,
-				"operation":    operation,
-				"entity_type":  "evidence",
-				"entity_id":    rid,
-				"paths":        []string{filepath.Join("evidence", "records", filename)},
-				colContentHash: contentHash,
-				"summary":      operation + " evidence record " + rid,
+			entry := ChangeLogEntry{
+				ChangeID:    changeID,
+				Timestamp:   ts,
+				Operation:   operation,
+				EntityType:  "evidence",
+				EntityID:    rid,
+				Paths:       []string{filepath.Join("evidence", "records", filename)},
+				ContentHash: contentHash,
+				Summary:     operation + " evidence record " + rid,
 			}
 			if err := AppendJSONL(clPath, entry); err == nil {
 				lastChangeID = changeID

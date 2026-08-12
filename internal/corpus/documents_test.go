@@ -117,3 +117,17 @@ func TestTeamStateStructRoundTrip(t *testing.T) {
 	}
 	assertSchemaRoundTrip(t, "team-state.schema.json", ts)
 }
+
+func TestChangeLogEntryStructRoundTrip(t *testing.T) {
+	entry := ChangeLogEntry{
+		ChangeID:    "change:0123456789abcdef", // matches ^change:[0-9a-f]{16,}$
+		Timestamp:   "2026-08-10T00:00:00Z",
+		Operation:   "added",    // enum
+		EntityType:  "evidence", // enum
+		EntityID:    "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+		Paths:       []string{"evidence/records/0000000000000000000000000000000000000000000000000000000000000000.json"},
+		ContentHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000", // matches ^sha256:[0-9a-f]{64}$
+		Summary:     "added evidence record sha256:0000000000000000000000000000000000000000000000000000000000000000",
+	}
+	assertSchemaRoundTrip(t, "change-log.schema.json", entry)
+}

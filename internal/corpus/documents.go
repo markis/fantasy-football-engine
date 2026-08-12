@@ -149,3 +149,16 @@ type FuturePick struct {
 	CurrentOwner string `json:"current_owner"`
 	Acquired     *bool  `json:"acquired,omitempty"`
 }
+
+// ChangeLogEntry is one record in datasets/change-log.jsonl, matching
+// change-log.schema.json.
+type ChangeLogEntry struct {
+	ChangeID    string   `json:"change_id"`
+	Timestamp   string   `json:"timestamp"`
+	Operation   string   `json:"operation"`   // enum
+	EntityType  string   `json:"entity_type"` // enum
+	EntityID    string   `json:"entity_id"`
+	Paths       []string `json:"paths"`
+	ContentHash string   `json:"content_hash"`
+	Summary     string   `json:"summary"`
+}
