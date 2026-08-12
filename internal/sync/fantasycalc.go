@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -109,12 +110,18 @@ func (s *FantasyCalcSyncer) syncCombo(
 // fetchFantasyCalcData fetches and decodes the raw FantasyCalc values payload
 // for a single format combo.
 func (s *FantasyCalcSyncer) fetchFantasyCalcData(ctx context.Context, combo models.FormatCombo) ([]map[string]any, error) {
-	params := fmt.Sprintf("?isDynasty=true&numQbs=%d&numTeams=%d&ppr=%d&tep=%s&includeAdp=false&includeRosterPercent=false",
-		combo.NumQbs, combo.Teams, combo.PPR, combo.TEP)
-	url := fcBase + params
+	q := url.Values{}
+	q.Set("isDynasty", "true")
+	q.Set("numQbs", strconv.Itoa(combo.NumQbs))
+	q.Set("numTeams", strconv.Itoa(combo.Teams))
+	q.Set("ppr", strconv.Itoa(combo.PPR))
+	q.Set("tep", combo.TEP)
+	q.Set("includeAdp", "false")
+	q.Set("includeRosterPercent", "false")
+	fullURL := fcBase + "?" + q.Encode()
 	slog.Info("fetching FantasyCalc", "market", combo.Market, "label", combo.Label)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fullURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("build FantasyCalc request: %w", err)
 	}
