@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/samber/lo"
 )
@@ -94,4 +95,55 @@ func AsMap(v any) map[string]any {
 		return nil
 	}
 	return m
+}
+
+// ToIntSlice coerces a decoded-JSON array of numbers (or numeric strings) to
+// []int, returning an empty slice for nil/non-array. Mirrors the prior
+// sync.toIntSlice coercion.
+func ToIntSlice(v any) []int {
+	if v == nil {
+		return []int{}
+	}
+	arr, ok := v.([]any)
+	if !ok {
+		return []int{}
+	}
+	result := make([]int, 0, len(arr))
+	for _, item := range arr {
+		result = append(result, ToInt(item))
+	}
+	return result
+}
+
+// EpochMsToTimePtr converts a decoded-JSON epoch-millis value (number or
+// numeric string) to a *time.Time in UTC, returning nil for null/unparseable
+// so it persists as SQL NULL. Mirrors the prior sync.epochMsToTime semantics.
+func EpochMsToTimePtr(v any) *time.Time {
+	var ms int64
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case float64:
+		ms = int64(x)
+	case int:
+		ms = int64(x)
+	case int64:
+		ms = x
+	case json.Number:
+		n, err := x.Int64()
+		if err != nil {
+			return nil
+		}
+		ms = n
+	case string:
+		n, err := strconv.Atoi(x)
+		if err != nil {
+			return nil
+		}
+		ms = int64(n)
+	default:
+		return nil
+	}
+	t := time.UnixMilli(ms).UTC()
+	return &t
 }
