@@ -188,39 +188,22 @@ func (b *pgxBatch) flush(ctx context.Context) {
 	}
 
 	// Build the SQL
-	placeholders := ""
-	var placeholdersSb196 strings.Builder
+	placeholders := make([]string, len(cols))
 	for i := range cols {
-		if i > 0 {
-			placeholdersSb196.WriteString(", ")
-		}
-		placeholdersSb196.WriteString("$" + strconv.Itoa(i+2))
+		placeholders[i] = "$" + strconv.Itoa(i+2)
 	}
-	placeholders += placeholdersSb196.String()
-	colNames := ""
-	var colNamesSb203 strings.Builder
+	colNames := make([]string, len(cols))
+	updates := make([]string, len(cols))
 	for i, c := range cols {
-		if i > 0 {
-			colNamesSb203.WriteString(", ")
-		}
-		colNamesSb203.WriteString(c)
+		colNames[i] = c
+		updates[i] = c + " = EXCLUDED." + c
 	}
-	colNames += colNamesSb203.String()
-	updates := ""
-	var updatesSb210 strings.Builder
-	for i, c := range cols {
-		if i > 0 {
-			updatesSb210.WriteString(", ")
-		}
-		updatesSb210.WriteString(c + " = EXCLUDED." + c)
-	}
-	updates += updatesSb210.String()
 
 	sql := fmt.Sprintf(`
 		INSERT INTO player (sleeper_player_id, %s, last_synced_at)
 		VALUES ($1, %s, now())
 		ON CONFLICT (sleeper_player_id) DO UPDATE SET %s, last_synced_at = now(), updated_at = now()
-	`, colNames, placeholders, updates)
+	`, strings.Join(colNames, ", "), strings.Join(placeholders, ", "), strings.Join(updates, ", "))
 
 	// Execute batch
 	batchSize := 500

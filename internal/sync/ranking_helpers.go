@@ -44,21 +44,18 @@ type upsertParts struct {
 // "col = EXCLUDED.col" fragments for a dynamic set of columns, with
 // placeholders numbered starting at $offset.
 func buildUpsertParts(cols []string, offset int) upsertParts {
-	var colNamesSb, placeholdersSb, updatesSb strings.Builder
+	colNames := make([]string, len(cols))
+	placeholders := make([]string, len(cols))
+	updates := make([]string, len(cols))
 	for i, col := range cols {
-		if i > 0 {
-			colNamesSb.WriteString(", ")
-			placeholdersSb.WriteString(", ")
-			updatesSb.WriteString(", ")
-		}
-		colNamesSb.WriteString(col)
-		placeholdersSb.WriteString("$" + strconv.Itoa(i+offset))
-		updatesSb.WriteString(col + " = EXCLUDED." + col)
+		colNames[i] = col
+		placeholders[i] = "$" + strconv.Itoa(i+offset)
+		updates[i] = col + " = EXCLUDED." + col
 	}
 	return upsertParts{
-		colNames:     colNamesSb.String(),
-		placeholders: placeholdersSb.String(),
-		updates:      updatesSb.String(),
+		colNames:     strings.Join(colNames, ", "),
+		placeholders: strings.Join(placeholders, ", "),
+		updates:      strings.Join(updates, ", "),
 	}
 }
 
