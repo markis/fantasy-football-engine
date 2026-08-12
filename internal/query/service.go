@@ -496,7 +496,7 @@ func (s *Service) GetFreeAgents(
 		}
 	}
 
-	valueCol := tradeValueColumn(superflex)
+	valueCol := tradeValueColumn("Dynasty Daddy", superflex)
 
 	sql := fmt.Sprintf(`
 		SELECT p.sleeper_player_id, p.full_name, p.position, p.team_abbr, %s
@@ -561,7 +561,7 @@ func (s *Service) EvaluateTrade(
 		market = *lf.Market
 	}
 
-	valueCol := tradeValueColumn(superflex)
+	valueCol := tradeValueColumn(source, superflex)
 
 	valuePlayers := func(names []string) ([]map[string]any, int) {
 		var items []map[string]any
@@ -652,7 +652,7 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 		market = *lf.Market
 	}
 
-	valueCol := tradeValueColumn(superflex)
+	valueCol := tradeValueColumn(source, superflex)
 
 	// One batched query instead of one QueryRow per roster player — the
 	// LEFT JOIN still means an unranked player gets a row with a nil
@@ -720,8 +720,15 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 }
 
 // tradeValueColumn returns the player_ranking trade-value column to use
-// for a superflex vs. standard query.
-func tradeValueColumn(superflex bool) string {
+// for a superflex vs. standard query. FantasyCalc encodes the format in the
+// market (each market row holds that format's dynasty value in trade_value),
+// so the value is ALWAYS trade_value regardless of the superflex flag —
+// sf_trade_value is NULL for FantasyCalc. For Dynasty Daddy / KeepTradeCut
+// (single 1QB+SF row), superflex selects the sf_ column.
+func tradeValueColumn(source string, superflex bool) string {
+	if source == srcFantasyCalc {
+		return "r.trade_value"
+	}
 	if superflex {
 		return "r.sf_trade_value"
 	}
