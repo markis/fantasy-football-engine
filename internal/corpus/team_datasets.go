@@ -17,13 +17,6 @@ import (
 	"ff-engine/internal/util"
 )
 
-// anyToInt coerces a decoded-JSON value (float64, string, or int) to an int,
-// returning 0 if it can't be interpreted as a number. Delegates to
-// util.ToInt so there is a single source of truth for this coercion.
-func anyToInt(v any) int {
-	return util.ToInt(v)
-}
-
 // intPtrStr returns the decimal string of i, or "" if i is nil. Mirrors the
 // *int handling of getStr for fields emitted as strings in players.jsonl.
 func intPtrStr(i *int) string {
@@ -329,20 +322,20 @@ func (p *Publisher) buildFuturePicks(
 	}
 	var futurePicks []map[string]any
 	for _, pick := range tradedPicks {
-		if fmt.Sprint(pick["owner_id"]) != markisRosterID {
+		if strconv.Itoa(pick.OwnerID) != markisRosterID {
 			continue
 		}
-		originalTeam := fmt.Sprint(pick["roster_id"])
-		if name, ok := rosterOwner[anyToInt(pick["roster_id"])]; ok {
+		originalTeam := strconv.Itoa(pick.RosterID)
+		if name, ok := rosterOwner[pick.RosterID]; ok {
 			originalTeam = name
 		}
-		currentOwner := fmt.Sprint(pick["owner_id"])
-		if name, ok := rosterOwner[anyToInt(pick["owner_id"])]; ok {
+		currentOwner := strconv.Itoa(pick.OwnerID)
+		if name, ok := rosterOwner[pick.OwnerID]; ok {
 			currentOwner = name
 		}
 		futurePicks = append(futurePicks, map[string]any{
-			"season":        anyToInt(pick["season"]),
-			"round":         anyToInt(pick["round"]),
+			"season":        pick.Season,
+			"round":         pick.Round,
 			"original_team": originalTeam,
 			"current_owner": currentOwner,
 		})

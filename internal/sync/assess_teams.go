@@ -2,7 +2,6 @@ package sync
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"ff-engine/internal/db"
@@ -37,17 +36,18 @@ func (a *TeamAssessor) Assess(ctx context.Context) (*TeamAssessResult, error) {
 			continue // draft-prep mode
 		}
 
-		rosters, err := a.sleeper.GetLeagueRosters(ctx, leagueID)
+		rawRosters, err := a.sleeper.GetLeagueRosters(ctx, leagueID)
 		if err != nil {
 			slog.Warn("get rosters for assessment", "league", leagueID, "err", err)
 			continue
 		}
+		rosters := sleeper.ParseRosters(rawRosters)
 
 		// Find Markis's roster
-		var myRoster map[string]any
-		for _, r := range rosters {
-			if fmt.Sprint(r["owner_id"]) == models.MarkisUserID {
-				myRoster = r
+		var myRoster *sleeper.Roster
+		for i := range rosters {
+			if util.StrOrEmpty(rosters[i].OwnerID.Ptr()) == models.MarkisUserID {
+				myRoster = &rosters[i]
 				break
 			}
 		}
@@ -55,7 +55,7 @@ func (a *TeamAssessor) Assess(ctx context.Context) (*TeamAssessResult, error) {
 			continue
 		}
 
-		players := util.ToStringSlice(myRoster["players"])
+		players := myRoster.Players
 		valuation := a.valuePlayers(ctx, players, "Dynasty Daddy", 14)
 
 		// Compute win-now and future values

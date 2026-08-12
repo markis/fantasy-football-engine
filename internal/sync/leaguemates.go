@@ -90,11 +90,12 @@ func (s *LeaguemateSyncer) processMarkisLeagueRosters(
 	seenLeagues, seenManagers map[string]bool,
 ) (int, int) {
 	var rosterRows, discoveredLeagues int
-	rosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
+	rawRosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
 	if err != nil {
 		slog.Warn("get rosters", "league", leagueID, "err", err)
 		return 0, 0
 	}
+	rosters := sleeper.ParseRosters(rawRosters)
 	users, err := s.sleeper.GetLeagueUsers(ctx, leagueID)
 	if err != nil {
 		slog.Warn("get users", "league", leagueID, "err", err)
@@ -103,14 +104,15 @@ func (s *LeaguemateSyncer) processMarkisLeagueRosters(
 
 	userMap := s.buildUserMap(ctx, users)
 
-	for _, roster := range rosters {
-		ownerID := fmt.Sprint(roster["owner_id"])
-		if ownerID == "" || ownerID == nilStr {
+	for i := range rosters {
+		roster := &rosters[i]
+		ownerID := util.StrOrEmpty(roster.OwnerID.Ptr())
+		if ownerID == "" {
 			continue
 		}
 		seenManagers[ownerID] = true
 
-		rid := rosterIDOf(roster)
+		rid := roster.RosterID
 
 		// Upsert league_manager
 		user := userMap[ownerID]
@@ -130,23 +132,16 @@ func (s *LeaguemateSyncer) processMarkisLeagueRosters(
 }
 
 // buildUserMap indexes league users by user_id and upserts each as a sleeper_user.
-func (s *LeaguemateSyncer) buildUserMap(ctx context.Context, users []map[string]any) map[string]map[string]any {
-	userMap := make(map[string]map[string]any)
-	for _, u := range users {
-		uid := fmt.Sprint(u["user_id"])
+func (s *LeaguemateSyncer) buildUserMap(ctx context.Context, users []map[string]any) map[string]*sleeper.User {
+	parsed := sleeper.ParseUsers(users)
+	userMap := make(map[string]*sleeper.User, len(parsed))
+	for i := range parsed {
+		u := &parsed[i]
+		uid := util.StrOrEmpty(u.UserID.Ptr())
 		userMap[uid] = u
 		s.upsertSleeperUser(ctx, uid, u, uid == models.MarkisUserID)
 	}
 	return userMap
-}
-
-// rosterIDOf extracts the integer roster_id from a roster payload, defaulting to 0.
-func rosterIDOf(roster map[string]any) int {
-	rosterID := toInt(roster["roster_id"])
-	if rosterID == nil {
-		return 0
-	}
-	return *rosterID
 }
 
 // rosterSlot classifies a player id into starter/taxi/reserve/bench.
@@ -169,13 +164,13 @@ func (s *LeaguemateSyncer) storeRosterPlayers(
 	ctx context.Context,
 	leagueID string,
 	rosterID int,
-	roster map[string]any,
+	roster *sleeper.Roster,
 	warnMsg string,
 ) int {
-	players := util.ToStringSlice(roster["players"])
-	starters := util.ToStringSlice(roster["starters"])
-	taxi := util.ToStringSlice(roster["taxi"])
-	reserve := util.ToStringSlice(roster["reserve"])
+	players := roster.Players
+	starters := roster.Starters
+	taxi := roster.Taxi
+	reserve := roster.Reserve
 
 	rows := 0
 	for _, pid := range players {
@@ -231,27 +226,12 @@ func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg map[string]any, 
 	}
 }
 
-func (s *LeaguemateSyncer) upsertSleeperUser(ctx context.Context, userID string, user map[string]any, isMarkis bool) {
-	username := ""
+func (s *LeaguemateSyncer) upsertSleeperUser(ctx context.Context, userID string, user *sleeper.User, isMarkis bool) {
+	var username, displayName, avatar string
 	if user != nil {
-		username = fmt.Sprint(user["username"])
-		if username == nilStr {
-			username = ""
-		}
-	}
-	displayName := ""
-	if user != nil {
-		displayName = fmt.Sprint(user["display_name"])
-		if displayName == nilStr {
-			displayName = ""
-		}
-	}
-	avatar := ""
-	if user != nil {
-		avatar = fmt.Sprint(user["avatar"])
-		if avatar == nilStr {
-			avatar = ""
-		}
+		username = util.StrOrEmpty(user.Username.Ptr())
+		displayName = util.StrOrEmpty(user.DisplayName.Ptr())
+		avatar = util.StrOrEmpty(user.Avatar.Ptr())
 	}
 
 	_, err := s.pool.Exec(ctx, `
@@ -272,16 +252,14 @@ func (s *LeaguemateSyncer) upsertLeagueManager(
 	ctx context.Context,
 	leagueID, userID string,
 	rosterID int,
-	user map[string]any,
+	user *sleeper.User,
 	coOwner, isMarkis bool,
 ) {
 	teamName := ""
 	if user != nil {
-		if meta, ok := user["metadata"].(map[string]any); ok {
-			teamName = fmt.Sprint(meta["team_name"])
-			if teamName == nilStr {
-				teamName = ""
-			}
+		teamName = fmt.Sprint(user.Metadata["team_name"])
+		if teamName == nilStr {
+			teamName = ""
 		}
 	}
 
@@ -370,11 +348,12 @@ func (s *LeaguemateSyncer) syncDiscoveredLeague(
 ) int {
 	s.upsertLeague(ctx, ol, false, discoveredVia)
 
-	olRosters, err := s.sleeper.GetLeagueRosters(ctx, olID)
+	rawRosters, err := s.sleeper.GetLeagueRosters(ctx, olID)
 	if err != nil {
 		slog.Warn("get rosters (discovered league)", "league", olID, "err", err)
 		return 0
 	}
+	olRosters := sleeper.ParseRosters(rawRosters)
 	olUsers, err := s.sleeper.GetLeagueUsers(ctx, olID)
 	if err != nil {
 		slog.Warn("get users (discovered league)", "league", olID, "err", err)
@@ -383,13 +362,14 @@ func (s *LeaguemateSyncer) syncDiscoveredLeague(
 	olUserMap := s.buildUserMap(ctx, olUsers)
 
 	rosterRows := 0
-	for _, olRoster := range olRosters {
-		olOwnerID := fmt.Sprint(olRoster["owner_id"])
-		if olOwnerID == "" || olOwnerID == "<nil>" {
+	for i := range olRosters {
+		olRoster := &olRosters[i]
+		olOwnerID := util.StrOrEmpty(olRoster.OwnerID.Ptr())
+		if olOwnerID == "" {
 			continue
 		}
 		seenManagers[olOwnerID] = true
-		rrid := rosterIDOf(olRoster)
+		rrid := olRoster.RosterID
 		s.upsertLeagueManager(ctx, olID, olOwnerID, rrid, olUserMap[olOwnerID], false, olOwnerID == models.MarkisUserID)
 
 		rosterRows += s.storeRosterPlayers(ctx, olID, rrid, olRoster, "failed to insert other league roster player")

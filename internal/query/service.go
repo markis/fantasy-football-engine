@@ -484,20 +484,22 @@ func (s *Service) GetFreeAgents(
 		limit = 15
 	}
 	// Get rosters
-	rosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
+	rawRosters, err := s.sleeper.GetLeagueRosters(ctx, leagueID)
 	if err != nil {
 		return nil, err
 	}
+	rosters := sleeper.ParseRosters(rawRosters)
 	// Build owned set
 	owned := make(map[string]bool)
-	for _, r := range rosters {
-		for _, p := range util.ToStringSlice(r["players"]) {
+	for i := range rosters {
+		r := &rosters[i]
+		for _, p := range r.Players {
 			owned[p] = true
 		}
-		for _, p := range util.ToStringSlice(r["taxi"]) {
+		for _, p := range r.Taxi {
 			owned[p] = true
 		}
-		for _, p := range util.ToStringSlice(r["reserve"]) {
+		for _, p := range r.Reserve {
 			owned[p] = true
 		}
 	}
@@ -636,12 +638,13 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 	if err != nil {
 		return nil, err
 	}
+	parsed := sleeper.ParseRosters(rosters)
 
 	// Find user's roster
-	var myRoster map[string]any
-	for _, r := range rosters {
-		if fmt.Sprint(r["owner_id"]) == userID {
-			myRoster = r
+	var myRoster *sleeper.Roster
+	for i := range parsed {
+		if util.StrOrEmpty(parsed[i].OwnerID.Ptr()) == userID {
+			myRoster = &parsed[i]
 			break
 		}
 	}
@@ -649,7 +652,7 @@ func (s *Service) EvaluateRoster(ctx context.Context, leagueID, userID string, s
 		return nil, fmt.Errorf("%w for user %s in league %s", errRosterNotFound, userID, leagueID)
 	}
 
-	players := util.ToStringSlice(myRoster["players"])
+	players := myRoster.Players
 	lf, hasLF := models.LeagueFormats[leagueID]
 	source := "Dynasty Daddy"
 	market := 14
