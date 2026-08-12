@@ -278,22 +278,22 @@ func (p *Publisher) renderManifest(_ context.Context, targetDir, prevDir string,
 	counts := buildManifestCounts(targetDir, currentEvidence, teamStateCount)
 	leagueList := buildManifestLeagueList()
 
-	var cursor any
+	var cursor *string
 	if lastChangeID != "" {
-		cursor = lastChangeID
+		cursor = &lastChangeID
 	}
 
-	manifest := map[string]any{
-		colGeneratedAt:       ts,
-		"schema_version":     1,
-		"change_log_cursor":  cursor,
-		"as_of_window_hours": evidenceWindowDays * 24,
-		"counts":             counts,
-		"files":              filesMeta,
-		colLeagues:           leagueList,
+	manifest := Manifest{
+		GeneratedAt:     ts,
+		SchemaVersion:   1,
+		ChangeLogCursor: cursor,
+		AsOfWindowHours: evidenceWindowDays * 24,
+		Counts:          counts,
+		Files:           filesMeta,
+		Leagues:         leagueList,
 	}
 	if teamStateHash != "" {
-		manifest["team_state_hash"] = teamStateHash
+		manifest.TeamStateHash = &teamStateHash
 	}
 	if err := WriteJSON(filepath.Join(targetDir, "corpus-manifest.json"), manifest); err != nil {
 		return nil, err
@@ -378,8 +378,8 @@ func appendEvidenceChangeLog(clPath, recDir, ts string, evidenceSummary map[stri
 }
 
 // buildManifestFilesMeta computes path/hash/size metadata for each file in the manifest walk.
-func buildManifestFilesMeta(tFiles map[string]string) []map[string]any {
-	var filesMeta []map[string]any
+func buildManifestFilesMeta(tFiles map[string]string) []ManifestFile {
+	var filesMeta []ManifestFile
 	for rel, full := range tFiles {
 		if rel == "datasets/change-log.jsonl" {
 			continue
@@ -394,10 +394,10 @@ func buildManifestFilesMeta(tFiles map[string]string) []map[string]any {
 			slog.Warn("failed to stat file for manifest", "path", rel, "err", err)
 			continue
 		}
-		filesMeta = append(filesMeta, map[string]any{
-			"path":   rel,
-			"sha256": hash,
-			"bytes":  info.Size(),
+		filesMeta = append(filesMeta, ManifestFile{
+			Path:   rel,
+			SHA256: hash,
+			Bytes:  info.Size(),
 		})
 	}
 	return filesMeta
@@ -432,8 +432,8 @@ func countCurrentEvidence(recDir string) int {
 }
 
 // buildManifestCounts assembles the manifest's dataset counts.
-func buildManifestCounts(targetDir string, currentEvidence, teamStateCount int) map[string]any {
-	return map[string]any{
+func buildManifestCounts(targetDir string, currentEvidence, teamStateCount int) map[string]int {
+	return map[string]int{
 		"evidence":           currentEvidence,
 		"player_signal":      countJSONLFile(targetDir, "datasets/player-signals.jsonl"),
 		"valuation":          countJSONLFile(targetDir, "datasets/valuations.jsonl"),
@@ -445,10 +445,10 @@ func buildManifestCounts(targetDir string, currentEvidence, teamStateCount int) 
 }
 
 // buildManifestLeagueList builds the manifest's league summary list.
-func buildManifestLeagueList() []map[string]any {
-	leagueList := make([]map[string]any, 0, len(models.LeagueFormats))
+func buildManifestLeagueList() []ManifestLeague {
+	leagueList := make([]ManifestLeague, 0, len(models.LeagueFormats))
 	for lid, lf := range models.LeagueFormats {
-		leagueList = append(leagueList, map[string]any{colLeagueID: lid, colName: lf.Name})
+		leagueList = append(leagueList, ManifestLeague{LeagueID: lid, Name: lf.Name})
 	}
 	return leagueList
 }

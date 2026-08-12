@@ -202,6 +202,11 @@ linters:
       - path: internal/sleeper/.*\.go
         linters:
           - tagliatelle
+      # Corpus output structs (documents.go) mirror the snake_case corpus JSON
+      # schemas; the schemas are the contract, not the repo's camelCase rule.
+      - path: internal/corpus/documents\.go
+        linters:
+          - tagliatelle
 
     paths:
       - vendor
