@@ -122,7 +122,7 @@ func (e *Embedder) EmbedBatch(ctx context.Context, limit int) (*EmbedResult, err
 
 	result := &EmbedResult{Status: "ok", Total: len(items)}
 
-	// Process in batches — key improvement over Python (which did 1-at-a-time)
+	// Process in batches for throughput
 	bs := e.batchSize
 	if bs <= 0 {
 		bs = 32

@@ -61,8 +61,7 @@ func (c *Client) Embed(ctx context.Context, text string) ([]float32, error) {
 }
 
 // EmbedBatch sends multiple texts in one HTTP call and returns their embeddings.
-// This is the key improvement over the Python pipeline (which sent one text
-// per call). The llama-server /v1/embeddings endpoint accepts an array of inputs.
+// The llama-server /v1/embeddings endpoint accepts an array of inputs.
 func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil

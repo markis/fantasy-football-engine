@@ -133,7 +133,7 @@ ALTER TABLE fact ADD COLUMN IF NOT EXISTS topics text[] NOT NULL DEFAULT '{}';
 ALTER TABLE fact ADD COLUMN IF NOT EXISTS extracted_at timestamptz NOT NULL DEFAULT now();
 
 -- Idempotency: unique on (news_item_id, md5(fact_text)) so re-running
--- extract_facts.py doesn't duplicate facts.
+-- fact extraction doesn't duplicate facts.
 CREATE UNIQUE INDEX IF NOT EXISTS fact_news_item_fact_hash_key
     ON fact (news_item_id, md5(fact_text));
 
@@ -160,7 +160,7 @@ CREATE TRIGGER story_cluster_updated_at BEFORE UPDATE ON story_cluster
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ---------------------------------------------------------------------------
--- player: Sleeper player database (synced daily by sync_players.py)
+-- player: Sleeper player database (synced daily by the players sync)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS player (
     id UUID PRIMARY KEY DEFAULT uuid_v7(),
@@ -213,7 +213,7 @@ CREATE TRIGGER player_updated_at BEFORE UPDATE ON player
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ---------------------------------------------------------------------------
--- player_ranking: Dynasty Daddy rankings (synced daily by sync_rankings.py)
+-- player_ranking: Dynasty Daddy rankings (synced daily by the rankings sync)
 -- Stores BOTH 1QB (trade_value/overall_rank) and Superflex
 -- (sf_trade_value/sf_overall_rank) columns per player.
 -- ---------------------------------------------------------------------------
@@ -282,7 +282,7 @@ CREATE TRIGGER player_ranking_updated_at BEFORE UPDATE ON player_ranking
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- ---------------------------------------------------------------------------
--- SimHash Hamming distance function (used by dedup_check.py)
+-- SimHash Hamming distance function (used by the dedup check)
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION hamming_distance(a bigint, b bigint)
 RETURNS integer AS $$

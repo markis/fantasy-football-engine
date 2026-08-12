@@ -14,7 +14,7 @@ embeddings:
   url: "http://llama-server:8080"
   model: "nomic-embed-text-v1.5"
   dimensions: 768
-  batchSize: 32              # texts per HTTP call (vs Python's 1-at-a-time)
+  batchSize: 32              # texts per HTTP call (batched)
 
 llm:
   provider: "ollama-cloud"

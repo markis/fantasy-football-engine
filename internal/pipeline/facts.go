@@ -136,7 +136,7 @@ type factSource struct {
 //
 // Valid facts are collected before embedding so they can be embedded in one
 // batched call instead of one HTTP round trip per fact (EmbedBatch exists
-// precisely to avoid the one-call-per-text pattern the Python pipeline used).
+// precisely to batch fact embeddings in a single round trip).
 type validFact struct {
 	fact llmFact
 	text string

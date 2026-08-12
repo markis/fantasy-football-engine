@@ -55,7 +55,7 @@ var MarketLabel = map[int]string{
 // MarkisUserID is Markis's Sleeper user ID.
 const MarkisUserID = "558115100726579200"
 
-// PickValue constants from evaluate_trade.py — 1QB dynasty pick values.
+// PickValue constants — 1QB dynasty pick values.
 var (
 	Round1       = map[int]int{1: 9000, 2: 8200, 3: 7600, 4: 6800, 5: 6200, 6: 5600, 7: 5000, 8: 4500, 9: 4000, 10: 3600, 11: 3200, 12: 2900}
 	Round2       = map[int]int{1: 2600, 2: 2300, 3: 2100, 4: 1900, 5: 1700, 6: 1500, 7: 1400, 8: 1300, 9: 1200, 10: 1100, 11: 1000, 12: 950}

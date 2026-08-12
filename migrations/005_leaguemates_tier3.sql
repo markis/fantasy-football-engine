@@ -6,12 +6,12 @@
 -- (a rebuilder trending toward contention shows up as a rising
 -- contender_score and shifting position_bias).
 --
--- assess_leaguemates.py (Sun 07:30 ET) computes the numeric signals in Python
--- (grounded, no hallucination), calls minimax-m3 once per manager to write the
--- `dossier` prose, and snapshots the row here. corpus/render_leaguemates.py
--- then renders current/leaguemate-brief.md + datasets/leaguemate-profiles.jsonl
--- from the latest snapshot at publish time (Sun 08:05). The self-study cron
--- folds the brief into KNOWLEDGE.md.
+-- assess_leaguemates (Sun 07:30 ET) computes the numeric signals (grounded,
+-- no hallucination), calls minimax-m3 once per manager to write the `dossier`
+-- prose, and snapshots the row here. corpus/render_leaguemates then renders
+-- current/leaguemate-brief.md + datasets/leaguemate-profiles.jsonl from the
+-- latest snapshot at publish time (Sun 08:05). The self-study cron folds the
+-- brief into KNOWLEDGE.md.
 --
 -- Only Markis's ~50 direct leaguemates are profiled (the people he actually
 -- trades with), not secondary managers in discovered leagues.

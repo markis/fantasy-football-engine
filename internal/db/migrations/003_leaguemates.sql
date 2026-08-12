@@ -7,7 +7,7 @@
 -- decision-relevance gate (leaguemate rosters are a better watch set than a
 -- static name index).
 --
--- Scope guard (enforced in sync_leaguemates.py, not the schema): only
+-- Scope guard (enforced in the leaguemates sync, not the schema): only
 -- managers from Markis's 5 owned leagues are profiled. Managers discovered
 -- inside other leagues are stored (free — same API call) but NOT recursively
 -- expanded. Sport = nfl, season = current. Per-manager league coverage is
@@ -94,7 +94,7 @@ CREATE INDEX IF NOT EXISTS lm_league_roster  ON league_manager (league_id, roste
 
 -- Reconcile an already-applied (older) league_manager: drop the identity
 -- columns that moved to sleeper_user and add the FK. Idempotent (IF EXISTS /
--- guarded). Safe because the table is empty until sync_leaguemates.py runs.
+-- guarded). Safe because the table is empty until the leaguemates sync runs.
 ALTER TABLE league_manager DROP COLUMN IF EXISTS display_name;
 ALTER TABLE league_manager DROP COLUMN IF EXISTS username;
 DO $$ BEGIN
@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS leaguemate_roster_player (
 CREATE INDEX IF NOT EXISTS lrp_player_idx   ON leaguemate_roster_player (sleeper_player_id);
 CREATE INDEX IF NOT EXISTS lrp_league_idx    ON leaguemate_roster_player (league_id);
 -- FK to player table is intentionally NOT enforced: a roster can hold IR/taxi
--- or just-drafted players before sync_players.py has them. Join loosely.
+-- or just-drafted players before the players sync has them. Join loosely.
 
 -- ---------------------------------------------------------------------------
 -- sync_run — tiny bookkeeping so we can see when/how the profiler ran and

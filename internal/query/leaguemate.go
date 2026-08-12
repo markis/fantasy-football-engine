@@ -12,7 +12,7 @@ import (
 	"ff-engine/internal/util"
 )
 
-// --- Leaguemate intelligence tools (ported from the Python Sleeper MCP) ---
+// --- Leaguemate intelligence tools ---
 
 var (
 	errUsernameRequired   = errors.New("username is required")

@@ -8,7 +8,7 @@ and exposes it as an MCP server.
 - **Standalone daemon** — no dependency on zeroclaw's scheduler or skill system
 - **Internal cron scheduler** — runs 20 pipeline jobs autonomously
 - **MCP server** — exposes ~15 query/interaction tools over Streamable HTTP
-- **Single binary** — no venv, no Python, no self-heal scripts
+- **Single binary** — no self-heal scripts
 
 ## Architecture
 
@@ -68,8 +68,8 @@ go build ./cmd/fantasy-football-engine
 ./fantasy-football-engine -config config.yaml
 ```
 
-## Migration from the Python pipeline
+## In-place upgrade
 
 The daemon supports an **in-place upgrade**: point it at the existing `ff-pg`
 data directory and it detects the existing schema, marks all migrations as
-applied, and continues from where the Python pipeline left off. No data loss.
+applied, and continues from where the prior pipeline left off. No data loss.

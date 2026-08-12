@@ -20,7 +20,7 @@
 --   - Scan is incremental (leaguemate_scan_state) — daily run scans
 --     last_week..current_nfl_week per in_season/complete league; drafting /
 --     pre_draft leagues are skipped (no in-season trades). See
---     sync_leaguemates_trades.py.
+--     the leaguemates trades sync.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;  -- for uuid_v7()
 
@@ -74,7 +74,7 @@ CREATE TABLE IF NOT EXISTS leaguemate_trade_asset (
 CREATE INDEX IF NOT EXISTS lta_player_idx   ON leaguemate_trade_asset (sleeper_player_id) WHERE sleeper_player_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS lta_txn_idx       ON leaguemate_trade_asset (transaction_id);
 CREATE INDEX IF NOT EXISTS lta_watchset_idx  ON leaguemate_trade_asset (is_watch_set) WHERE is_watch_set;
--- No dedup index: sync_leaguemates_trades.py deletes + reinserts assets per
+-- No dedup index: the leaguemates trades sync deletes + reinserts assets per
 -- transaction on each re-scan, so duplicates are impossible by construction.
 
 -- ---------------------------------------------------------------------------

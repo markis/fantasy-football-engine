@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS fact (
     embedding vector(768)
 );
 
--- Player table (Sleeper player database — synced daily by sync_players.py)
+-- Player table (Sleeper player database — synced daily by the players sync)
 CREATE TABLE IF NOT EXISTS player (
     id UUID PRIMARY KEY DEFAULT uuid_v7(),
     sleeper_player_id TEXT NOT NULL UNIQUE,
@@ -150,7 +150,7 @@ CREATE INDEX IF NOT EXISTS idx_player_status ON player(status);
 -- set_updated_at() is defined (it must exist before the trigger can
 -- reference it).
 
--- Player ranking table (Dynasty Daddy — synced daily by sync_rankings.py)
+-- Player ranking table (Dynasty Daddy — synced daily by the rankings sync)
 -- Stores BOTH 1QB (trade_value/overall_rank) and Superflex
 -- (sf_trade_value/sf_overall_rank) columns per player.
 CREATE TABLE IF NOT EXISTS player_ranking (

@@ -129,9 +129,8 @@ func (a *TeamAssessor) valuePlayers(ctx context.Context, playerIDs []string, sou
 }
 
 func classifyZone(winNow, future float64) string {
-	// Simple classification: relative to median
-	// In the full Python version, this is ranked within the league.
-	// Here we use absolute thresholds as a simplified version.
+	// Simple classification: relative to median.
+	// Uses absolute thresholds for a lightweight zone classification.
 	if winNow > 50000 && future > 40000 {
 		return "CONTENDER"
 	}
