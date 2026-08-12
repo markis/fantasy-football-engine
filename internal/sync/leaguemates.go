@@ -48,6 +48,7 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 	if err != nil {
 		return nil, fmt.Errorf("get Markis leagues: %w", err)
 	}
+	parsedLeagues := sleeper.ParseLeagues(markisLeagues)
 
 	// Track all leagues and managers
 	seenLeagues := make(map[string]bool)
@@ -55,11 +56,12 @@ func (s *LeaguemateSyncer) Sync(ctx context.Context, maxLeagues int, season stri
 	var rosterRows int
 
 	// Process each of Markis's leagues
-	for _, lg := range markisLeagues {
+	for i := range parsedLeagues {
+		lg := &parsedLeagues[i]
 		if result.LeaguesSeen >= maxLeagues {
 			break
 		}
-		leagueID := fmt.Sprint(lg["league_id"])
+		leagueID := lg.LeagueID
 		if seenLeagues[leagueID] {
 			continue
 		}
@@ -188,21 +190,21 @@ func (s *LeaguemateSyncer) storeRosterPlayers(
 	return rows
 }
 
-func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg map[string]any, isMarkis bool, discoveredVia string) {
-	leagueID := fmt.Sprint(lg["league_id"])
-	rosterPositions, err := json.Marshal(lg["roster_positions"])
+func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg *sleeper.League, isMarkis bool, discoveredVia string) {
+	leagueID := lg.LeagueID
+	rosterPositions, err := json.Marshal(lg.RosterPositions)
 	if err != nil {
 		slog.Warn("failed to marshal roster positions", "league_id", leagueID, "err", err)
 		rosterPositions = []byte("null")
 	}
-	settings, err2 := json.Marshal(lg["settings"])
+	settings, err2 := json.Marshal(lg.Settings)
 	if err2 != nil {
 		slog.Warn("failed to marshal league settings", "league_id", leagueID, "err", err2)
 		settings = []byte("null")
 	}
 	var leagueType *int
-	if settingsMap, ok := lg["settings"].(map[string]any); ok {
-		leagueType = toInt(settingsMap["type"])
+	if lg.Settings != nil {
+		leagueType = toInt(lg.Settings["type"])
 	}
 
 	if _, err := s.pool.Exec(ctx, `
@@ -218,9 +220,9 @@ func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg map[string]any, 
 			roster_positions = EXCLUDED.roster_positions, settings = EXCLUDED.settings,
 			is_markis_league = league.is_markis_league OR EXCLUDED.is_markis_league,
 			last_synced_at = now()
-	`, leagueID, lg["name"], lg["season"], "nfl", lg["status"], toInt(lg["total_rosters"]),
+	`, leagueID, lg.Name, lg.Season, "nfl", lg.Status, lg.TotalRosters,
 		hasSuperflex(lg), isBestBall(lg), leagueType,
-		rosterPositions, settings, lg["previous_league_id"],
+		rosterPositions, settings, lg.PreviousLeagueID,
 		isMarkis, nilIfEmpty(discoveredVia)); err != nil {
 		slog.Warn("upsert league", "id", leagueID, "err", err)
 	}
@@ -274,30 +276,20 @@ func (s *LeaguemateSyncer) upsertLeagueManager(
 	}
 }
 
-func hasSuperflex(lg map[string]any) bool {
-	rp, ok := lg["roster_positions"]
-	if !ok {
-		return false
-	}
-	arr, ok := rp.([]any)
-	if !ok {
-		return false
-	}
-	for _, v := range arr {
-		if strings.ToUpper(fmt.Sprint(v)) == "SUPER_FLEX" {
+func hasSuperflex(lg *sleeper.League) bool {
+	for _, v := range lg.RosterPositions {
+		if strings.EqualFold(v, "SUPER_FLEX") {
 			return true
 		}
 	}
 	return false
 }
 
-func isBestBall(lg map[string]any) bool {
-	settings, ok := lg["settings"].(map[string]any)
-	if !ok {
+func isBestBall(lg *sleeper.League) bool {
+	if lg.Settings == nil {
 		return false
 	}
-	v := toInt(settings["best_ball"])
-	return v != nil && *v == 1
+	return util.ToInt(lg.Settings["best_ball"]) == 1
 }
 
 func contains(arr []string, s string) bool {
@@ -322,11 +314,13 @@ func (s *LeaguemateSyncer) syncOtherManagerLeagues(
 		slog.Warn("get other leagues", "user", ownerID, "err", err)
 		return 0
 	}
+	parsedOthers := sleeper.ParseLeagues(otherLeagues)
 	count := 0
 	maxLeagues := 3
 	rosterRows := 0
-	for _, ol := range otherLeagues {
-		olID := fmt.Sprint(ol["league_id"])
+	for i := range parsedOthers {
+		ol := &parsedOthers[i]
+		olID := ol.LeagueID
 		if seenLeagues[olID] || count >= maxLeagues {
 			continue
 		}
@@ -342,7 +336,7 @@ func (s *LeaguemateSyncer) syncOtherManagerLeagues(
 // leagues, along with its managers and roster players.
 func (s *LeaguemateSyncer) syncDiscoveredLeague(
 	ctx context.Context,
-	ol map[string]any,
+	ol *sleeper.League,
 	olID, discoveredVia string,
 	seenManagers map[string]bool,
 ) int {

@@ -151,8 +151,13 @@ func (c *Common) LeagueUsers(ctx context.Context, leagueID string) ([]map[string
 	return c.sleeper.GetLeagueUsers(ctx, leagueID)
 }
 
-func (c *Common) LeagueInfo(ctx context.Context, leagueID string) (map[string]any, error) {
-	return c.sleeper.GetLeagueInfo(ctx, leagueID)
+func (c *Common) LeagueInfo(ctx context.Context, leagueID string) (*sleeper.League, error) {
+	raw, err := c.sleeper.GetLeagueInfo(ctx, leagueID)
+	if err != nil {
+		return nil, err
+	}
+	l := sleeper.ParseLeague(raw)
+	return &l, nil
 }
 
 func (c *Common) LeagueTradedPicks(ctx context.Context, leagueID string) ([]sleeper.TradedPick, error) {

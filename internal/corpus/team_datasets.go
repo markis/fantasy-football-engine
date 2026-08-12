@@ -154,9 +154,9 @@ func buildRosterOwnerMap(rosters []sleeper.Roster) map[int]string {
 
 // nonBenchSlots returns the league's starting lineup slots, in order,
 // excluding the bench slot.
-func nonBenchSlots(leagueInfo map[string]any) []string {
+func nonBenchSlots(leagueInfo *sleeper.League) []string {
 	var starterSlots []string
-	for _, rp := range util.ToStringSlice(leagueInfo["roster_positions"]) {
+	for _, rp := range leagueInfo.RosterPositions {
 		if rp != "BN" {
 			starterSlots = append(starterSlots, rp)
 		}
@@ -165,9 +165,9 @@ func nonBenchSlots(leagueInfo map[string]any) []string {
 }
 
 // countBenchSlots returns how many bench slots the league's roster has.
-func countBenchSlots(leagueInfo map[string]any) int {
+func countBenchSlots(leagueInfo *sleeper.League) int {
 	benchCount := 0
-	for _, rp := range util.ToStringSlice(leagueInfo["roster_positions"]) {
+	for _, rp := range leagueInfo.RosterPositions {
 		if rp == "BN" {
 			benchCount++
 		}
@@ -178,7 +178,7 @@ func countBenchSlots(leagueInfo map[string]any) int {
 // computeFaabRemaining derives remaining waiver budget from league settings
 // (the league's total waiver budget must come from settings, not be
 // assumed — leagues can configure any total; 100 is Sleeper's own default).
-func computeFaabRemaining(myRoster *sleeper.Roster, leagueInfo map[string]any) int {
+func computeFaabRemaining(myRoster *sleeper.Roster, leagueInfo *sleeper.League) int {
 	faab := 0
 	if v, ok := myRoster.Settings["waiver_budget_used"]; ok {
 		if n, ok := v.(float64); ok {
@@ -186,11 +186,9 @@ func computeFaabRemaining(myRoster *sleeper.Roster, leagueInfo map[string]any) i
 		}
 	}
 	waiverBudget := 100
-	if lset, ok := leagueInfo["settings"].(map[string]any); ok {
-		if v, ok := lset["waiver_budget"]; ok {
-			if n, ok := v.(float64); ok {
-				waiverBudget = int(n)
-			}
+	if v, ok := leagueInfo.Settings["waiver_budget"]; ok {
+		if n, ok := v.(float64); ok {
+			waiverBudget = int(n)
 		}
 	}
 	return max(waiverBudget-faab, 0)
