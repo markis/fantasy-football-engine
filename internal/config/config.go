@@ -59,7 +59,7 @@ type LLMConfig struct {
 	URL            string `default:"https://ollama.com" yaml:"url"`
 	Model          string `default:"minimax-m3"         yaml:"model"`
 	APIKey         string `yaml:"apiKey"`
-	APIKeyPass     string `default:"llm-api-key"         yaml:"apiKeyPass"`
+	APIKeySecret   string `default:"llm-api-key"        yaml:"apiKeySecret"`
 	TimeoutSecs    int    `default:"300"                yaml:"timeoutSecs"`
 	MaxConcurrency int    `default:"4"                  yaml:"maxConcurrency"`
 }
@@ -86,17 +86,17 @@ type EvergreenPattern struct {
 }
 
 type FantasyProsConfig struct {
-	APIKeyPass string `default:"fantasypros-api"     yaml:"apiKeyPass"`
-	CookiePass string `default:"fantasypros-cookies" yaml:"cookiePass"`
+	APIKeySecret string `default:"fantasypros-api"     yaml:"apiKeySecret"`
+	CookieSecret string `default:"fantasypros-cookies" yaml:"cookieSecret"`
 }
 
 type CorpusConfig struct {
-	RepoDir     string `yaml:"repoDir"`
-	GitURL      string `default:"https://github.com/markis/fantasy-football-corpus" yaml:"gitUrl"`
-	GitPAT      string `yaml:"gitPat"`
-	GitPATPass  string `default:"fantasy-github-pat"                       yaml:"gitPatPass"`
-	AuthorName  string `default:"Markis Taylor"                                     yaml:"authorName"`
-	AuthorEmail string `default:"m@rkis.net"                                        yaml:"authorEmail"`
+	RepoDir      string `yaml:"repoDir"`
+	GitURL       string `default:"https://github.com/markis/fantasy-football-corpus" yaml:"gitUrl"`
+	GitPAT       string `yaml:"gitPat"`
+	GitPATSecret string `default:"fantasy-github-pat"                                yaml:"gitPatSecret"`
+	AuthorName   string `default:"Markis Taylor"                                     yaml:"authorName"`
+	AuthorEmail  string `default:"m@rkis.net"                                        yaml:"authorEmail"`
 }
 
 type TelemetryConfig struct {
@@ -146,28 +146,28 @@ func (c *Config) resolveSecrets() {
 	// Database DSN
 	c.Database.DSN = expandEnv(c.Database.DSN)
 
-	// LLM API key: env LLM_API_KEY, or docker secret <api_key_pass>
+	// LLM API key: env LLM_API_KEY, or docker secret <apiKeySecret>
 	if c.LLM.APIKey == "" {
 		c.LLM.APIKey = os.Getenv("LLM_API_KEY")
 	}
 	if c.LLM.APIKey == "" {
-		key, err := readSecret(c.LLM.APIKeyPass)
+		key, err := readSecret(c.LLM.APIKeySecret)
 		if err != nil {
-			slog.Warn("LLM API key not found", "secret", c.LLM.APIKeyPass, "err", err)
+			slog.Warn("LLM API key not found", "secret", c.LLM.APIKeySecret, "err", err)
 		} else {
 			c.LLM.APIKey = key
 		}
 	}
 	c.LLM.APIKey = expandEnv(c.LLM.APIKey)
 
-	// Corpus Git PAT: env FF_GITHUB_PAT, or docker secret <git_pat_pass>
+	// Corpus Git PAT: env FF_GITHUB_PAT, or docker secret <gitPatSecret>
 	if c.Corpus.GitPAT == "" {
 		c.Corpus.GitPAT = os.Getenv("FF_GITHUB_PAT")
 	}
 	if c.Corpus.GitPAT == "" {
-		key, err := readSecret(c.Corpus.GitPATPass)
+		key, err := readSecret(c.Corpus.GitPATSecret)
 		if err != nil {
-			slog.Warn("Git PAT not found", "secret", c.Corpus.GitPATPass, "err", err)
+			slog.Warn("Git PAT not found", "secret", c.Corpus.GitPATSecret, "err", err)
 		} else {
 			c.Corpus.GitPAT = key
 		}

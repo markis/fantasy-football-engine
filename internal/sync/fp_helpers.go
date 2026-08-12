@@ -18,7 +18,7 @@ func fetchFPJSON(
 	ctx context.Context, client *http.Client, cfg *config.Config, url string,
 	httpErr error, reqErrCtx, decodeErrCtx string, out any,
 ) error {
-	apiKey, err := config.ReadSecret(cfg.FantasyPros.APIKeyPass)
+	apiKey, err := config.ReadSecret(cfg.FantasyPros.APIKeySecret)
 	if err != nil {
 		return fmt.Errorf("get FP API key: %w", err)
 	}

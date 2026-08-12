@@ -46,8 +46,8 @@ sources:
     url: "https://www.4for4.com/rss.xml"
 
 fantasypros:
-  api_key_pass: "football/fantasypros-api"
-  cookie_pass: "football/fantasypros-cookies"
+  apiKeySecret: "football/fantasypros-api"
+  cookieSecret: "football/fantasypros-cookies"
 
 corpus:
   repo_dir: "/data/corpus"
