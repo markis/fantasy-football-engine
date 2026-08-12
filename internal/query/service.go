@@ -57,7 +57,7 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 		       1 - (ni.embedding <=> $1::vector) AS similarity,
 		       ni.content_text, ni.news_story
 		FROM news_item ni JOIN source s ON s.id = ni.source_id
-		WHERE ni.embedding IS NOT NULL`
+		WHERE ni.embedding IS NOT NULL AND COALESCE(ni.quality_score, 0) >= 0`
 	params := []any{v}
 	if days != nil {
 		d := max(*days, 0)
@@ -210,8 +210,9 @@ func (s *Service) GetRecentNews(ctx context.Context, limit int, relevantOnly boo
 	sql := `SELECT ni.id, ni.title, ni.url, ni.published_at, ni.news_story,
 		       s.name AS source_name, ni.is_relevant
 		FROM news_item ni JOIN source s ON s.id = ni.source_id`
+	sql += " WHERE ni.is_news = true AND COALESCE(ni.quality_score, 0) >= 0"
 	if relevantOnly {
-		sql += " WHERE ni.is_relevant = true"
+		sql += " AND ni.is_relevant = true"
 	}
 	sql += " ORDER BY ni.published_at DESC NULLS LAST LIMIT $1"
 	rows, err := s.pool.Query(ctx, sql, limit)

@@ -50,6 +50,18 @@ Rules:
 - If the facts and summary disagree, prefer the facts (they're verified).
 - Do NOT include the source URL or "according to <source>".
 - Output ONLY the blurb — no JSON, no markdown fences, no preamble.
+- TEMPORAL ACCURACY: Only describe an injury, transaction, or depth-chart move
+  as a CURRENT event if the body/facts explicitly tie it to the present (e.g.
+  "today", "this week", "at Tuesday's practice", or a date within the last 7
+  days). If the article only references a past event (an older injury, a
+  season-ending surgery from months ago, a prior-season game log) as context,
+  do NOT restate it as if it just happened — either omit it or frame it as
+  background ("has been dealing with…", "previously…"). Never phrase a
+  historical injury as "at Monday's practice" unless the body literally says
+  so about the current period.
+- Beware evergreen/aggregator articles: an injury tracker that lists many dated
+  injuries is NOT reporting a new injury. Only write about an injury as current
+  if the body clearly dates it to the current week.
 
 Item title: %s
 Summary: %s
