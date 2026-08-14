@@ -235,24 +235,6 @@ func (c *Client) GetLeagueTradedPicks(ctx context.Context, leagueID string) ([]T
 	return picks, nil
 }
 
-// GetDraftInfo returns draft info.
-func (c *Client) GetDraftInfo(ctx context.Context, draftID string) (Draft, error) {
-	var d Draft
-	if err := c.get(ctx, "draft/"+draftID, &d); err != nil {
-		return Draft{}, err
-	}
-	return d, nil
-}
-
-// GetDraftPicks returns picks for a draft.
-func (c *Client) GetDraftPicks(ctx context.Context, draftID string) ([]DraftPick, error) {
-	var picks []DraftPick
-	if err := c.get(ctx, "draft/"+draftID+"/picks", &picks); err != nil {
-		return nil, err
-	}
-	return picks, nil
-}
-
 // GetTrendingPlayers returns trending players.
 func (c *Client) GetTrendingPlayers(ctx context.Context, trendType string, lookbackHours, limit int) ([]TrendingPlayer, error) {
 	var players []TrendingPlayer
@@ -298,33 +280,6 @@ func nflSeasonFromDate(t time.Time) string {
 		year--
 	}
 	return strconv.Itoa(year)
-}
-
-// GetRaw fetches a raw path from the Sleeper API and returns the JSON as-is.
-// Used by the corpus publisher which needs flexible access.
-func (c *Client) GetRaw(ctx context.Context, path string) (any, error) {
-	url := c.baseURL + "/" + path
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("build request for %s: %w", path, err)
-	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch %s: %w", path, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			body = []byte("(unable to read error body)")
-		}
-		return nil, fmt.Errorf("%s: %w (%d): %s", path, errSleeperHTTP, resp.StatusCode, string(body))
-	}
-	var result any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode %s response: %w", path, err)
-	}
-	return result, nil
 }
 
 // CurrentWeek returns the current NFL week (1-18); 0 if offseason.

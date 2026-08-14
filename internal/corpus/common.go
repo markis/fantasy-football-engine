@@ -103,45 +103,10 @@ func FileSHA256Bytes(path string) (string, error) {
 	return hex.EncodeToString(h[:]), nil
 }
 
-// --- Time helpers ---
-
-func ParseDT(s string) (time.Time, bool) {
-	if s == "" {
-		return time.Time{}, false
-	}
-	s = strings.Replace(s, "Z", "+00:00", 1)
-	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t, true
-	}
-	if t, err := time.Parse("2006-01-02 15:04:05", s); err == nil {
-		return t, true
-	}
-	if t, err := time.Parse("2006-01-02", s); err == nil {
-		return t, true
-	}
-	return time.Time{}, false
-}
-
-func ISOOrNone(s string) string {
-	t, ok := ParseDT(s)
-	if !ok {
-		return ""
-	}
-	return t.UTC().Format("2006-01-02T15:04:05Z")
-}
-
 // --- Sleeper fetch (with cache) ---
-
-func (c *Common) SleeperGet(ctx context.Context, path string) (any, error) {
-	return c.sleeper.GetRaw(ctx, path)
-}
 
 func (c *Common) LeagueRosters(ctx context.Context, leagueID string) ([]sleeper.Roster, error) {
 	return c.sleeper.GetLeagueRosters(ctx, leagueID)
-}
-
-func (c *Common) LeagueUsers(ctx context.Context, leagueID string) ([]sleeper.User, error) {
-	return c.sleeper.GetLeagueUsers(ctx, leagueID)
 }
 
 func (c *Common) LeagueInfo(ctx context.Context, leagueID string) (*sleeper.League, error) {
@@ -154,10 +119,6 @@ func (c *Common) LeagueInfo(ctx context.Context, leagueID string) (*sleeper.Leag
 
 func (c *Common) LeagueTradedPicks(ctx context.Context, leagueID string) ([]sleeper.TradedPick, error) {
 	return c.sleeper.GetLeagueTradedPicks(ctx, leagueID)
-}
-
-func (c *Common) LeagueTransactions(ctx context.Context, leagueID string, week int) ([]sleeper.Transaction, error) {
-	return c.sleeper.GetLeagueTransactions(ctx, leagueID, week)
 }
 
 // MyRoster returns Markis's roster from a league's rosters, or nil if absent.
@@ -411,28 +372,6 @@ func AppendJSONL(path string, obj any) error {
 		return fmt.Errorf("write file %s: %w", path, err)
 	}
 	return nil
-}
-
-func ReadJSONL(path string) ([]map[string]any, error) {
-	data, err := readFileRooted(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("read file %s: %w", path, err)
-	}
-	var result []map[string]any
-	for line := range strings.SplitSeq(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		var obj map[string]any
-		if err := json.Unmarshal([]byte(line), &obj); err == nil {
-			result = append(result, obj)
-		}
-	}
-	return result, nil
 }
 
 // --- Topic mapping ---

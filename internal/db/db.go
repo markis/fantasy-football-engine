@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pgvector/pgvector-go"
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
 )
 
@@ -138,14 +137,6 @@ func (p *Pool) RunMigrations(ctx context.Context) error {
 	}
 	slog.Info("migrations complete")
 	return nil
-}
-
-// Vector is an alias for pgvector.Vector for convenience.
-type Vector = pgvector.Vector
-
-// NewVector creates a new pgvector.Vector from a float32 slice.
-func NewVector(vals []float32) Vector {
-	return pgvector.NewVector(vals)
 }
 
 // dsnKeyValueRedactor matches libpq key=value style credentials, e.g.

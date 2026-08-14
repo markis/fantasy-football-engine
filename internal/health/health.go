@@ -46,10 +46,6 @@ func New(pool *db.Pool) *Checker {
 	return &Checker{pool: pool, start: time.Now()}
 }
 
-// SetStart records the daemon boot time for uptime reporting. Call once at
-// startup if the Checker is constructed before main begins timing.
-func (c *Checker) SetStart(t time.Time) { c.start = t }
-
 // Check runs the readiness probes and returns a Report. The Postgres probe
 // uses a context bounded by checkTimeout.
 func (c *Checker) Check(ctx context.Context, toolCount int) Report {

@@ -7,9 +7,7 @@ package util
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
-	"time"
 )
 
 // NilStr is the stringification of a nil any value: fmt.Sprint(nil) == "<nil>".
@@ -49,26 +47,6 @@ func NilIfEmpty(s *string) *string {
 	return s
 }
 
-// ToStringSlice coerces a []any (as produced by encoding/json) into []string,
-// dropping empty and "<nil>" entries. It returns nil when v is not a []any.
-func ToStringSlice(v any) []string {
-	arr, ok := v.([]any)
-	if !ok {
-		return nil
-	}
-
-	result := make([]string, 0, len(arr))
-	for _, item := range arr {
-		s := fmt.Sprint(item)
-		if s == "" || s == NilStr {
-			continue
-		}
-
-		result = append(result, s)
-	}
-	return result
-}
-
 // ToInt coerces a decoded-JSON value (float64, int, json.Number, or numeric
 // string) to an int, returning 0 if it cannot be interpreted as a number.
 // Mirrors the prior corpus.anyToInt / sync.toInt coercion so call sites can be
@@ -96,68 +74,4 @@ func ToInt(v any) int {
 	default:
 		return 0
 	}
-}
-
-// AsMap returns v as a map[string]any, or nil if v is nil or not such a map.
-// Used to pass through opaque nested JSON objects (settings, metadata).
-func AsMap(v any) map[string]any {
-	if v == nil {
-		return nil
-	}
-	m, ok := v.(map[string]any)
-	if !ok {
-		return nil
-	}
-	return m
-}
-
-// ToIntSlice coerces a decoded-JSON array of numbers (or numeric strings) to
-// []int, returning an empty slice for nil/non-array. Mirrors the prior
-// sync.toIntSlice coercion.
-func ToIntSlice(v any) []int {
-	if v == nil {
-		return []int{}
-	}
-	arr, ok := v.([]any)
-	if !ok {
-		return []int{}
-	}
-	result := make([]int, 0, len(arr))
-	for _, item := range arr {
-		result = append(result, ToInt(item))
-	}
-	return result
-}
-
-// EpochMsToTimePtr converts a decoded-JSON epoch-millis value (number or
-// numeric string) to a *time.Time in UTC, returning nil for null/unparseable
-// so it persists as SQL NULL. Mirrors the prior sync.epochMsToTime semantics.
-func EpochMsToTimePtr(v any) *time.Time {
-	var ms int64
-	switch x := v.(type) {
-	case nil:
-		return nil
-	case float64:
-		ms = int64(x)
-	case int:
-		ms = int64(x)
-	case int64:
-		ms = x
-	case json.Number:
-		n, err := x.Int64()
-		if err != nil {
-			return nil
-		}
-		ms = n
-	case string:
-		n, err := strconv.Atoi(x)
-		if err != nil {
-			return nil
-		}
-		ms = int64(n)
-	default:
-		return nil
-	}
-	t := time.UnixMilli(ms).UTC()
-	return &t
 }

@@ -152,17 +152,6 @@ func (s *Scheduler) Stop() {
 	slog.Info("scheduler stopped")
 }
 
-// GetStatus returns the status of all jobs.
-func (s *Scheduler) GetStatus() []JobStatus {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	result := make([]JobStatus, 0, len(s.status))
-	for _, st := range s.status {
-		result = append(result, st)
-	}
-	return result
-}
-
 // TriggerStep manually triggers a step. The step runs in the background
 // (it may take up to an hour), independent of the caller's request
 // lifetime — but if the caller's context is already canceled, the step is
