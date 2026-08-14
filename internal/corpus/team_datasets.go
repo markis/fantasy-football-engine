@@ -186,10 +186,8 @@ func computeFaabRemaining(myRoster *sleeper.Roster, leagueInfo *sleeper.League) 
 		}
 	}
 	waiverBudget := 100
-	if v, ok := leagueInfo.Settings["waiver_budget"]; ok {
-		if n, ok := v.(float64); ok {
-			waiverBudget = int(n)
-		}
+	if leagueInfo.Settings.Has("waiver_budget") {
+		waiverBudget = int(leagueInfo.Settings.WaiverBudget)
 	}
 	return max(waiverBudget-faab, 0)
 }

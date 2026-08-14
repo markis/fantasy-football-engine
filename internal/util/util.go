@@ -5,11 +5,6 @@
 // implemented with only the standard library.
 package util
 
-import (
-	"encoding/json"
-	"strconv"
-)
-
 // NilStr is the stringification of a nil any value: fmt.Sprint(nil) == "<nil>".
 // Upstream feeds (Sleeper, FantasyPros) sometimes encode missing fields as this
 // literal string, so callers treat it as equivalent to empty.
@@ -45,33 +40,4 @@ func NilIfEmpty(s *string) *string {
 		return nil
 	}
 	return s
-}
-
-// ToInt coerces a decoded-JSON value (float64, int, json.Number, or numeric
-// string) to an int, returning 0 if it cannot be interpreted as a number.
-// Mirrors the prior corpus.anyToInt / sync.toInt coercion so call sites can be
-// migrated without behavior change.
-func ToInt(v any) int {
-	switch t := v.(type) {
-	case nil:
-		return 0
-	case int:
-		return t
-	case float64:
-		return int(t)
-	case json.Number:
-		n, err := t.Int64()
-		if err != nil {
-			return 0
-		}
-		return int(n)
-	case string:
-		n, err := strconv.Atoi(t)
-		if err != nil {
-			return 0
-		}
-		return n
-	default:
-		return 0
-	}
 }

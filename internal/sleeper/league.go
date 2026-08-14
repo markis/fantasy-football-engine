@@ -9,9 +9,9 @@ package sleeper
 // *FlexString so a JSON null decodes to nil (and persists as SQL NULL rather
 // than ""); present values keep their string form. LeagueID/TotalRosters use
 // the lenient value types because Sleeper sends some scalars as strings in
-// some records and numbers in others. Settings/ScoringSettings are the opaque
-// nested objects (type, best_ball, waiver_budget / ppr, ...) and stay
-// map[string]any since only a few subkeys are read and the shape is loose.
+// some records and numbers in others. Settings is the typed nested object
+// (see settings.go); ScoringSettings stays map[string]any since only a few
+// subkeys are read and the shape is loose.
 type League struct {
 	LeagueID         FlexString     `json:"league_id"`
 	Name             *FlexString    `json:"name"`
@@ -21,7 +21,7 @@ type League struct {
 	SeasonType       *FlexString    `json:"season_type"`
 	TotalRosters     FlexInt        `json:"total_rosters"`
 	RosterPositions  []string       `json:"roster_positions"`
-	Settings         map[string]any `json:"settings"`
+	Settings         *Settings      `json:"settings"`
 	ScoringSettings  map[string]any `json:"scoring_settings"`
 	DraftID          *FlexString    `json:"draft_id"`
 	Avatar           *FlexString    `json:"avatar"`

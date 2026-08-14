@@ -58,8 +58,8 @@ func TestParseLeaguesDocsSample(t *testing.T) {
 	if l0.RosterPositions[7] != "SUPER_FLEX" {
 		t.Errorf("RosterPositions[7]: got %q", l0.RosterPositions[7])
 	}
-	eqMapKey(t, "Settings", l0.Settings, "type", float64(2))
-	eqMapKey(t, "Settings", l0.Settings, "waiver_budget", float64(100))
+	eqInt(t, "Settings.Type", int(l0.Settings.Type), 2)
+	eqInt(t, "Settings.WaiverBudget", int(l0.Settings.WaiverBudget), 100)
 	// previous_league_id null (first-year league) -> nil, not "".
 	if l0.PreviousLeagueID != nil {
 		t.Errorf("PreviousLeagueID: want nil for null, got %#v", l0.PreviousLeagueID)

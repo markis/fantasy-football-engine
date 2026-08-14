@@ -201,8 +201,9 @@ func (s *LeaguemateSyncer) upsertLeague(ctx context.Context, lg *sleeper.League,
 		settings = []byte("null")
 	}
 	var leagueType *int
-	if lg.Settings != nil {
-		leagueType = toInt(lg.Settings["type"])
+	if lg.Settings != nil && lg.Settings.Has("type") {
+		n := int(lg.Settings.Type)
+		leagueType = &n
 	}
 
 	if _, err := s.pool.Exec(ctx, `
@@ -287,7 +288,7 @@ func isBestBall(lg *sleeper.League) bool {
 	if lg.Settings == nil {
 		return false
 	}
-	return util.ToInt(lg.Settings["best_ball"]) == 1
+	return lg.Settings.BestBall == 1
 }
 
 func contains(arr []string, s string) bool {
