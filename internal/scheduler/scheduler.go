@@ -10,6 +10,10 @@ import (
 	"time"
 
 	"github.com/robfig/cron/v3"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/trace"
 
 	"ff-engine/internal/config"
 )
@@ -18,6 +22,27 @@ var (
 	errStepNotRegistered = errors.New("step not registered")
 	errStepPanic         = errors.New("panic in step")
 )
+
+var (
+	once     sync.Once
+	tracer   trace.Tracer
+	meter    metric.Meter
+	jobDur   metric.Float64Histogram
+	jobTotal metric.Int64Counter
+)
+
+func ensureInstruments() {
+	once.Do(func() {
+		tracer = otel.Tracer("ff-engine")
+		meter = otel.Meter("ff-engine")
+		jobDur, _ = meter.Float64Histogram("ff.jobs.duration", //nolint:errcheck // no-op if meter provider lacks this instrument
+			metric.WithUnit("s"),
+		)
+		jobTotal, _ = meter.Int64Counter("ff.jobs.total", //nolint:errcheck // no-op if meter provider lacks this instrument
+			metric.WithDescription("Total cron jobs run"),
+		)
+	})
+}
 
 // StepFunc is a function that runs a pipeline step.
 type StepFunc func(ctx context.Context, job config.JobConfig) error
@@ -83,6 +108,8 @@ func (s *Scheduler) AddJob(job *config.JobConfig) error {
 }
 
 func (s *Scheduler) runJob(parent context.Context, job *config.JobConfig, fn StepFunc) {
+	ensureInstruments()
+
 	s.mu.Lock()
 	if s.running[job.Name] {
 		s.mu.Unlock()
@@ -103,18 +130,31 @@ func (s *Scheduler) runJob(parent context.Context, job *config.JobConfig, fn Ste
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 1*time.Hour)
 	defer cancel()
 
+	ctx, span := tracer.Start(ctx, "cron."+job.Name)
+	defer span.End()
+
 	start := time.Now()
 	slog.Info("running cron job", "name", job.Name, "step", job.Step)
 	err := runStep(ctx, job, fn)
 	duration := time.Since(start)
 
 	status := "ok"
+	attrs := []attribute.KeyValue{
+		attribute.String("step", job.Step),
+		attribute.String("status", status),
+	}
 	if err != nil {
 		status = "error"
+		attrs[1] = attribute.String("status", status)
+		span.RecordError(err)
+		span.SetAttributes(attribute.Bool("error", true))
 		slog.Error("cron job failed", "name", job.Name, "err", err, "duration", duration)
 	} else {
 		slog.Info("cron job complete", "name", job.Name, "duration", duration)
 	}
+
+	jobDur.Record(ctx, duration.Seconds(), metric.WithAttributes(attrs...))
+	jobTotal.Add(ctx, 1, metric.WithAttributes(attrs...))
 
 	s.mu.Lock()
 	s.status[job.Name] = JobStatus{
