@@ -117,7 +117,11 @@ func (c *Chunker) replaceChunks(ctx context.Context, rows []chunkRow, newsItemID
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		if rbErr := tx.Rollback(ctx); rbErr != nil {
+			slog.Warn("rollback chunk tx", "err", rbErr)
+		}
+	}()
 
 	_, err = tx.Exec(ctx, "DELETE FROM news_chunk WHERE news_item_id = $1", newsItemID)
 	if err != nil {
@@ -125,12 +129,11 @@ func (c *Chunker) replaceChunks(ctx context.Context, rows []chunkRow, newsItemID
 	}
 
 	for _, r := range rows {
-		_, err := tx.Exec(ctx, `
+		if _, insertErr := tx.Exec(ctx, `
 			INSERT INTO news_chunk (news_item_id, chunk_index, heading, chunk_text)
 			VALUES ($1, $2, $3, $4)
-		`, r.newsItemID, r.chunkIndex, r.heading, r.chunkText)
-		if err != nil {
-			return fmt.Errorf("insert chunk %d: %w", r.chunkIndex, err)
+		`, r.newsItemID, r.chunkIndex, r.heading, r.chunkText); insertErr != nil {
+			return fmt.Errorf("insert chunk %d: %w", r.chunkIndex, insertErr)
 		}
 	}
 
@@ -139,5 +142,8 @@ func (c *Chunker) replaceChunks(ctx context.Context, rows []chunkRow, newsItemID
 		return fmt.Errorf("update chunked_content_hash: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit chunk tx: %w", err)
+	}
+	return nil
 }

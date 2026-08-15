@@ -50,7 +50,12 @@ const (
 	paramQuery        = "query"
 	paramPlayerID     = "player_id"
 	paramLimit        = "limit"
+	paramDays         = "days"
+	paramRelevantOnly = "relevant_only"
 )
+
+// newsSearchFunc is the signature shared by SearchNews and SearchNewsChunks.
+type newsSearchFunc func(ctx context.Context, query string, limit int, days *int, relevantOnly bool) ([]map[string]any, error)
 
 // Server is the MCP server that exposes tools over Streamable HTTP.
 // It implements a minimal MCP-compatible JSON-RPC handler that supports
@@ -97,57 +102,10 @@ func (s *Server) SetHealthChecker(c *health.Checker) {
 // registerTools registers all MCP tools.
 func (s *Server) registerTools() {
 	// News & stories
-	s.registerTool(Tool{
-		Name:        "search_news",
-		Description: "Semantic search over fantasy football news items using embeddings.",
-		InputSchema: map[string]any{
-			schemaType: schemaTypeObject,
-			schemaProperties: map[string]any{
-				paramQuery:      map[string]any{schemaType: schemaTypeString, schemaDescription: "Search query"},
-				paramLimit:      map[string]any{schemaType: schemaTypeInteger, schemaDefault: 10},
-				"days":          map[string]any{schemaType: schemaTypeInteger, schemaDescription: "Only items from last N days"},
-				"relevant_only": map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
-			},
-			schemaRequired: []string{"query"},
-		},
-		Handler: func(ctx context.Context, args map[string]any) (any, error) {
-			q := getStr(args, paramQuery)
-			limit := getInt(args, paramLimit, 10)
-			var days *int
-			if d, ok := args["days"]; ok {
-				di := toInt(d)
-				days = &di
-			}
-			relevant := getBool(args, "relevant_only")
-			return s.query.SearchNews(ctx, q, limit, days, relevant)
-		},
-	})
-
-	s.registerTool(Tool{
-		Name:        "search_news_sections",
-		Description: "Semantic search over article sections (chunks split by headings). Returns the most relevant section of each matching article.",
-		InputSchema: map[string]any{
-			schemaType: schemaTypeObject,
-			schemaProperties: map[string]any{
-				paramQuery:      map[string]any{schemaType: schemaTypeString, schemaDescription: "Search query"},
-				paramLimit:      map[string]any{schemaType: schemaTypeInteger, schemaDefault: 10},
-				"days":          map[string]any{schemaType: schemaTypeInteger, schemaDescription: "Only items from last N days"},
-				"relevant_only": map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
-			},
-			schemaRequired: []string{"query"},
-		},
-		Handler: func(ctx context.Context, args map[string]any) (any, error) {
-			q := getStr(args, paramQuery)
-			limit := getInt(args, paramLimit, 10)
-			var days *int
-			if d, ok := args["days"]; ok {
-				di := toInt(d)
-				days = &di
-			}
-			relevant := getBool(args, "relevant_only")
-			return s.query.SearchNewsChunks(ctx, q, limit, days, relevant)
-		},
-	})
+	s.registerNewsSearchTool("search_news", "Semantic search over fantasy football news items using embeddings.", s.query.SearchNews)
+	s.registerNewsSearchTool("search_news_sections",
+		"Semantic search over article sections (chunks split by headings). Returns the most relevant section of each matching article.",
+		s.query.SearchNewsChunks)
 
 	s.registerTool(Tool{
 		Name:        "get_stories",
@@ -595,6 +553,34 @@ func (s *Server) registerTools() {
 				return nil, err
 			}
 			return map[string]any{toolStatus: statusOK, paramStep: step}, nil
+		},
+	})
+}
+
+func (s *Server) registerNewsSearchTool(name, description string, search newsSearchFunc) {
+	s.registerTool(Tool{
+		Name:        name,
+		Description: description,
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramQuery:        map[string]any{schemaType: schemaTypeString, schemaDescription: "Search query"},
+				paramLimit:        map[string]any{schemaType: schemaTypeInteger, schemaDefault: 10},
+				paramDays:         map[string]any{schemaType: schemaTypeInteger, schemaDescription: "Only items from last N days"},
+				paramRelevantOnly: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
+			},
+			schemaRequired: []string{paramQuery},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			q := getStr(args, paramQuery)
+			limit := getInt(args, paramLimit, 10)
+			var days *int
+			if d, ok := args[paramDays]; ok {
+				di := toInt(d)
+				days = &di
+			}
+			relevant := getBool(args, paramRelevantOnly)
+			return search(ctx, q, limit, days, relevant)
 		},
 	})
 }

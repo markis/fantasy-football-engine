@@ -18,18 +18,22 @@ import (
 )
 
 const (
-	colPlayerID    = "player_id"
-	colFullName    = "full_name"
-	colName        = "name"
-	colPosition    = "position"
-	colTeam        = "team"
-	colLeagueID    = "league_id"
-	colUserID      = "user_id"
-	colLeagues     = "leagues"
-	colPlayer      = "player"
-	colTitle       = "title"
-	srcFantasyCalc = "FantasyCalc"
-	statusFound    = "found"
+	colPlayerID       = "player_id"
+	colFullName       = "full_name"
+	colName           = "name"
+	colPosition       = "position"
+	colTeam           = "team"
+	colLeagueID       = "league_id"
+	colUserID         = "user_id"
+	colLeagues        = "leagues"
+	colPlayer         = "player"
+	colTitle          = "title"
+	colURL            = "url"
+	colSimilarity     = "similarity"
+	colSource         = "source"
+	colRelevantFilter = " AND ni.is_relevant = true"
+	srcFantasyCalc    = "FantasyCalc"
+	statusFound       = "found"
 
 	// Ranking column qualifiers used in SQL fragments.
 	rankColTradeValue = "r.trade_value"
@@ -76,7 +80,7 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 		sql += fmt.Sprintf(" AND ni.published_at >= now() - make_interval(days => $%d)", len(params))
 	}
 	if relevantOnly {
-		sql += " AND ni.is_relevant = true"
+		sql += colRelevantFilter
 	}
 	params = append(params, limit)
 	sql += fmt.Sprintf(" ORDER BY ni.embedding <=> $1::vector LIMIT $%d", len(params))
@@ -97,11 +101,11 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 			continue
 		}
 		item := map[string]any{
-			"id":         id.String(),
-			colTitle:     util.StrOrEmpty(title),
-			"url":        util.StrOrEmpty(url),
-			"similarity": similarity,
-			"source":     util.StrOrEmpty(sourceName),
+			"id":          id.String(),
+			colTitle:      util.StrOrEmpty(title),
+			colURL:        util.StrOrEmpty(url),
+			colSimilarity: similarity,
+			colSource:     util.StrOrEmpty(sourceName),
 		}
 		if publishedAt != nil {
 			item["published_at"] = publishedAt.UTC().Format(time.RFC3339)
@@ -144,7 +148,7 @@ func (s *Service) SearchNewsChunks(ctx context.Context, query string, limit int,
 		sql += fmt.Sprintf(" AND ni.published_at >= now() - make_interval(days => $%d)", len(params))
 	}
 	if relevantOnly {
-		sql += " AND ni.is_relevant = true"
+		sql += colRelevantFilter
 	}
 	sql += " ORDER BY ni.id, 1 - (nc.embedding <=> $1::vector) DESC"
 	sql += ") AS ranked ORDER BY similarity DESC"
