@@ -15,7 +15,10 @@ import (
 	"ff-engine/internal/query"
 )
 
-var errPipelineTriggerNotEnabled = errors.New("pipeline trigger not enabled")
+var (
+	errPipelineTriggerNotEnabled   = errors.New("pipeline trigger not enabled")
+	errInvalidRankingsSourceMarket = errors.New("invalid source/market combination")
+)
 
 const (
 	schemaTypeObject  = "object"
@@ -213,29 +216,32 @@ func (s *Server) registerTools() {
 	})
 
 	s.registerTool(Tool{
-		Name:        "get_rankings",
-		Description: "Get dynasty trade value rankings. Default source: FantasyCalc, market 14 (Dynasty Daddy composite).",
+		Name: "get_rankings",
+		Description: "Get dynasty trade value rankings. Sources: " +
+			"FantasyCalc (markets 1/2/3), Dynasty Daddy (market 14), " +
+			"KeepTradeCut (market 0), FantasyPros ECR (market 1). " +
+			"If only source is given, market is derived; if only market is given, " +
+			"source is derived. With no args, defaults to Dynasty Daddy market 14.",
 		InputSchema: map[string]any{
 			schemaType: schemaTypeObject,
 			schemaProperties: map[string]any{
 				"position":     map[string]any{schemaType: schemaTypeString},
 				"limit":        map[string]any{schemaType: schemaTypeInteger, schemaDefault: 15},
-				"source":       map[string]any{schemaType: schemaTypeString, schemaDefault: "FantasyCalc"},
-				"market":       map[string]any{schemaType: schemaTypeInteger, schemaDefault: 14},
+				"source":       map[string]any{schemaType: schemaTypeString},
+				"market":       map[string]any{schemaType: schemaTypeInteger},
 				paramSuperflex: map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
 			},
 		},
 		Handler: func(ctx context.Context, args map[string]any) (any, error) {
 			limit := getInt(args, "limit", 15)
-			source := getStr(args, "source")
-			if source == "" {
-				source = "FantasyCalc"
-			}
-			market := getInt(args, "market", 14)
 			superflex := getBool(args, paramSuperflex)
 			var pos *string
 			if p := getStr(args, paramPosition); p != "" {
 				pos = &p
+			}
+			source, market, ok := resolveRankingsSourceMarket(args)
+			if !ok {
+				return nil, fmt.Errorf("%w: source=%q market=%d", errInvalidRankingsSourceMarket, getStr(args, "source"), getInt(args, "market", -1))
 			}
 			return s.query.GetRankings(ctx, pos, limit, source, market, superflex)
 		},
@@ -773,6 +779,83 @@ func writeJSONRPCError(w http.ResponseWriter, id json.RawMessage, code int, mess
 }
 
 // --- Helpers ---
+
+const (
+	rankingsSrcFantasyCalc  = "FantasyCalc"
+	rankingsSrcDynastyDaddy = "Dynasty Daddy"
+	rankingsSrcKeepTradeCut = "KeepTradeCut"
+	rankingsSrcFantasyPros  = "FantasyPros ECR"
+	rankingsDefaultMarket   = 14
+)
+
+// rankingsSourceMarket maps a rankings source name to its default market.
+var rankingsSourceMarket = map[string]int{
+	rankingsSrcFantasyCalc:  1,
+	rankingsSrcDynastyDaddy: 14,
+	rankingsSrcKeepTradeCut: 0,
+	rankingsSrcFantasyPros:  1,
+}
+
+// rankingsMarketSource maps a market id to its canonical source name.
+// When multiple sources share a market (FantasyCalc and FantasyPros ECR both
+// use market 1), the first registered source wins; callers wanting the other
+// source must pass source explicitly.
+var rankingsMarketSource = map[int]string{
+	0:  rankingsSrcKeepTradeCut,
+	14: rankingsSrcDynastyDaddy,
+	1:  rankingsSrcFantasyCalc,
+	2:  rankingsSrcFantasyCalc,
+	3:  rankingsSrcFantasyCalc,
+}
+
+// resolveRankingsSourceMarket derives the (source, market) pair from the
+// tool arguments using these rules:
+//   - Both given: use as-is.
+//   - Only source: derive market from rankingsSourceMarket.
+//   - Only market: derive source from rankingsMarketSource.
+//   - Neither: default to Dynasty Daddy, market 14.
+//
+// Returns (source, market, true) on success, or ("", 0, false) if an
+// explicitly-passed source or market is unknown.
+func resolveRankingsSourceMarket(args map[string]any) (string, int, bool) {
+	srcArg, hasSrc := args["source"]
+	mktArg, hasMkt := args["market"]
+
+	source := ""
+	if hasSrc && srcArg != nil {
+		source = fmt.Sprint(srcArg)
+	}
+	market := -1
+	if hasMkt && mktArg != nil {
+		market = toInt(mktArg)
+	}
+
+	switch {
+	case source != "" && market >= 0:
+		// Both explicit — validate.
+		if _, ok := rankingsSourceMarket[source]; !ok {
+			return "", 0, false
+		}
+		return source, market, true
+	case source != "":
+		// Source only — derive market.
+		m, ok := rankingsSourceMarket[source]
+		if !ok {
+			return "", 0, false
+		}
+		return source, m, true
+	case market >= 0:
+		// Market only — derive source.
+		s, ok := rankingsMarketSource[market]
+		if !ok {
+			return "", 0, false
+		}
+		return s, market, true
+	default:
+		// Neither — default.
+		return rankingsSrcDynastyDaddy, rankingsDefaultMarket, true
+	}
+}
 
 func getStr(m map[string]any, key string) string {
 	v, ok := m[key]

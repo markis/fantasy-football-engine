@@ -356,21 +356,11 @@ func (s *Service) GetRankings(
 	if source == "" {
 		source = srcFantasyCalc
 	}
-	if market == 0 {
-		market = 14 // Dynasty Daddy default
-	}
 
-	valueCol := rankColTradeValue
-	overallCol := rankColOverall
-	posRankCol := rankColPosRank
-	if superflex && source != srcFantasyCalc {
-		valueCol = "r.sf_trade_value"
-		overallCol = "r.sf_overall_rank"
-		posRankCol = "r.sf_position_rank"
-	}
+	valueCol, overallCol, posRankCol := rankingColumns(source, superflex)
 
 	sql := fmt.Sprintf(`
-		SELECT p.sleeper_player_id, p.full_name, p.position, p.team_abbr,
+		SELECT p.sleeper_player_id, p.full_name, p.position, r.team,
 		       %s, %s, %s
 		FROM player p JOIN player_ranking r ON r.player_id = p.id
 		WHERE r.source = $1 AND r.market = $2
@@ -388,19 +378,19 @@ func (s *Service) GetRankings(
 	}
 	defer rows.Close()
 
-	var result []map[string]any
+	result := []map[string]any{}
 	for rows.Next() {
 		var sleeperID string
-		var fullName, pos, teamAbbr *string
+		var fullName, pos, team *string
 		var tradeValue, overallRank, posRank *int
-		if err := rows.Scan(&sleeperID, &fullName, &pos, &teamAbbr, &tradeValue, &overallRank, &posRank); err != nil {
+		if err := rows.Scan(&sleeperID, &fullName, &pos, &team, &tradeValue, &overallRank, &posRank); err != nil {
 			continue
 		}
 		item := map[string]any{
 			colPlayerID: sleeperID,
 			colFullName: util.StrOrEmpty(fullName),
 			colPosition: util.StrOrEmpty(pos),
-			colTeam:     util.StrOrEmpty(teamAbbr),
+			colTeam:     util.StrOrEmpty(team),
 		}
 		if tradeValue != nil {
 			item["trade_value"] = *tradeValue
@@ -740,4 +730,28 @@ func tradeValueColumn(source string, superflex bool) string {
 		return "r.sf_trade_value"
 	}
 	return rankColTradeValue
+}
+
+// rankingColumns returns the (value, overall_rank, position_rank) SQL column
+// expressions for a GetRankings query. For FantasyCalc the trade_value is
+// always r.trade_value (format is encoded in the market), but when superflex
+// is requested the sf rank columns are used with a COALESCE fallback to the
+// standard ranks for rows where sf data is NULL. For other sources, superflex
+// selects the sf_ columns outright.
+func rankingColumns(source string, superflex bool) (string, string, string) {
+	vCol := rankColTradeValue
+	oCol := rankColOverall
+	pCol := rankColPosRank
+	if !superflex {
+		return vCol, oCol, pCol
+	}
+	if source == srcFantasyCalc {
+		oCol = "COALESCE(r.sf_overall_rank, r.overall_rank)"
+		pCol = "COALESCE(r.sf_position_rank, r.position_rank)"
+		return vCol, oCol, pCol
+	}
+	vCol = "r.sf_trade_value"
+	oCol = "r.sf_overall_rank"
+	pCol = "r.sf_position_rank"
+	return vCol, oCol, pCol
 }
