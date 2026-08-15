@@ -47,11 +47,12 @@ type DatabaseConfig struct {
 }
 
 type EmbeddingsConfig struct {
-	Provider   string `default:"llama-server"             yaml:"provider"`
-	URL        string `default:"http://llama-server:8080" yaml:"url"`
-	Model      string `default:"nomic-embed-text-v1.5"    yaml:"model"`
-	Dimensions int    `default:"768"                      yaml:"dimensions"`
-	BatchSize  int    `default:"32"                       yaml:"batchSize"`
+	Provider       string `default:"llama-server"             yaml:"provider"`
+	URL            string `default:"http://llama-server:8080" yaml:"url"`
+	Model          string `default:"nomic-embed-text-v1.5"    yaml:"model"`
+	Dimensions     int    `default:"768"                      yaml:"dimensions"`
+	BatchSize      int    `default:"32"                       yaml:"batchSize"`
+	MaxConcurrency int    `default:"8"                        yaml:"maxConcurrency"`
 }
 
 type LLMConfig struct {

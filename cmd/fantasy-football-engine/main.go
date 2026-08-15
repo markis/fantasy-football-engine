@@ -95,7 +95,7 @@ func main() {
 	rssFetcher := pipeline.NewRSSFetcher(pool, evergreenPatterns(cfg.Evergreen))
 	bodyFetcher := pipeline.NewBodyFetcher(pool)
 	enricher := pipeline.NewEnricher(pool, llmClient, cfg.LLM.MaxConcurrency)
-	embedder := pipeline.NewEmbedder(pool, embedClient, cfg.Embeddings.BatchSize)
+	embedder := pipeline.NewEmbedder(pool, embedClient, cfg.Embeddings.BatchSize, cfg.Embeddings.MaxConcurrency)
 	dedupChecker := pipeline.NewDedupChecker(pool)
 	clusterer := pipeline.NewClusterer(pool)
 	factExtractor := pipeline.NewFactExtractor(pool, llmClient, embedClient)

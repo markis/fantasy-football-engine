@@ -16,7 +16,19 @@ import (
 var (
 	errEmptyEmbedResponse = errors.New("empty embedding response")
 	errEmbedHTTP          = errors.New("embedding HTTP error")
+	errEmbedContextSize   = errors.New("embedding input exceeds model context window")
 )
+
+// MaxEmbedChars is the conservative per-item character cap applied before
+// sending text to nomic-embed-text-v1.5. ~1800 tokens ≈ 7000 chars for typical
+// English prose; the retry loop in Embed handles content with a lower
+// chars/token ratio (code, URLs, non-ASCII) that still exceeds the 2048-token
+// hard limit after truncation.
+const MaxEmbedChars = 7000
+
+// minEmbedChars is the floor for retry truncation; below this we give up
+// rather than looping indefinitely.
+const minEmbedChars = 64
 
 // Client is an embedding client that calls a llama-server HTTP endpoint.
 type Client struct {
@@ -42,32 +54,73 @@ type embedRequest struct {
 
 // embedResponse is the JSON response from the /v1/embeddings endpoint.
 type embedResponse struct {
-	Data []struct {
-		Embedding []float32 `json:"embedding"`
-	} `json:"data"`
+	Data []embedEntry `json:"data"`
 }
 
-// Embed sends a single text and returns its embedding vector.
+// embedEntry is a single embedding result in the /v1/embeddings response.
+type embedEntry struct {
+	Embedding []float32 `json:"embedding"`
+}
+
+// Embed sends a single text and returns its embedding vector. If the server
+// rejects the input for exceeding the model's 2048-token context window, the
+// text is progressively halved and retried, so a tokenizer/char-budget
+// mismatch never permanently skips an embeddable item.
 func (c *Client) Embed(ctx context.Context, text string) ([]float32, error) {
 	text = truncateForEmbed(text)
-	vecs, err := c.EmbedBatch(ctx, []string{text})
-	if err != nil {
-		return nil, err
+	for {
+		vecs, err := c.embedBatch(ctx, []string{text})
+		if err == nil {
+			if len(vecs) == 0 {
+				return nil, errEmptyEmbedResponse
+			}
+			return vecs[0], nil
+		}
+		if !errors.Is(err, errEmbedContextSize) || len(text) <= minEmbedChars {
+			return nil, err
+		}
+		half := len(text) / 2
+		if half >= len(text) {
+			return nil, err
+		}
+		prev := len(text)
+		text = truncateForEmbed(text[:half])
+		slog.Warn("embed retry with shorter text", "prev_chars", prev, "chars", len(text))
 	}
-	if len(vecs) == 0 {
-		return nil, errEmptyEmbedResponse
-	}
-	return vecs[0], nil
 }
 
-// EmbedBatch sends multiple texts in one HTTP call and returns their embeddings.
-// The llama-server /v1/embeddings endpoint accepts an array of inputs.
+// EmbedBatch sends multiple texts in one HTTP call and returns their
+// embeddings. If the server rejects the whole batch because one input exceeds
+// the model context window, it falls back to embedding each text individually
+// via Embed, so a single oversized item no longer poisons the rest.
 func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
-	// Truncate each text to fit the model's context window. Copy into a new
-	// slice so we don't mutate the caller's backing array.
+	vecs, err := c.embedBatch(ctx, texts)
+	if err == nil {
+		return vecs, nil
+	}
+	if !errors.Is(err, errEmbedContextSize) {
+		return nil, err
+	}
+	slog.Warn("embed batch rejected for context size; retrying individually", "count", len(texts))
+	out := make([][]float32, len(texts))
+	for i, t := range texts {
+		v, embedErr := c.Embed(ctx, t)
+		if embedErr != nil {
+			return nil, embedErr
+		}
+		out[i] = v
+	}
+	return out, nil
+}
+
+// embedBatch sends texts as a single array request. It returns a wrapped
+// errEmbedContextSize when the server rejects the input for exceeding the
+// model's context window, so callers can retry with shorter or individual
+// inputs. Each input is truncated to MaxEmbedChars before sending.
+func (c *Client) embedBatch(ctx context.Context, texts []string) ([][]float32, error) {
 	truncated := make([]string, len(texts))
 	for i, t := range texts {
 		truncated[i] = truncateForEmbed(t)
@@ -92,11 +145,17 @@ func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(resp.Body)
-		if err != nil {
+		respBody, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
 			respBody = []byte("(unable to read error response body)")
 		}
-		return nil, fmt.Errorf("%w (%d): %s", errEmbedHTTP, resp.StatusCode, string(respBody))
+		bodyStr := string(respBody)
+		// llama-server returns HTTP 400 with an "exceed_context_size_error"
+		// / "larger than the max context size" message when input > 2048 tokens.
+		if resp.StatusCode == http.StatusBadRequest && isContextSizeMessage(bodyStr) {
+			return nil, fmt.Errorf("%w (%d): %s", errEmbedContextSize, resp.StatusCode, bodyStr)
+		}
+		return nil, fmt.Errorf("%w (%d): %s", errEmbedHTTP, resp.StatusCode, bodyStr)
 	}
 
 	var result embedResponse
@@ -116,26 +175,23 @@ func (c *Client) EmbedBatch(ctx context.Context, texts []string) ([][]float32, e
 	return vecs, nil
 }
 
-// MaxEmbedTokens is the content-token cap for nomic-embed-text-v1.5.
-// Server adds 2 special tokens ([CLS]+[SEP]) -> 1802 total, leaving ~246 tokens
-// of margin under the 2048 hard limit.
-const MaxEmbedTokens = 1800
-
-// FallbackMaxChars is the conservative character cap if we can't tokenize.
-const FallbackMaxChars = 7000
-
-// truncateForEmbed truncates text to fit nomic-embed-text-v1.5's 2048-token
-// context. Without a tokenizer library, we use a conservative character cap.
-// The llama-server will handle tokenization; if it returns a 400 for
-// exceeding context, the caller should retry with shorter text.
+// truncateForEmbed truncates text to MaxEmbedChars, a conservative character
+// cap that fits nomic-embed-text-v1.5's 2048-token context for typical English
+// prose. The retry loop in Embed handles content with a lower chars/token
+// ratio (code, URLs, non-ASCII) that still exceeds the limit after truncation.
 func truncateForEmbed(text string) string {
 	if text == "" {
 		return text
 	}
-	// Conservative character-based truncation. ~1800 tokens ≈ 7000 chars for English.
-	// This is a fallback; a proper tokenizer (Candle/HF tokenizers) would be more precise.
-	if len(text) > FallbackMaxChars {
-		return text[:FallbackMaxChars]
+	if len(text) > MaxEmbedChars {
+		return text[:MaxEmbedChars]
 	}
 	return text
+}
+
+// isContextSizeMessage reports whether the server error body indicates the
+// input exceeded the model's context window.
+func isContextSizeMessage(body string) bool {
+	l := strings.ToLower(body)
+	return strings.Contains(l, "context size") || strings.Contains(l, "exceed_context_size")
 }
