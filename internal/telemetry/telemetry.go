@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"slices"
 	"time"
 
@@ -47,6 +48,9 @@ type Provider struct {
 
 func Init(cfg Config) (*Provider, error) {
 	if cfg.OTelEndpoint == "" {
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelInfo,
+		})))
 		slog.Info("telemetry disabled — no OTel endpoint configured")
 		return &Provider{otel: false}, nil
 	}
@@ -135,6 +139,7 @@ func Init(cfg Config) (*Provider, error) {
 	))
 
 	p.shutdownFns = shutdownFns
+	installSlogHandler(cfg.ServiceName)
 	slog.Info("telemetry initialized", "service", cfg.ServiceName, "endpoint", cfg.OTelEndpoint, "metricsAddr", cfg.MetricsAddr)
 	return p, nil
 }
