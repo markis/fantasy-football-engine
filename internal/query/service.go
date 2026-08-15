@@ -128,14 +128,15 @@ func (s *Service) SearchNewsChunks(ctx context.Context, query string, limit int,
 	}
 	v := pgvector.NewVector(vec)
 
-	sql := `SELECT DISTINCT ON (ni.id)
-		       ni.id, ni.title, ni.url, ni.published_at, s.name AS source_name,
-		       1 - (nc.embedding <=> $1::vector) AS similarity,
-		       nc.heading, nc.chunk_text, ni.news_story
-		FROM news_chunk nc
-		JOIN news_item ni ON ni.id = nc.news_item_id
-		JOIN source s ON s.id = ni.source_id
-		WHERE nc.embedding IS NOT NULL AND COALESCE(ni.quality_score, 0) >= 0`
+	sql := `SELECT * FROM (
+		       SELECT DISTINCT ON (ni.id)
+			       ni.id, ni.title, ni.url, ni.published_at, s.name AS source_name,
+			       1 - (nc.embedding <=> $1::vector) AS similarity,
+			       nc.heading, nc.chunk_text, ni.news_story
+			FROM news_chunk nc
+			JOIN news_item ni ON ni.id = nc.news_item_id
+			JOIN source s ON s.id = ni.source_id
+			WHERE nc.embedding IS NOT NULL AND COALESCE(ni.quality_score, 0) >= 0`
 	params := []any{v}
 	if days != nil {
 		d := max(*days, 0)
@@ -146,6 +147,7 @@ func (s *Service) SearchNewsChunks(ctx context.Context, query string, limit int,
 		sql += " AND ni.is_relevant = true"
 	}
 	sql += " ORDER BY ni.id, 1 - (nc.embedding <=> $1::vector) DESC"
+	sql += ") AS ranked ORDER BY similarity DESC"
 	params = append(params, limit)
 	sql += fmt.Sprintf(" LIMIT $%d", len(params))
 

@@ -37,9 +37,10 @@ type chunkRow struct {
 	chunkText  string
 }
 
-// ChunkBatch finds news items with content_html but no chunks yet, splits
-// them by heading boundaries, and inserts the resulting chunks into
-// news_chunk (without embeddings — embeddings are added by the Embedder).
+// ChunkBatch finds news items with content_html that haven't been chunked yet
+// (or whose content_hash has changed since last chunking), splits them by
+// heading boundaries, and inserts the resulting chunks into news_chunk
+// (without embeddings — embeddings are added by the Embedder).
 func (c *Chunker) ChunkBatch(ctx context.Context, limit int) (*ChunkResult, error) {
 	rows, err := c.pool.Query(ctx, `
 		SELECT ni.id, ni.title, ni.content_html, ni.content_text, ni.content_hash
@@ -133,11 +134,7 @@ func (c *Chunker) replaceChunks(ctx context.Context, rows []chunkRow, newsItemID
 		}
 	}
 
-	hashStr := ""
-	if contentHash != nil {
-		hashStr = *contentHash
-	}
-	_, err = tx.Exec(ctx, "UPDATE news_item SET chunked_content_hash = $1 WHERE id = $2", hashStr, newsItemID)
+	_, err = tx.Exec(ctx, "UPDATE news_item SET chunked_content_hash = $1 WHERE id = $2", contentHash, newsItemID)
 	if err != nil {
 		return fmt.Errorf("update chunked_content_hash: %w", err)
 	}
