@@ -102,7 +102,9 @@ func (s *Server) SetHealthChecker(c *health.Checker) {
 // registerTools registers all MCP tools.
 func (s *Server) registerTools() {
 	// News & stories
-	s.registerNewsSearchTool("search_news", "Semantic search over fantasy football news items using chunked embeddings, returning unique news items.", s.query.SearchNews)
+	s.registerNewsSearchTool("search_news",
+		"Semantic search over fantasy football news items using chunked embeddings, returning unique news items.",
+		s.query.SearchNews)
 
 	s.registerTool(Tool{
 		Name:        "get_stories",

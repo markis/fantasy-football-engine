@@ -26,6 +26,13 @@ func NewClusterer(pool *db.Pool) *Clusterer {
 
 const clusterCosineThreshold = 0.78
 
+const (
+	statusCreated     = "created"
+	statusNotFound    = "not_found"
+	statusNotAssigned = "not_assigned"
+	statusReused      = "reused"
+)
+
 // ClusterResult is the result of a clustering run.
 type ClusterResult struct {
 	ClustersCreated int    `json:"clustersCreated"`
@@ -60,7 +67,7 @@ func (c *Clusterer) AssignBatch(ctx context.Context) (*ClusterResult, error) {
 			continue
 		}
 		result.ItemsAssigned++
-		if action == "created" {
+		if action == statusCreated {
 			result.ClustersCreated++
 		} else {
 			result.ClustersReused++
@@ -78,28 +85,28 @@ func (c *Clusterer) processItem(ctx context.Context, itemID uuid.UUID) (string, 
 		"SELECT title, source_id FROM news_item WHERE id = $1", itemID,
 	).Scan(&title, &sourceID)
 	if err != nil {
-		return "not_found", fmt.Errorf("scan news item %s: %w", itemID, err)
+		return statusNotFound, fmt.Errorf("scan news item %s: %w", itemID, err)
 	}
 
 	chunkVecs, err := c.fetchItemChunkVectors(ctx, itemID)
 	if err != nil {
-		return "not_assigned", err
+		return statusNotAssigned, err
 	}
 	if len(chunkVecs) > 0 {
 		reused, err := c.tryReuseCluster(ctx, itemID, chunkVecs)
 		if err != nil {
-			return "not_assigned", err
+			return statusNotAssigned, err
 		}
 		if reused {
-			return "reused", nil
+			return statusReused, nil
 		}
 	}
 
 	// Create new cluster
 	if err := c.createCluster(ctx, itemID, util.StrOrEmpty(title), sourceID); err != nil {
-		return "not_assigned", err
+		return statusNotAssigned, err
 	}
-	return "created", nil
+	return statusCreated, nil
 }
 
 // fetchItemChunkVectors loads the embedding vectors for an item's chunks as
