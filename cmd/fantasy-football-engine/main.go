@@ -94,6 +94,7 @@ func main() {
 	// Initialize pipeline components
 	rssFetcher := pipeline.NewRSSFetcher(pool, evergreenPatterns(cfg.Evergreen))
 	bodyFetcher := pipeline.NewBodyFetcher(pool)
+	chunker := pipeline.NewChunker(pool)
 	enricher := pipeline.NewEnricher(pool, llmClient, cfg.LLM.MaxConcurrency)
 	embedder := pipeline.NewEmbedder(pool, embedClient, cfg.Embeddings.BatchSize, cfg.Embeddings.MaxConcurrency)
 	dedupChecker := pipeline.NewDedupChecker(pool)
@@ -133,7 +134,7 @@ func main() {
 	}
 
 	// Register step functions
-	registerSteps(sched, cfg, rssFetcher, bodyFetcher, enricher, embedder, dedupChecker,
+	registerSteps(sched, cfg, rssFetcher, bodyFetcher, chunker, enricher, embedder, dedupChecker,
 		clusterer, factExtractor, storyGenerator, fpNewsFetcher,
 		playerSyncer, rankingsSyncer, fcSyncer, fpInjuriesSyncer, fpRankingsSyncer,
 		leaguemateSyncer, tradesSyncer, leaguemateAssessor, teamAssessor,
@@ -179,6 +180,7 @@ func registerSteps(
 	cfg *config.Config,
 	rssFetcher *pipeline.RSSFetcher,
 	bodyFetcher *pipeline.BodyFetcher,
+	chunker *pipeline.Chunker,
 	enricher *pipeline.Enricher,
 	embedder *pipeline.Embedder,
 	dedupChecker *pipeline.DedupChecker,
@@ -221,6 +223,16 @@ func registerSteps(
 			limit = job.Limit
 		}
 		_, err := bodyFetcher.FetchBatch(ctx, limit)
+		return err
+	})
+
+	// Pipeline: chunk
+	sched.RegisterStep("pipeline.chunk", func(ctx context.Context, job config.JobConfig) error {
+		limit := 50
+		if job.Limit > 0 {
+			limit = job.Limit
+		}
+		_, err := chunker.ChunkBatch(ctx, limit)
 		return err
 	})
 
