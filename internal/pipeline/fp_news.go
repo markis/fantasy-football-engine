@@ -129,6 +129,10 @@ func (f *FPNewsFetcher) upsertNews(ctx context.Context, sourceID uuid.UUID, item
 	title := getStr(item, "title")
 	desc := getStr(item, "desc")
 	impact := getStr(item, "impact")
+
+	if isNonFootballSport(title, desc) {
+		return
+	}
 	created := getStr(item, "created")
 
 	// Content: desc + impact

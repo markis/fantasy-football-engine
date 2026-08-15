@@ -183,6 +183,11 @@ func (f *RSSFetcher) processFeedEntries(
 			continue
 		}
 
+		// Skip non-football sports articles at ingest so they never enter the pipeline.
+		if isNonFootballSport(item.Title, item.Description) {
+			continue
+		}
+
 		isNew, isUpdated, err := f.upsertNewsItem(ctx, sourceID, "rss", item, rawDocID)
 		if err != nil {
 			slog.Warn("upsert news item", "title", item.Title, "err", err)
