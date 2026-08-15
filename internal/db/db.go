@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
 	pgxvec "github.com/pgvector/pgvector-go/pgx"
 )
@@ -29,6 +30,7 @@ func New(ctx context.Context, dsn string) (*Pool, error) {
 	}
 	cfg.AfterConnect = pgxvec.RegisterTypes
 	cfg.MaxConns = 20
+	instrumentPool(cfg)
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)
@@ -38,6 +40,10 @@ func New(ctx context.Context, dsn string) (*Pool, error) {
 	}
 	slog.Info("database connected", "dsn", redactDSN(dsn))
 	return &Pool{pool}, nil
+}
+
+func instrumentPool(cfg *pgxpool.Config) {
+	cfg.ConnConfig.Tracer = otelpgx.NewTracer()
 }
 
 // RunMigrations applies any pending SQL migrations. It uses a simple
