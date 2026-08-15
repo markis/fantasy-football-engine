@@ -42,10 +42,13 @@ type chunkRow struct {
 // news_chunk (without embeddings — embeddings are added by the Embedder).
 func (c *Chunker) ChunkBatch(ctx context.Context, limit int) (*ChunkResult, error) {
 	rows, err := c.pool.Query(ctx, `
-		SELECT ni.id, ni.title, ni.content_html, ni.content_text
+		SELECT ni.id, ni.title, ni.content_html, ni.content_text, ni.content_hash
 		FROM news_item ni
 		WHERE ni.content_html IS NOT NULL AND ni.content_html != ''
-		  AND NOT EXISTS (SELECT 1 FROM news_chunk nc WHERE nc.news_item_id = ni.id)
+		  AND (
+		    NOT EXISTS (SELECT 1 FROM news_chunk nc WHERE nc.news_item_id = ni.id)
+		    OR (ni.chunked_content_hash IS DISTINCT FROM ni.content_hash)
+		  )
 		ORDER BY ni.created_at DESC
 		LIMIT $1
 	`, limit)
@@ -58,8 +61,8 @@ func (c *Chunker) ChunkBatch(ctx context.Context, limit int) (*ChunkResult, erro
 
 	for rows.Next() {
 		var id uuid.UUID
-		var title, contentHTML, contentText *string
-		if err := rows.Scan(&id, &title, &contentHTML, &contentText); err != nil {
+		var title, contentHTML, contentText, contentHash *string
+		if err := rows.Scan(&id, &title, &contentHTML, &contentText, &contentHash); err != nil {
 			slog.Warn("scan chunk item", "err", err)
 			result.Errors++
 			continue
@@ -95,8 +98,8 @@ func (c *Chunker) ChunkBatch(ctx context.Context, limit int) (*ChunkResult, erro
 			}
 		}
 
-		if err := c.insertChunks(ctx, chunkRows); err != nil {
-			slog.Warn("insert chunks", "id", id, "err", err)
+		if err := c.replaceChunks(ctx, chunkRows, id, contentHash); err != nil {
+			slog.Warn("replace chunks", "id", id, "err", err)
 			result.Errors++
 			continue
 		}
@@ -108,12 +111,17 @@ func (c *Chunker) ChunkBatch(ctx context.Context, limit int) (*ChunkResult, erro
 	return result, nil
 }
 
-func (c *Chunker) insertChunks(ctx context.Context, rows []chunkRow) error {
+func (c *Chunker) replaceChunks(ctx context.Context, rows []chunkRow, newsItemID uuid.UUID, contentHash *string) error {
 	tx, err := c.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	_, err = tx.Exec(ctx, "DELETE FROM news_chunk WHERE news_item_id = $1", newsItemID)
+	if err != nil {
+		return fmt.Errorf("delete old chunks: %w", err)
+	}
 
 	for _, r := range rows {
 		_, err := tx.Exec(ctx, `
@@ -124,5 +132,15 @@ func (c *Chunker) insertChunks(ctx context.Context, rows []chunkRow) error {
 			return fmt.Errorf("insert chunk %d: %w", r.chunkIndex, err)
 		}
 	}
+
+	hashStr := ""
+	if contentHash != nil {
+		hashStr = *contentHash
+	}
+	_, err = tx.Exec(ctx, "UPDATE news_item SET chunked_content_hash = $1 WHERE id = $2", hashStr, newsItemID)
+	if err != nil {
+		return fmt.Errorf("update chunked_content_hash: %w", err)
+	}
+
 	return tx.Commit(ctx)
 }
