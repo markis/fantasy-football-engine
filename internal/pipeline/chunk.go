@@ -82,7 +82,7 @@ func (c *Chunker) ChunkBatch(ctx context.Context, limit int) (*ChunkResult, erro
 		chunks := htmlx.SplitByHeadings(htmlStr, articleTitle)
 		if len(chunks) == 0 {
 			if contentText != nil && *contentText != "" {
-				chunks = []htmlx.Chunk{{Heading: "", Text: articleTitle + " " + *contentText}}
+				chunks = htmlx.SplitLongChunks([]htmlx.Chunk{{Heading: "", Text: articleTitle + " " + *contentText, Prefix: articleTitle}})
 			} else {
 				result.ItemsChecked++
 				continue

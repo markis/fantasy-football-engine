@@ -1,6 +1,8 @@
 package htmlx
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -84,5 +86,84 @@ func TestSplitByHeadings_NestedHeadings(t *testing.T) {
 	}
 	if chunks[1].Heading != "Sub Section" {
 		t.Errorf("chunk[1] heading = %q", chunks[1].Heading)
+	}
+}
+
+func TestSplitLongChunks_UnderCap(t *testing.T) {
+	chunks := []Chunk{{Heading: "H", Text: "short text"}}
+	out := SplitLongChunks(chunks)
+	if len(out) != 1 || out[0].Text != "short text" {
+		t.Fatalf("unchanged chunk should pass through, got %v", out)
+	}
+}
+
+func TestSplitLongChunks_SentenceSplit(t *testing.T) {
+	// Build a chunk with many short sentences that total > MaxChunkChars.
+	var b strings.Builder
+	b.WriteString("Title ")
+	for i := range 500 {
+		b.WriteString("This is sentence number ")
+		fmt.Fprintf(&b, "%d. ", i)
+	}
+	chunks := SplitLongChunks([]Chunk{{Heading: "", Text: b.String(), Prefix: "Title"}})
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple sub-chunks, got %d", len(chunks))
+	}
+	for i, c := range chunks {
+		if len(c.Text) > MaxChunkChars {
+			t.Errorf("sub-chunk %d exceeds cap: %d chars", i, len(c.Text))
+		}
+		if !strings.HasPrefix(c.Text, "Title ") {
+			t.Errorf("sub-chunk %d missing prefix: %q", i, c.Text[:20])
+		}
+	}
+}
+
+func TestSplitLongChunks_HeadingPrefix(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("Article > Section A ")
+	for i := range 500 {
+		fmt.Fprintf(&b, "Sentence %d goes here. ", i)
+	}
+	chunks := SplitLongChunks([]Chunk{{Heading: "Section A", Text: b.String(), Prefix: "Article > Section A"}})
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple sub-chunks, got %d", len(chunks))
+	}
+	for _, c := range chunks {
+		if !strings.HasPrefix(c.Text, "Article > Section A ") {
+			t.Errorf("sub-chunk missing heading prefix: %q", c.Text[:30])
+		}
+		if c.Heading != "Section A" {
+			t.Errorf("sub-chunk heading = %q, want %q", c.Heading, "Section A")
+		}
+	}
+}
+
+func TestSplitLongChunks_SingleGiantSentence(t *testing.T) {
+	long := strings.Repeat("a", MaxChunkChars*2+100)
+	chunks := SplitLongChunks([]Chunk{{Heading: "", Text: "Title " + long, Prefix: "Title"}})
+	if len(chunks) < 3 {
+		t.Fatalf("expected at least 3 sub-chunks for giant run-on, got %d", len(chunks))
+	}
+	for i, c := range chunks {
+		if len(c.Text) > MaxChunkChars {
+			t.Errorf("sub-chunk %d exceeds cap: %d chars", i, len(c.Text))
+		}
+	}
+}
+
+func TestSplitByHeadings_LongArticleNoHeadings(t *testing.T) {
+	var b strings.Builder
+	for i := range 500 {
+		fmt.Fprintf(&b, "<p>Paragraph %d with some content here.</p>", i)
+	}
+	chunks := SplitByHeadings(b.String(), "Long Article")
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple chunks for long headingless article, got %d", len(chunks))
+	}
+	for i, c := range chunks {
+		if len(c.Text) > MaxChunkChars {
+			t.Errorf("chunk %d exceeds cap: %d chars", i, len(c.Text))
+		}
 	}
 }

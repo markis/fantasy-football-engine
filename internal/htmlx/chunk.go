@@ -2,6 +2,7 @@ package htmlx
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
@@ -12,12 +13,21 @@ import (
 type Chunk struct {
 	Heading string
 	Text    string
+	// Prefix is the "{articleTitle}" or "{articleTitle} > {heading}" context
+	// prepended to Text. Set by SplitByHeadings; callers constructing chunks
+	// directly should set it so SplitLongChunks can re-apply it to sub-chunks.
+	Prefix string
 }
 
 // headingTags is the set of HTML tags that start a new chunk.
 var headingTags = map[string]bool{
 	"h1": true, "h2": true, "h3": true, "h4": true, "h5": true, "h6": true,
 }
+
+// MaxChunkChars is the per-chunk character budget. Chunks exceeding this are
+// further split at sentence boundaries so each sub-chunk gets its own full
+// embedding instead of being truncated by the embedder's 7000-char cap.
+const MaxChunkChars = 6000
 
 // SplitByHeadings parses HTML and splits it into chunks at heading tags
 // (h1–h6). Each chunk's Text is prefixed with "{articleTitle} > {heading}"
@@ -53,6 +63,7 @@ func SplitByHeadings(htmlStr, articleTitle string) []Chunk {
 		chunks = append(chunks, Chunk{
 			Heading: currentHeading,
 			Text:    prefix + " " + text,
+			Prefix:  prefix,
 		})
 		currentParts = nil
 	}
@@ -74,7 +85,7 @@ func SplitByHeadings(htmlStr, articleTitle string) []Chunk {
 	if len(chunks) == 0 {
 		return singleChunk(htmlStr, articleTitle)
 	}
-	return chunks
+	return SplitLongChunks(chunks)
 }
 
 func singleChunk(text, articleTitle string) []Chunk {
@@ -82,5 +93,110 @@ func singleChunk(text, articleTitle string) []Chunk {
 	if clean == "" {
 		return nil
 	}
-	return []Chunk{{Heading: "", Text: articleTitle + " " + clean}}
+	return SplitLongChunks([]Chunk{{Heading: "", Text: articleTitle + " " + clean, Prefix: articleTitle}})
+}
+
+// SplitLongChunks splits any chunk whose Text exceeds MaxChunkChars into
+// multiple sub-chunks at sentence boundaries, preserving the heading and
+// prefix on each sub-chunk. Chunks at or under the cap are returned unchanged.
+func SplitLongChunks(chunks []Chunk) []Chunk {
+	out := make([]Chunk, 0, len(chunks))
+	for _, c := range chunks {
+		if len(c.Text) <= MaxChunkChars {
+			out = append(out, c)
+			continue
+		}
+		out = append(out, splitOne(c)...)
+	}
+	return out
+}
+
+// splitOne splits a single oversized chunk at sentence boundaries into
+// sub-chunks, each prefixed with the original heading context.
+func splitOne(c Chunk) []Chunk {
+	prefix := c.Prefix
+	if prefix == "" {
+		prefix = c.Heading
+	}
+	rest := c.Text
+	// Strip the prefix from Text to get just the body.
+	if prefix != "" {
+		rest = strings.TrimPrefix(rest, prefix)
+		rest = strings.TrimSpace(rest)
+	}
+
+	sentences := splitSentences(rest)
+	var sub []Chunk
+	var current strings.Builder
+	// Budget for the prefix + space that prepends each sub-chunk's text.
+	prefixOverhead := len(prefix) + 1
+	for _, s := range sentences {
+		// If a single sentence itself exceeds the cap, hard-split it,
+		// accounting for the prefix overhead on each piece.
+		if prefixOverhead+len(s) > MaxChunkChars {
+			if current.Len() > 0 {
+				sub = appendChunk(sub, c.Heading, prefix, current.String())
+				current.Reset()
+			}
+			for s != "" {
+				end := min(MaxChunkChars-prefixOverhead, len(s))
+				if end <= 0 {
+					end = 1
+				}
+				sub = append(sub, Chunk{Heading: c.Heading, Text: prefix + " " + s[:end], Prefix: prefix})
+				s = s[end:]
+			}
+			continue
+		}
+		// If adding this sentence would exceed the cap and we already have
+		// content, flush the current sub-chunk first.
+		if current.Len() > 0 && prefixOverhead+current.Len()+1+len(s) > MaxChunkChars {
+			sub = appendChunk(sub, c.Heading, prefix, current.String())
+			current.Reset()
+		}
+		if current.Len() > 0 {
+			current.WriteByte(' ')
+		}
+		current.WriteString(s)
+	}
+	if current.Len() > 0 {
+		sub = appendChunk(sub, c.Heading, prefix, current.String())
+	}
+	return sub
+}
+
+// appendChunk builds a Chunk with the heading/prefix and accumulated text,
+// appending to sub only if the text is non-empty.
+func appendChunk(sub []Chunk, heading, prefix, text string) []Chunk {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return sub
+	}
+	return append(sub, Chunk{Heading: heading, Text: prefix + " " + text, Prefix: prefix})
+}
+
+// sentenceEndRe matches sentence-ending punctuation followed by whitespace.
+var sentenceEndRe = regexp.MustCompile(`[.!?]\s+`)
+
+// splitSentences splits text into sentences at sentence-ending punctuation,
+// preserving the punctuation with its sentence.
+func splitSentences(text string) []string {
+	indices := sentenceEndRe.FindAllStringIndex(text, -1)
+	if len(indices) == 0 {
+		return []string{text}
+	}
+	var sentences []string
+	start := 0
+	for _, idx := range indices {
+		end := idx[1] // include the whitespace after the punctuation
+		sentences = append(sentences, strings.TrimSpace(text[start:end]))
+		start = end
+	}
+	if start < len(text) {
+		rem := strings.TrimSpace(text[start:])
+		if rem != "" {
+			sentences = append(sentences, rem)
+		}
+	}
+	return sentences
 }
