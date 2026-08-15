@@ -262,6 +262,16 @@ func registerSteps(
 		return err
 	})
 
+	// Pipeline: embed chunks
+	sched.RegisterStep("pipeline.embed_chunks", func(ctx context.Context, job config.JobConfig) error {
+		limit := 100
+		if job.Limit > 0 {
+			limit = job.Limit
+		}
+		_, err := embedder.EmbedChunkBatch(ctx, limit)
+		return err
+	})
+
 	// Pipeline: dedup
 	sched.RegisterStep("pipeline.dedup", func(ctx context.Context, job config.JobConfig) error {
 		limit := 100
@@ -383,6 +393,17 @@ func registerSteps(
 		_, errEnrich := enricher.EnrichBatch(ctx, limit)
 		_, errCluster := clusterer.AssignBatch(ctx)
 		return errors.Join(errEmbed, errDedup, errEnrich, errCluster)
+	})
+
+	// Combined step: chunk + embed chunks.
+	sched.RegisterStep("pipeline.chunk_embed", func(ctx context.Context, job config.JobConfig) error {
+		limit := 50
+		if job.Limit > 0 {
+			limit = job.Limit
+		}
+		_, errChunk := chunker.ChunkBatch(ctx, limit)
+		_, errEmbed := embedder.EmbedChunkBatch(ctx, limit*5)
+		return errors.Join(errChunk, errEmbed)
 	})
 
 	// Combined step: assess_teams + publish weekly (cron #19)
