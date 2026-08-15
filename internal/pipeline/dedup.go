@@ -42,7 +42,7 @@ type dedupItem struct {
 	sourceID  uuid.UUID
 	urlHash   *string
 	simhash   *int64
-	embedding *string
+	chunkVecs []string // embedding::text per news_chunk, for semantic dedup
 	published *any
 	createdAt any
 }
@@ -50,7 +50,7 @@ type dedupItem struct {
 // CheckBatch runs dedup on items that haven't been checked yet.
 func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult, error) {
 	rows, err := d.pool.Query(ctx, `
-		SELECT id, source_id, canonical_url_hash, simhash, embedding::text,
+		SELECT id, source_id, canonical_url_hash, simhash,
 		       published_at, created_at
 		FROM news_item WHERE quality_score IS NULL
 		ORDER BY created_at DESC LIMIT $1
@@ -64,10 +64,20 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 	for rows.Next() {
 		var it dedupItem
 		if err := rows.Scan(&it.id, &it.sourceID, &it.urlHash, &it.simhash,
-			&it.embedding, &it.published, &it.createdAt); err != nil {
+			&it.published, &it.createdAt); err != nil {
 			return nil, fmt.Errorf("scan dedup item: %w", err)
 		}
 		items = append(items, it)
+	}
+
+	// Load chunk embedding vectors per item for semantic dedup.
+	for i := range items {
+		vecs, err := d.fetchChunkVectors(ctx, items[i].id)
+		if err != nil {
+			slog.Warn("fetch chunk vectors", "id", items[i].id, "err", err)
+			continue
+		}
+		items[i].chunkVecs = vecs
 	}
 
 	result := &DedupResult{Checked: len(items), Status: "ok"}
@@ -97,8 +107,8 @@ func (d *DedupChecker) CheckBatch(ctx context.Context, limit int) (*DedupResult,
 			}
 		}
 
-		// Semantic dedup (embedding cosine)
-		if it.embedding != nil && *it.embedding != "" {
+		// Semantic dedup (chunk embeddings)
+		if len(it.chunkVecs) > 0 {
 			if d.checkSemanticDup(ctx, &it, result) {
 				continue
 			}
@@ -140,27 +150,63 @@ func (d *DedupChecker) checkNearDup(ctx context.Context, it *dedupItem, result *
 	return false
 }
 
-// checkSemanticDup checks if an item is a semantic duplicate using embeddings.
-func (d *DedupChecker) checkSemanticDup(ctx context.Context, it *dedupItem, result *DedupResult) bool {
-	var semanticID uuid.UUID
-	var distance float64
-	err := d.pool.QueryRow(ctx, `
-		SELECT id, embedding <=> $1::vector AS distance
-		FROM news_item
-		WHERE source_id != $2 AND embedding IS NOT NULL AND id != $3
-		AND created_at < $4
-		ORDER BY distance LIMIT 1
-	`, *it.embedding, it.sourceID, it.id, it.createdAt).Scan(&semanticID, &distance)
+// fetchChunkVectors loads the embedding vectors for an item's chunks as text.
+func (d *DedupChecker) fetchChunkVectors(ctx context.Context, itemID uuid.UUID) ([]string, error) {
+	rows, err := d.pool.Query(ctx,
+		"SELECT embedding::text FROM news_chunk WHERE news_item_id = $1 AND embedding IS NOT NULL",
+		itemID)
 	if err != nil {
+		return nil, fmt.Errorf("query item chunk vectors: %w", err)
+	}
+	defer rows.Close()
+	var vecs []string
+	for rows.Next() {
+		var v *string
+		if err := rows.Scan(&v); err != nil {
+			continue
+		}
+		if v != nil && *v != "" {
+			vecs = append(vecs, *v)
+		}
+	}
+	return vecs, nil
+}
+
+// checkSemanticDup checks if an item is a semantic duplicate using chunk
+// embeddings. Each of the item's chunk vectors is searched against the HNSW
+// index on news_chunk.embedding (excluding chunks from the same item/source);
+// the smallest distance is used.
+func (d *DedupChecker) checkSemanticDup(ctx context.Context, it *dedupItem, result *DedupResult) bool {
+	bestDistance := 1 - cosineThreshold // only flag if closer than threshold
+	var semanticID uuid.UUID
+	for _, vec := range it.chunkVecs {
+		var candID uuid.UUID
+		var distance float64
+		err := d.pool.QueryRow(ctx, `
+			SELECT ni.id, nc.embedding <=> $1::vector AS distance
+			FROM news_chunk nc
+			JOIN news_item ni ON ni.id = nc.news_item_id
+			WHERE ni.source_id != $2 AND ni.id != $3
+			  AND nc.embedding IS NOT NULL
+			  AND ni.created_at < $4
+			ORDER BY nc.embedding <=> $1::vector
+			LIMIT 1
+		`, vec, it.sourceID, it.id, it.createdAt).Scan(&candID, &distance)
+		if err != nil {
+			continue
+		}
+		if distance < bestDistance {
+			bestDistance = distance
+			semanticID = candID
+		}
+	}
+	if bestDistance >= 1-cosineThreshold {
 		return false
 	}
-	cosineSim := 1 - distance
-	if cosineSim >= cosineThreshold {
-		if _, err := d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.3 WHERE id = $1", it.id); err != nil {
-			slog.Warn("mark semantic dup", "err", err)
-		}
-		result.SemanticDups++
-		return true
+	_ = semanticID
+	if _, err := d.pool.Exec(ctx, "UPDATE news_item SET quality_score = -0.3 WHERE id = $1", it.id); err != nil {
+		slog.Warn("mark semantic dup", "err", err)
 	}
-	return false
+	result.SemanticDups++
+	return true
 }

@@ -54,7 +54,7 @@ const (
 	paramRelevantOnly = "relevant_only"
 )
 
-// newsSearchFunc is the signature shared by SearchNews and SearchNewsChunks.
+// newsSearchFunc is the signature shared by SearchNews.
 type newsSearchFunc func(ctx context.Context, query string, limit int, days *int, relevantOnly bool) ([]map[string]any, error)
 
 // Server is the MCP server that exposes tools over Streamable HTTP.
@@ -102,10 +102,7 @@ func (s *Server) SetHealthChecker(c *health.Checker) {
 // registerTools registers all MCP tools.
 func (s *Server) registerTools() {
 	// News & stories
-	s.registerNewsSearchTool("search_news", "Semantic search over fantasy football news items using embeddings.", s.query.SearchNews)
-	s.registerNewsSearchTool("search_news_sections",
-		"Semantic search over article sections (chunks split by headings). Returns the most relevant section of each matching article.",
-		s.query.SearchNewsChunks)
+	s.registerNewsSearchTool("search_news", "Semantic search over fantasy football news items using chunked embeddings, returning unique news items.", s.query.SearchNews)
 
 	s.registerTool(Tool{
 		Name:        "get_stories",

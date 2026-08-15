@@ -4,13 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"ff-engine/internal/db"
 	"ff-engine/internal/util"
@@ -75,17 +73,20 @@ func (c *Clusterer) AssignBatch(ctx context.Context) (*ClusterResult, error) {
 
 func (c *Clusterer) processItem(ctx context.Context, itemID uuid.UUID) (string, error) {
 	var title *string
-	var embeddingText *string
 	var sourceID uuid.UUID
 	err := c.pool.QueryRow(ctx,
-		"SELECT title, embedding::text, source_id FROM news_item WHERE id = $1", itemID,
-	).Scan(&title, &embeddingText, &sourceID)
+		"SELECT title, source_id FROM news_item WHERE id = $1", itemID,
+	).Scan(&title, &sourceID)
 	if err != nil {
 		return "not_found", fmt.Errorf("scan news item %s: %w", itemID, err)
 	}
 
-	if embeddingText != nil && *embeddingText != "" {
-		reused, err := c.tryReuseCluster(ctx, itemID, *embeddingText)
+	chunkVecs, err := c.fetchItemChunkVectors(ctx, itemID)
+	if err != nil {
+		return "not_assigned", err
+	}
+	if len(chunkVecs) > 0 {
+		reused, err := c.tryReuseCluster(ctx, itemID, chunkVecs)
 		if err != nil {
 			return "not_assigned", err
 		}
@@ -101,30 +102,65 @@ func (c *Clusterer) processItem(ctx context.Context, itemID uuid.UUID) (string, 
 	return "created", nil
 }
 
-func (c *Clusterer) tryReuseCluster(ctx context.Context, itemID uuid.UUID, embedding string) (bool, error) {
-	var clusterID uuid.UUID
-	var repTitle *string
-	var distance float64
-	err := c.pool.QueryRow(ctx, `
-		SELECT sc.id, sc.representative_title,
-		       ni.embedding <=> $1::vector AS distance
-		FROM story_cluster sc
-		JOIN news_item ni ON ni.cluster_id = sc.id
-		WHERE ni.embedding IS NOT NULL
-		ORDER BY distance LIMIT 1
-	`, embedding).Scan(&clusterID, &repTitle, &distance)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil // No existing clusters found
-	}
+// fetchItemChunkVectors loads the embedding vectors for an item's chunks as
+// text, suitable for casting to vector in a similarity query.
+func (c *Clusterer) fetchItemChunkVectors(ctx context.Context, itemID uuid.UUID) ([]string, error) {
+	rows, err := c.pool.Query(ctx,
+		"SELECT embedding::text FROM news_chunk WHERE news_item_id = $1 AND embedding IS NOT NULL",
+		itemID)
 	if err != nil {
-		return false, fmt.Errorf("query nearest cluster: %w", err)
+		return nil, fmt.Errorf("query item chunk vectors: %w", err)
 	}
-	_ = repTitle // Unused field from query
-	cosineSim := 1 - distance
+	defer rows.Close()
+
+	var vecs []string
+	for rows.Next() {
+		var v *string
+		if err := rows.Scan(&v); err != nil {
+			continue
+		}
+		if v != nil && *v != "" {
+			vecs = append(vecs, *v)
+		}
+	}
+	return vecs, nil
+}
+
+// tryReuseCluster searches already-clustered news_chunk embeddings for the
+// nearest match to any of the item's chunk vectors. Uses the HNSW index on
+// news_chunk.embedding (one lookup per chunk vector). The best (smallest
+// distance) cluster is assigned when cosine similarity meets the threshold.
+func (c *Clusterer) tryReuseCluster(ctx context.Context, itemID uuid.UUID, chunkVecs []string) (bool, error) {
+	var bestClusterID uuid.UUID
+	bestDistance := math.MaxFloat64
+	for _, vec := range chunkVecs {
+		var clusterID uuid.UUID
+		var distance float64
+		err := c.pool.QueryRow(ctx, `
+			SELECT sc.id, nc.embedding <=> $1::vector AS distance
+			FROM news_chunk nc
+			JOIN news_item ni ON ni.id = nc.news_item_id
+			JOIN story_cluster sc ON sc.id = ni.cluster_id
+			WHERE nc.embedding IS NOT NULL
+			ORDER BY nc.embedding <=> $1::vector
+			LIMIT 1
+		`, vec).Scan(&clusterID, &distance)
+		if err != nil {
+			continue // no rows / scan error — try next chunk
+		}
+		if distance < bestDistance {
+			bestDistance = distance
+			bestClusterID = clusterID
+		}
+	}
+	if bestDistance == math.MaxFloat64 {
+		return false, nil // no existing clusters found
+	}
+	cosineSim := 1 - bestDistance
 	if cosineSim < clusterCosineThreshold {
-		return false, nil // No match
+		return false, nil // no match
 	}
-	if err := c.assignToCluster(ctx, itemID, clusterID); err != nil {
+	if err := c.assignToCluster(ctx, itemID, bestClusterID); err != nil {
 		return false, err
 	}
 	return true, nil

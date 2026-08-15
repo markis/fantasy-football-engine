@@ -252,16 +252,6 @@ func registerSteps(
 		return err
 	})
 
-	// Pipeline: embed
-	sched.RegisterStep("pipeline.embed", func(ctx context.Context, job config.JobConfig) error {
-		limit := 50
-		if job.Limit > 0 {
-			limit = job.Limit
-		}
-		_, err := embedder.EmbedBatch(ctx, limit)
-		return err
-	})
-
 	// Pipeline: embed chunks
 	sched.RegisterStep("pipeline.embed_chunks", func(ctx context.Context, job config.JobConfig) error {
 		limit := 100
@@ -376,23 +366,24 @@ func registerSteps(
 		return err
 	})
 
-	// Combined step: embed + dedup + enrich + cluster (cron #5).
+	// Combined step: chunk+embed + dedup + enrich + cluster (cron #5).
 	// Order matters: dedup and enrich both claim work from the same
 	// `quality_score IS NULL` queue, so dedup must run first — otherwise
 	// enrich (which unconditionally sets quality_score) empties that queue
-	// before dedup ever sees it. embed runs before dedup so semantic dedup
-	// has an embedding to compare; cluster runs last since it also reads
-	// embeddings and is independent of quality_score.
+	// before dedup ever sees it. chunk+embed runs before dedup so semantic
+	// dedup has chunk embeddings to compare; cluster runs last since it also
+	// reads embeddings and is independent of quality_score.
 	sched.RegisterStep("pipeline.enrich_embed_dedup_cluster", func(ctx context.Context, job config.JobConfig) error {
 		limit := 10
 		if job.Limit > 0 {
 			limit = job.Limit
 		}
-		_, errEmbed := embedder.EmbedBatch(ctx, 50)
+		_, errChunk := chunker.ChunkBatch(ctx, 50)
+		_, errEmbed := embedder.EmbedChunkBatch(ctx, 250)
 		_, errDedup := dedupChecker.CheckBatch(ctx, 50)
 		_, errEnrich := enricher.EnrichBatch(ctx, limit)
 		_, errCluster := clusterer.AssignBatch(ctx)
-		return errors.Join(errEmbed, errDedup, errEnrich, errCluster)
+		return errors.Join(errChunk, errEmbed, errDedup, errEnrich, errCluster)
 	})
 
 	// Combined step: chunk + embed chunks.

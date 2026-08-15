@@ -55,7 +55,9 @@ func New(pool *db.Pool, embedClient *embed.Client, sleeperClient *sleeper.Client
 	return &Service{pool: pool, embed: embedClient, sleeper: sleeperClient}
 }
 
-// SearchNews performs semantic search over news_item embeddings.
+// SearchNews performs semantic search over news_chunk embeddings, grouping
+// results by parent news_item so an article appears once even if multiple
+// chunks match. The highest-similarity chunk is used as the article's score.
 func (s *Service) SearchNews(ctx context.Context, query string, limit int, days *int, relevantOnly bool) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = 10
@@ -67,76 +69,12 @@ func (s *Service) SearchNews(ctx context.Context, query string, limit int, days 
 	}
 	v := pgvector.NewVector(vec)
 
-	// Build query
-	sql := `SELECT ni.id, ni.title, ni.url, ni.published_at, s.name AS source_name,
-		       1 - (ni.embedding <=> $1::vector) AS similarity,
-		       ni.content_text, ni.news_story
-		FROM news_item ni JOIN source s ON s.id = ni.source_id
-		WHERE ni.embedding IS NOT NULL AND COALESCE(ni.quality_score, 0) >= 0`
-	params := []any{v}
-	if days != nil {
-		d := max(*days, 0)
-		params = append(params, d)
-		sql += fmt.Sprintf(" AND ni.published_at >= now() - make_interval(days => $%d)", len(params))
-	}
-	if relevantOnly {
-		sql += colRelevantFilter
-	}
-	params = append(params, limit)
-	sql += fmt.Sprintf(" ORDER BY ni.embedding <=> $1::vector LIMIT $%d", len(params))
-
-	rows, err := s.pool.Query(ctx, sql, params...)
-	if err != nil {
-		return nil, fmt.Errorf("query similar news items: %w", err)
-	}
-	defer rows.Close()
-
-	var result []map[string]any
-	for rows.Next() {
-		var id uuid.UUID
-		var title, url, sourceName, contentText, newsStory *string
-		var publishedAt *time.Time
-		var similarity float64
-		if err := rows.Scan(&id, &title, &url, &publishedAt, &sourceName, &similarity, &contentText, &newsStory); err != nil {
-			continue
-		}
-		item := map[string]any{
-			"id":          id.String(),
-			colTitle:      util.StrOrEmpty(title),
-			colURL:        util.StrOrEmpty(url),
-			colSimilarity: similarity,
-			colSource:     util.StrOrEmpty(sourceName),
-		}
-		if publishedAt != nil {
-			item["published_at"] = publishedAt.UTC().Format(time.RFC3339)
-		}
-		if newsStory != nil && *newsStory != "" {
-			item["story"] = *newsStory
-		}
-		result = append(result, item)
-	}
-	return result, nil
-}
-
-// SearchNewsChunks performs semantic search over news_chunk embeddings,
-// grouping results by parent news_item so an article appears once even if
-// multiple chunks match. The highest-similarity chunk is used as the
-// article's score and its text is returned.
-func (s *Service) SearchNewsChunks(ctx context.Context, query string, limit int, days *int, relevantOnly bool) ([]map[string]any, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-	vec, err := s.embed.Embed(ctx, query)
-	if err != nil {
-		return nil, fmt.Errorf("embed query: %w", err)
-	}
-	v := pgvector.NewVector(vec)
-
+	// Build query — search chunk embeddings, dedupe by news_item.
 	sql := `SELECT * FROM (
 		       SELECT DISTINCT ON (ni.id)
 			       ni.id, ni.title, ni.url, ni.published_at, s.name AS source_name,
 			       1 - (nc.embedding <=> $1::vector) AS similarity,
-			       nc.heading, nc.chunk_text, ni.news_story
+			       ni.news_story
 			FROM news_chunk nc
 			JOIN news_item ni ON ni.id = nc.news_item_id
 			JOIN source s ON s.id = ni.source_id
@@ -157,29 +95,25 @@ func (s *Service) SearchNewsChunks(ctx context.Context, query string, limit int,
 
 	rows, err := s.pool.Query(ctx, sql, params...)
 	if err != nil {
-		return nil, fmt.Errorf("query similar chunks: %w", err)
+		return nil, fmt.Errorf("query similar news items: %w", err)
 	}
 	defer rows.Close()
 
 	var result []map[string]any
 	for rows.Next() {
 		var id uuid.UUID
-		var title, url, sourceName, heading, chunkText, newsStory *string
+		var title, url, sourceName, newsStory *string
 		var publishedAt *time.Time
 		var similarity float64
-		if err := rows.Scan(&id, &title, &url, &publishedAt, &sourceName, &similarity, &heading, &chunkText, &newsStory); err != nil {
+		if err := rows.Scan(&id, &title, &url, &publishedAt, &sourceName, &similarity, &newsStory); err != nil {
 			continue
 		}
 		item := map[string]any{
-			"id":         id.String(),
-			colTitle:     util.StrOrEmpty(title),
-			"url":        util.StrOrEmpty(url),
-			"similarity": similarity,
-			"source":     util.StrOrEmpty(sourceName),
-			"heading":    util.StrOrEmpty(heading),
-		}
-		if chunkText != nil {
-			item["section_text"] = *chunkText
+			"id":          id.String(),
+			colTitle:      util.StrOrEmpty(title),
+			colURL:        util.StrOrEmpty(url),
+			colSimilarity: similarity,
+			colSource:     util.StrOrEmpty(sourceName),
 		}
 		if publishedAt != nil {
 			item["published_at"] = publishedAt.UTC().Format(time.RFC3339)
