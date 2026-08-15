@@ -38,8 +38,7 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	MCPAddr     string `default:":3100"    yaml:"mcpAddr"`
-	MetricsAddr string `yaml:"metricsAddr"`
+	MCPAddr string `default:":3100" yaml:"mcpAddr"`
 }
 
 type DatabaseConfig struct {
@@ -101,8 +100,11 @@ type CorpusConfig struct {
 }
 
 type TelemetryConfig struct {
-	OTelEndpoint string `yaml:"oTelEndpoint"`
-	ServiceName  string `default:"fantasy-football-engine" yaml:"serviceName"`
+	OTelEndpoint string  `yaml:"oTelEndpoint"`
+	ServiceName  string  `default:"fantasy-football-engine" yaml:"serviceName"`
+	MetricsAddr  string  `yaml:"metricsAddr"`
+	Env          string  `default:"production"              yaml:"env"`
+	SampleRate   float64 `default:"1.0"                     yaml:"sampleRate"`
 }
 
 type SchedulerConfig struct {

@@ -3,7 +3,6 @@
 
 server:
   mcpAddr: ":3100"          # MCP Streamable HTTP endpoint
-  metricsAddr: ":3101"      # metrics (optional)
 
 database:
   dsn: "postgres://fantasy:${FF_PG_PASSWORD}@ff-pg:5432/fantasy_football?sslmode=disable"
@@ -61,6 +60,9 @@ corpus:
 telemetry:
   oTelEndpoint: "http://otel-collector:4318"
   serviceName: "fantasy-football-engine"
+  metricsAddr: ":3101"        # Prometheus scrape endpoint (optional)
+  env: "production"
+  sampleRate: 1.0             # trace sampling ratio (0.0–1.0)
 
 scheduler:
   timezone: "America/New_York"
