@@ -124,6 +124,32 @@ func (s *Server) registerTools() {
 	})
 
 	s.registerTool(Tool{
+		Name:        "search_news_sections",
+		Description: "Semantic search over article sections (chunks split by headings). Returns the most relevant section of each matching article.",
+		InputSchema: map[string]any{
+			schemaType: schemaTypeObject,
+			schemaProperties: map[string]any{
+				paramQuery:      map[string]any{schemaType: schemaTypeString, schemaDescription: "Search query"},
+				paramLimit:      map[string]any{schemaType: schemaTypeInteger, schemaDefault: 10},
+				"days":          map[string]any{schemaType: schemaTypeInteger, schemaDescription: "Only items from last N days"},
+				"relevant_only": map[string]any{schemaType: schemaTypeBoolean, schemaDefault: false},
+			},
+			schemaRequired: []string{"query"},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (any, error) {
+			q := getStr(args, paramQuery)
+			limit := getInt(args, paramLimit, 10)
+			var days *int
+			if d, ok := args["days"]; ok {
+				di := toInt(d)
+				days = &di
+			}
+			relevant := getBool(args, "relevant_only")
+			return s.query.SearchNewsChunks(ctx, q, limit, days, relevant)
+		},
+	})
+
+	s.registerTool(Tool{
 		Name:        "get_stories",
 		Description: "Get top story clusters from a time window.",
 		InputSchema: map[string]any{
