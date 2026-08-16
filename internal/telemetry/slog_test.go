@@ -7,7 +7,7 @@ import (
 )
 
 func TestSlogHandler_NoOpMode(t *testing.T) {
-	p, err := Init(Config{ServiceName: "test"})
+	p, err := Init(&Config{ServiceName: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17,7 +17,7 @@ func TestSlogHandler_NoOpMode(t *testing.T) {
 }
 
 func TestSlogHandler_StdoutJSON(t *testing.T) {
-	p, err := Init(Config{ServiceName: "test"})
+	p, err := Init(&Config{ServiceName: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}

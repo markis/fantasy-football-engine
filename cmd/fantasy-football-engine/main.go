@@ -67,9 +67,10 @@ func run() int {
 	}
 
 	// Init telemetry
-	telemetryProvider, err := telemetry.Init(telemetry.Config{
+	telemetryProvider, err := telemetry.Init(&telemetry.Config{
 		ServiceName:  cfg.Telemetry.ServiceName,
 		OTelEndpoint: cfg.Telemetry.OTelEndpoint,
+		Protocol:     cfg.Telemetry.Protocol,
 		MetricsAddr:  cfg.Telemetry.MetricsAddr,
 		Env:          cfg.Telemetry.Env,
 		SampleRate:   cfg.Telemetry.SampleRate,

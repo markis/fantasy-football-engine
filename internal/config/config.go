@@ -101,6 +101,7 @@ type CorpusConfig struct {
 
 type TelemetryConfig struct {
 	OTelEndpoint string  `yaml:"oTelEndpoint"`
+	Protocol     string  `default:"http"                    yaml:"protocol"`
 	ServiceName  string  `default:"fantasy-football-engine" yaml:"serviceName"`
 	MetricsAddr  string  `yaml:"metricsAddr"`
 	Env          string  `default:"production"              yaml:"env"`

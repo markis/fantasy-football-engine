@@ -11,8 +11,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/log/global"
@@ -24,9 +27,12 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
 
+const protocolGRPC = "grpc"
+
 type Config struct {
 	ServiceName  string
 	OTelEndpoint string
+	Protocol     string // "http" (default) or "grpc"
 	MetricsAddr  string
 	Env          string
 	SampleRate   float64
@@ -41,7 +47,7 @@ type Provider struct {
 	shutdownFns    []func(ctx context.Context) error
 }
 
-func Init(cfg Config) (*Provider, error) {
+func Init(cfg *Config) (*Provider, error) {
 	if cfg.OTelEndpoint == "" {
 		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 			Level: slog.LevelInfo,
@@ -50,18 +56,15 @@ func Init(cfg Config) (*Provider, error) {
 		return &Provider{otel: false}, nil
 	}
 
-	opts := []otlptracehttp.Option{otlptracehttp.WithEndpointURL(cfg.OTelEndpoint)}
-	traceExporter, err := otlptracehttp.New(context.Background(), opts...)
+	traceExporter, err := newTraceExporter(cfg.Protocol, cfg.OTelEndpoint)
 	if err != nil {
 		slog.Warn("telemetry: trace exporter init failed — traces disabled", "err", err)
 	}
-	metricOpts := []otlpmetrichttp.Option{otlpmetrichttp.WithEndpointURL(cfg.OTelEndpoint)}
-	metricExporter, err := otlpmetrichttp.New(context.Background(), metricOpts...)
+	metricExporter, err := newMetricExporter(cfg.Protocol, cfg.OTelEndpoint)
 	if err != nil {
 		slog.Warn("telemetry: metric exporter init failed — OTLP metrics disabled", "err", err)
 	}
-	logOpts := []otlploghttp.Option{otlploghttp.WithEndpointURL(cfg.OTelEndpoint)}
-	logExporter, err := otlploghttp.New(context.Background(), logOpts...)
+	logExporter, err := newLogExporter(cfg.Protocol, cfg.OTelEndpoint)
 	if err != nil {
 		slog.Warn("telemetry: log exporter init failed — OTel logs disabled", "err", err)
 	}
@@ -159,4 +162,49 @@ func (p *Provider) PrometheusHandler() http.HandlerFunc {
 		}
 	}
 	return promhttp.Handler().ServeHTTP
+}
+
+func newTraceExporter(protocol, endpoint string) (sdktrace.SpanExporter, error) {
+	if protocol == protocolGRPC {
+		exp, err := otlptracegrpc.New(context.Background(), otlptracegrpc.WithEndpointURL(endpoint))
+		if err != nil {
+			return nil, fmt.Errorf("trace grpc exporter: %w", err)
+		}
+		return exp, nil
+	}
+	exp, err := otlptracehttp.New(context.Background(), otlptracehttp.WithEndpointURL(endpoint))
+	if err != nil {
+		return nil, fmt.Errorf("trace http exporter: %w", err)
+	}
+	return exp, nil
+}
+
+func newMetricExporter(protocol, endpoint string) (sdkmetric.Exporter, error) {
+	if protocol == protocolGRPC {
+		exp, err := otlpmetricgrpc.New(context.Background(), otlpmetricgrpc.WithEndpointURL(endpoint))
+		if err != nil {
+			return nil, fmt.Errorf("metric grpc exporter: %w", err)
+		}
+		return exp, nil
+	}
+	exp, err := otlpmetrichttp.New(context.Background(), otlpmetrichttp.WithEndpointURL(endpoint))
+	if err != nil {
+		return nil, fmt.Errorf("metric http exporter: %w", err)
+	}
+	return exp, nil
+}
+
+func newLogExporter(protocol, endpoint string) (sdklog.Exporter, error) {
+	if protocol == protocolGRPC {
+		exp, err := otlploggrpc.New(context.Background(), otlploggrpc.WithEndpointURL(endpoint))
+		if err != nil {
+			return nil, fmt.Errorf("log grpc exporter: %w", err)
+		}
+		return exp, nil
+	}
+	exp, err := otlploghttp.New(context.Background(), otlploghttp.WithEndpointURL(endpoint))
+	if err != nil {
+		return nil, fmt.Errorf("log http exporter: %w", err)
+	}
+	return exp, nil
 }

@@ -58,7 +58,8 @@ corpus:
   authorEmail: "m@rkis.net"
 
 telemetry:
-  oTelEndpoint: "http://otel-collector:4318"
+  oTelEndpoint: "http://otel-collector:4318"  # use http:// or grpc:// scheme
+  protocol: "http"                              # "http" or "grpc"
   serviceName: "fantasy-football-engine"
   metricsAddr: ":3101"        # Prometheus scrape endpoint (optional)
   env: "production"

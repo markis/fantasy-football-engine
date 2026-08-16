@@ -9,7 +9,7 @@ import (
 const testTimeout = 5 * time.Second
 
 func TestInit_NoOpWhenEndpointEmpty(t *testing.T) {
-	p, err := Init(Config{ServiceName: "test"})
+	p, err := Init(&Config{ServiceName: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestInit_NoOpWhenEndpointEmpty(t *testing.T) {
 }
 
 func TestInit_OTelEnabledWhenEndpointSet(t *testing.T) {
-	p, err := Init(Config{
+	p, err := Init(&Config{
 		ServiceName:  "test",
 		OTelEndpoint: "http://localhost:4318",
 		MetricsAddr:  "",
@@ -42,7 +42,7 @@ func TestInit_OTelEnabledWhenEndpointSet(t *testing.T) {
 }
 
 func TestShutdown_Idempotent(t *testing.T) {
-	p, err := Init(Config{ServiceName: "test"})
+	p, err := Init(&Config{ServiceName: "test"})
 	if err != nil {
 		t.Fatal(err)
 	}
