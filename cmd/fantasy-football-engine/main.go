@@ -50,6 +50,12 @@ func main() {
 		os.Exit(runHealthCheck(os.Args[2:]))
 	}
 
+	os.Exit(run())
+}
+
+// run loads config, wires all subsystems, and blocks until a shutdown signal
+// is received. It returns the process exit code.
+func run() int {
 	configPath := flag.String("config", "config.yaml", "Path to config file")
 	flag.Parse()
 
@@ -57,11 +63,26 @@ func main() {
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load config: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Init telemetry
-	telemetry.Init(cfg.Telemetry.ServiceName, cfg.Telemetry.OTelEndpoint)
+	telemetryProvider, err := telemetry.Init(telemetry.Config{
+		ServiceName:  cfg.Telemetry.ServiceName,
+		OTelEndpoint: cfg.Telemetry.OTelEndpoint,
+		MetricsAddr:  cfg.Telemetry.MetricsAddr,
+		Env:          cfg.Telemetry.Env,
+		SampleRate:   cfg.Telemetry.SampleRate,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "telemetry init: %v\n", err)
+		return 1
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		telemetryProvider.Shutdown(shutdownCtx)
+	}()
 
 	slog.Info("starting fantasy-football-engine", "mcp_addr", cfg.Server.MCPAddr)
 
@@ -70,14 +91,14 @@ func main() {
 	pool, err := db.New(ctx, cfg.Database.DSN)
 	if err != nil {
 		slog.Error("database connection", "err", err)
-		return
+		return 1
 	}
 
 	// Run migrations (in-place upgrade: marks existing migrations as applied)
 	if migrErr := pool.RunMigrations(ctx); migrErr != nil {
 		slog.Error("migrations", "err", migrErr)
 		pool.Close()
-		os.Exit(1)
+		return 1
 	}
 	defer pool.Close()
 
@@ -130,7 +151,7 @@ func main() {
 	sched, err := scheduler.New(cfg.Scheduler.Timezone)
 	if err != nil {
 		slog.Error("scheduler init", "err", err)
-		return
+		return 1
 	}
 
 	// Register step functions
@@ -163,6 +184,26 @@ func main() {
 		}
 	}()
 
+	// Start Prometheus metrics server (if configured)
+	var metricsServer *http.Server
+	if cfg.Telemetry.MetricsAddr != "" {
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("/metrics", telemetryProvider.PrometheusHandler())
+		metricsServer = &http.Server{
+			Addr:              cfg.Telemetry.MetricsAddr,
+			Handler:           metricsMux,
+			ReadTimeout:       5 * time.Second,
+			WriteTimeout:      10 * time.Second,
+			ReadHeaderTimeout: 2 * time.Second,
+		}
+		go func() {
+			slog.Info("metrics server starting", "addr", cfg.Telemetry.MetricsAddr)
+			if err := metricsServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				slog.Error("metrics server", "err", err)
+			}
+		}()
+	}
+
 	slog.Info("fantasy-football-engine running", "mcp_addr", cfg.Server.MCPAddr, "jobs", len(cfg.Scheduler.Jobs))
 
 	// Wait for shutdown signal
@@ -172,7 +213,17 @@ func main() {
 	slog.Info("shutdown signal received", "signal", sig)
 
 	sched.Stop()
+
+	if metricsServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := metricsServer.Shutdown(shutdownCtx); err != nil {
+			slog.Warn("metrics server shutdown", "err", err)
+		}
+		cancel()
+	}
+
 	slog.Info("fantasy-football-engine stopped")
+	return 0
 }
 
 func registerSteps(
