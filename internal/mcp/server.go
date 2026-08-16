@@ -13,6 +13,8 @@ import (
 
 	"ff-engine/internal/health"
 	"ff-engine/internal/query"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 var (
@@ -599,9 +601,16 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/readyz", s.handleReady)
 	mux.HandleFunc("/mcp", s.handleMCP)
 
+	handler := otelhttp.NewHandler(mux, "mcp",
+		otelhttp.WithFilter(func(r *http.Request) bool {
+			path := r.URL.Path
+			return path != "/readyz" && path != "/health" && path != "/healthz" && path != "/"
+		}),
+	)
+
 	server := &http.Server{
 		Addr:              s.addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,
