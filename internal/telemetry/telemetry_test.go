@@ -3,7 +3,10 @@ package telemetry
 import (
 	"context"
 	"testing"
+	"time"
 )
+
+const testTimeout = 5 * time.Second
 
 func TestInit_NoOpWhenEndpointEmpty(t *testing.T) {
 	p, err := Init(Config{ServiceName: "test"})

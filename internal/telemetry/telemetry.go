@@ -7,10 +7,7 @@ import (
 	"net/http"
 	"os"
 	"slices"
-	"time"
 
-	"github.com/exaring/otelpgx"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -26,8 +23,6 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 )
-
-const testTimeout = 5 * time.Second
 
 type Config struct {
 	ServiceName  string
@@ -164,8 +159,4 @@ func (p *Provider) PrometheusHandler() http.HandlerFunc {
 		}
 	}
 	return promhttp.Handler().ServeHTTP
-}
-
-func InstrumentPool(cfg *pgxpool.Config) {
-	cfg.ConnConfig.Tracer = otelpgx.NewTracer()
 }
