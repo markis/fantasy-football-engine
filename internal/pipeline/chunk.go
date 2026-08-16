@@ -117,7 +117,11 @@ func (c *Chunker) replaceChunks(ctx context.Context, rows []chunkRow, newsItemID
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
+	committed := false
 	defer func() {
+		if committed {
+			return
+		}
 		if rbErr := tx.Rollback(ctx); rbErr != nil {
 			slog.Warn("rollback chunk tx", "err", rbErr)
 		}
@@ -132,6 +136,9 @@ func (c *Chunker) replaceChunks(ctx context.Context, rows []chunkRow, newsItemID
 		if _, insertErr := tx.Exec(ctx, `
 			INSERT INTO news_chunk (news_item_id, chunk_index, heading, chunk_text)
 			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (news_item_id, chunk_index) DO UPDATE SET
+				heading = EXCLUDED.heading,
+				chunk_text = EXCLUDED.chunk_text
 		`, r.newsItemID, r.chunkIndex, r.heading, r.chunkText); insertErr != nil {
 			return fmt.Errorf("insert chunk %d: %w", r.chunkIndex, insertErr)
 		}
@@ -145,5 +152,6 @@ func (c *Chunker) replaceChunks(ctx context.Context, rows []chunkRow, newsItemID
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit chunk tx: %w", err)
 	}
+	committed = true
 	return nil
 }

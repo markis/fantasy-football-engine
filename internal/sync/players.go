@@ -109,6 +109,11 @@ func projectPlayer(pid string, p *sleeper.Player) []any {
 		}
 	}
 
+	fantasyPositions := p.FantasyPositions
+	if fantasyPositions == nil {
+		fantasyPositions = []string{}
+	}
+
 	return []any{
 		pid,
 		p.FirstName,
@@ -116,7 +121,7 @@ func projectPlayer(pid string, p *sleeper.Player) []any {
 		p.FullName,
 		p.SearchFullName,
 		p.Position,
-		p.FantasyPositions,
+		fantasyPositions,
 		p.Team,
 		p.TeamAbbr,
 		p.Status,

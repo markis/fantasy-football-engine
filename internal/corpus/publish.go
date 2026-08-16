@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"syscall"
+	"time"
 )
 
 var (
@@ -90,9 +92,28 @@ type renderSummaries struct {
 }
 
 // prepareStagingDir clears and recreates the staging directory.
+//
+// os.RemoveAll can fail with ENOTEMPTY on Docker named volumes (overlayfs/
+// btrfs backed) when the kernel hasn't yet flushed unlinkat from a concurrent
+// process or a previous run. Retrying with a short backoff reliably clears
+// the directory in that case.
 func prepareStagingDir(staging string) error {
-	if err := os.RemoveAll(staging); err != nil {
-		return fmt.Errorf("clear staging: %w", err)
+	const maxRetries = 3
+	var lastErr error
+	for attempt := range maxRetries {
+		if err := os.RemoveAll(staging); err != nil {
+			lastErr = err
+			if !errors.Is(err, syscall.ENOTEMPTY) {
+				return fmt.Errorf("clear staging: %w", err)
+			}
+			time.Sleep(100 * time.Millisecond << attempt) // 100ms, 200ms, 400ms
+			continue
+		}
+		lastErr = nil
+		break
+	}
+	if lastErr != nil {
+		return fmt.Errorf("clear staging: %w", lastErr)
 	}
 	if err := os.MkdirAll(staging, 0o750); err != nil {
 		return fmt.Errorf("create staging: %w", err)
