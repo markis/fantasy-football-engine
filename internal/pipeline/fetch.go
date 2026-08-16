@@ -19,6 +19,7 @@ import (
 	"github.com/mmcdole/gofeed"
 
 	"ff-engine/internal/db"
+	"ff-engine/internal/telemetry"
 )
 
 var errFeedHTTP = errors.New("feed HTTP error")
@@ -98,7 +99,7 @@ func (f *RSSFetcher) doConditionalFetch(ctx context.Context, feedURL string, eta
 		headers["If-Modified-Since"] = *lastModified
 	}
 
-	httpClient := &http.Client{Timeout: 30 * time.Second}
+	httpClient := telemetry.NewHTTPClient(30 * time.Second)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, feedURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

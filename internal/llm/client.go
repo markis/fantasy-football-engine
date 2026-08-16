@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"ff-engine/internal/telemetry"
 )
 
 var errChatHTTP = errors.New("chat HTTP error")
@@ -28,7 +30,7 @@ func New(url, model, apiKey string, timeout time.Duration) *Client {
 		url:    strings.TrimRight(url, "/") + "/api/chat",
 		model:  model,
 		apiKey: apiKey,
-		client: &http.Client{Timeout: timeout},
+		client: telemetry.NewHTTPClient(timeout),
 	}
 }
 

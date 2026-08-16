@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 
 	"ff-engine/internal/db"
+	"ff-engine/internal/telemetry"
 )
 
 // RankingsSyncer syncs dynasty rankings from Dynasty Daddy.
@@ -22,7 +23,7 @@ type RankingsSyncer struct {
 
 // NewRankingsSyncer creates a new rankings syncer.
 func NewRankingsSyncer(pool *db.Pool) *RankingsSyncer {
-	return &RankingsSyncer{pool: pool, client: &http.Client{Timeout: 120 * time.Second}}
+	return &RankingsSyncer{pool: pool, client: telemetry.NewHTTPClient(120 * time.Second)}
 }
 
 const (

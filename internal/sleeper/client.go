@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"ff-engine/internal/models"
+	"ff-engine/internal/telemetry"
 )
 
 var errSleeperHTTP = errors.New("sleeper HTTP error")
@@ -42,7 +43,7 @@ const cacheSweepThreshold = 200
 func New(baseURL string) *Client {
 	return &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		client:  &http.Client{Timeout: 30 * time.Second},
+		client:  telemetry.NewHTTPClient(30 * time.Second),
 		cache:   make(map[string]cacheEntry),
 	}
 }

@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"ff-engine/internal/telemetry"
 )
 
 var (
@@ -42,7 +44,7 @@ func New(url, model string) *Client {
 	return &Client{
 		url:    strings.TrimRight(url, "/") + "/v1/embeddings",
 		model:  model,
-		client: &http.Client{Timeout: 60 * time.Second},
+		client: telemetry.NewHTTPClient(60 * time.Second),
 	}
 }
 

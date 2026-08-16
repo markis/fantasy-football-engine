@@ -15,6 +15,7 @@ import (
 
 	"ff-engine/internal/db"
 	"ff-engine/internal/htmlx"
+	"ff-engine/internal/telemetry"
 )
 
 // BodyFetcher downloads full article bodies for news items.
@@ -142,7 +143,7 @@ func (b *BodyFetcher) processItem(ctx context.Context, item *pendingItem) string
 		return statusSkipped
 	}
 
-	httpClient := &http.Client{Timeout: 20 * time.Second}
+	httpClient := telemetry.NewHTTPClient(20 * time.Second)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, item.url, http.NoBody)
 	if err != nil {
 		return statusSkipped

@@ -10,6 +10,7 @@ import (
 
 	"ff-engine/internal/config"
 	"ff-engine/internal/db"
+	"ff-engine/internal/telemetry"
 )
 
 // FPInjuriesSyncer syncs FantasyPros injury data.
@@ -21,7 +22,7 @@ type FPInjuriesSyncer struct {
 
 // NewFPInjuriesSyncer creates a new FP injuries syncer.
 func NewFPInjuriesSyncer(pool *db.Pool, cfg *config.Config) *FPInjuriesSyncer {
-	return &FPInjuriesSyncer{pool: pool, cfg: cfg, client: &http.Client{Timeout: 20 * time.Second}}
+	return &FPInjuriesSyncer{pool: pool, cfg: cfg, client: telemetry.NewHTTPClient(20 * time.Second)}
 }
 
 const (

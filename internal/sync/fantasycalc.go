@@ -14,6 +14,7 @@ import (
 
 	"ff-engine/internal/db"
 	"ff-engine/internal/models"
+	"ff-engine/internal/telemetry"
 )
 
 var (
@@ -31,7 +32,7 @@ type FantasyCalcSyncer struct {
 
 // NewFantasyCalcSyncer creates a new FantasyCalc syncer.
 func NewFantasyCalcSyncer(pool *db.Pool) *FantasyCalcSyncer {
-	return &FantasyCalcSyncer{pool: pool, client: &http.Client{Timeout: 120 * time.Second}}
+	return &FantasyCalcSyncer{pool: pool, client: telemetry.NewHTTPClient(120 * time.Second)}
 }
 
 const (

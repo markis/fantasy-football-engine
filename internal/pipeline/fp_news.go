@@ -16,6 +16,7 @@ import (
 
 	"ff-engine/internal/config"
 	"ff-engine/internal/db"
+	"ff-engine/internal/telemetry"
 )
 
 var errFPNewsHTTP = errors.New("FP news HTTP error")
@@ -32,7 +33,7 @@ func NewFPNewsFetcher(pool *db.Pool, cfg *config.Config) *FPNewsFetcher {
 	return &FPNewsFetcher{
 		pool:   pool,
 		cfg:    cfg,
-		client: &http.Client{Timeout: 20 * time.Second},
+		client: telemetry.NewHTTPClient(20 * time.Second),
 	}
 }
 

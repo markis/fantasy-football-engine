@@ -12,6 +12,7 @@ import (
 
 	"ff-engine/internal/config"
 	"ff-engine/internal/db"
+	"ff-engine/internal/telemetry"
 )
 
 // FPRankingsSyncer syncs FantasyPros ECR dynasty consensus ranks.
@@ -23,7 +24,7 @@ type FPRankingsSyncer struct {
 
 // NewFPRankingsSyncer creates a new FP rankings syncer.
 func NewFPRankingsSyncer(pool *db.Pool, cfg *config.Config) *FPRankingsSyncer {
-	return &FPRankingsSyncer{pool: pool, cfg: cfg, client: &http.Client{Timeout: 30 * time.Second}}
+	return &FPRankingsSyncer{pool: pool, cfg: cfg, client: telemetry.NewHTTPClient(30 * time.Second)}
 }
 
 const (
