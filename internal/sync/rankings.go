@@ -26,9 +26,8 @@ func NewRankingsSyncer(pool *db.Pool) *RankingsSyncer {
 	return &RankingsSyncer{pool: pool, client: telemetry.NewHTTPClient(120 * time.Second)}
 }
 
-const (
-	ddURL = "https://dynasty-daddy.com/api/v1/player/all/today"
-)
+// ddURL is a var (not a const) so tests can point it at a stub server.
+var ddURL = "https://dynasty-daddy.com/api/v1/player/all/today"
 
 // RankingsSyncResult is the result of a rankings sync.
 type RankingsSyncResult struct {

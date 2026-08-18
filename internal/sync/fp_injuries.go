@@ -25,9 +25,8 @@ func NewFPInjuriesSyncer(pool *db.Pool, cfg *config.Config) *FPInjuriesSyncer {
 	return &FPInjuriesSyncer{pool: pool, cfg: cfg, client: telemetry.NewHTTPClient(20 * time.Second)}
 }
 
-const (
-	fpInjuriesURL = "https://api.fantasypros.com/public/v2/json/nfl/injuries"
-)
+// fpInjuriesURL is a var (not a const) so tests can point it at a stub server.
+var fpInjuriesURL = "https://api.fantasypros.com/public/v2/json/nfl/injuries"
 
 // FPInjuriesResult is the result of an injury sync.
 type FPInjuriesResult struct {

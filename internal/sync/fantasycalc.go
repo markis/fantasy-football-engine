@@ -35,9 +35,8 @@ func NewFantasyCalcSyncer(pool *db.Pool) *FantasyCalcSyncer {
 	return &FantasyCalcSyncer{pool: pool, client: telemetry.NewHTTPClient(120 * time.Second)}
 }
 
-const (
-	fcBase = "https://api.fantasycalc.com/values/current"
-)
+// fcBase is a var (not a const) so tests can point it at a stub server.
+var fcBase = "https://api.fantasycalc.com/values/current"
 
 // FantasyCalcResult is the result of syncing one format combo.
 type FantasyCalcResult struct {

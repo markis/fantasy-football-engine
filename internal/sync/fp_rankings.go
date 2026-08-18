@@ -28,10 +28,12 @@ func NewFPRankingsSyncer(pool *db.Pool, cfg *config.Config) *FPRankingsSyncer {
 }
 
 const (
-	fpRankingsURL    = "https://api.fantasypros.com/public/v2/json/nfl/2026/rankings"
 	fpRankingsSource = "FantasyPros ECR"
 	fpRankingsMarket = 1
 )
+
+// fpRankingsURL is a var (not a const) so tests can point it at a stub server.
+var fpRankingsURL = "https://api.fantasypros.com/public/v2/json/nfl/2026/rankings"
 
 // FPRankingsResult is the result of an FP rankings sync.
 type FPRankingsResult struct {
