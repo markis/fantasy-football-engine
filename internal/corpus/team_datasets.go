@@ -378,7 +378,7 @@ func renderRosterMarkdown(leagues []TeamState, now string) string {
 		mdLines = append(mdLines, "## "+lg.League.Name, "")
 		for _, r := range lg.Team.Roster {
 			mdLines = append(mdLines, fmt.Sprintf("- %s (%s, %s) — value: %v",
-				any(r.FullName), any(r.Position), any(r.NflTeam), r.TradeValue))
+				util.StrOrEmpty(r.FullName), util.StrOrEmpty(r.Position), util.StrOrEmpty(r.NflTeam), r.TradeValue))
 		}
 		mdLines = append(mdLines, "")
 	}
