@@ -21,7 +21,11 @@ jobs:
 
       - uses: actions/setup-go@v6
         with:
-          go-version: stable
+          # Use the toolchain from go.mod, not "stable": the pinned
+          # golangci-lint binary is built with go1.26 and panics
+          # ("file requires newer Go version") when forced to type-check
+          # a newer stdlib.
+          go-version-file: go.mod
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
