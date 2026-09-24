@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	evidenceWindowDays = 14
-	evidenceMaxRecords = 600
+	evidenceWindowDays   = 14
+	evidenceMaxRecords   = 600
+	evidenceRetentionAge = 90 * 24 * time.Hour
 )
 
 // renderEvidence renders evidence/ from decision-relevant news items.
@@ -540,6 +541,11 @@ func (p *Publisher) factsForItem(ctx context.Context, itemID any) []EvidenceClai
 	return claims
 }
 
+// loadExistingRecords loads prior evidence records that are still inside
+// the retention window. The records directory accumulates superseded
+// records forever, so loading every file would grow the publish run's heap
+// without bound; anything older than evidenceRetentionAge stops being
+// carried forward (the on-disk file is simply left untouched).
 func loadExistingRecords(recordsDir string) map[string]*EvidenceRecord {
 	result := make(map[string]*EvidenceRecord)
 	root, err := os.OpenRoot(recordsDir)
@@ -561,12 +567,26 @@ func loadExistingRecords(recordsDir string) map[string]*EvidenceRecord {
 		}
 		var rec EvidenceRecord
 		if json.Unmarshal(data, &rec) == nil {
-			if rec.ID != "" {
+			if rec.ID != "" && recordWithinRetention(&rec) {
 				result[rec.ID] = &rec
 			}
 		}
 	}
 	return result
+}
+
+// recordWithinRetention reports whether an existing evidence record's
+// published_at falls within the retention window. Records without a
+// parseable date are retained.
+func recordWithinRetention(rec *EvidenceRecord) bool {
+	if rec.PublishedAt == nil || *rec.PublishedAt == "" {
+		return true
+	}
+	t, err := time.Parse("2006-01-02T15:04:05Z", *rec.PublishedAt)
+	if err != nil {
+		return true
+	}
+	return time.Since(t) <= evidenceRetentionAge
 }
 
 func getStr(m map[string]any, key string) string {

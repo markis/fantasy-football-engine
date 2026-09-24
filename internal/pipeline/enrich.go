@@ -172,8 +172,18 @@ func (e *Enricher) classifyRelevance(ctx context.Context, title, summary string)
 	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(answer)), "YES")
 }
 
+// maxEntityScanChars bounds the text scanned for entities/topics. Content
+// bodies can run to hundreds of KB after a full-body fetch, and
+// FindAllString(-1) plus per-team regex scans allocate proportionally to
+// input size — the first part of any article carries every name worth
+// extracting anyway.
+const maxEntityScanChars = 20000
+
 func extractEntities(text, title string) []string {
 	combined := title + " " + text
+	if len(combined) > maxEntityScanChars {
+		combined = combined[:maxEntityScanChars]
+	}
 	entities := make(map[string]bool)
 
 	// NFL team detection
@@ -247,6 +257,9 @@ var topicKeywords = map[string][]string{
 
 func extractTopics(text, title string) []string {
 	textLower := strings.ToLower(text) + " " + strings.ToLower(title)
+	if len(textLower) > maxEntityScanChars {
+		textLower = textLower[:maxEntityScanChars]
+	}
 	topics := make(map[string]bool)
 	for topic, keywords := range topicKeywords {
 		for _, kw := range keywords {

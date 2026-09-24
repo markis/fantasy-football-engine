@@ -325,8 +325,12 @@ func registerSteps(
 	})
 
 	// Pipeline: cluster
-	sched.RegisterStep("pipeline.cluster", func(ctx context.Context, _ config.JobConfig) error {
-		_, err := clusterer.AssignBatch(ctx)
+	sched.RegisterStep("pipeline.cluster", func(ctx context.Context, job config.JobConfig) error {
+		limit := 200
+		if job.Limit > 0 {
+			limit = job.Limit
+		}
+		_, err := clusterer.AssignBatch(ctx, limit)
 		return err
 	})
 
@@ -434,7 +438,7 @@ func registerSteps(
 		_, errEmbed := embedder.EmbedChunkBatch(ctx, 250)
 		_, errDedup := dedupChecker.CheckBatch(ctx, 50)
 		_, errEnrich := enricher.EnrichBatch(ctx, limit)
-		_, errCluster := clusterer.AssignBatch(ctx)
+		_, errCluster := clusterer.AssignBatch(ctx, 200)
 		return errors.Join(errChunk, errEmbed, errDedup, errEnrich, errCluster)
 	})
 

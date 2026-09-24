@@ -21,6 +21,10 @@ import (
 
 var errFPNewsHTTP = errors.New("FP news HTTP error")
 
+// maxErrorBodyBytes caps how much of a non-200 response body is read for
+// the error message — error paths must not become unbounded allocations.
+const maxErrorBodyBytes = 64 << 10 // 64 KiB
+
 // FPNewsFetcher fetches FantasyPros player news via API.
 type FPNewsFetcher struct {
 	pool   *db.Pool
@@ -74,7 +78,7 @@ func (f *FPNewsFetcher) Fetch(ctx context.Context) (*FPNewsResult, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		if readErr != nil {
 			return nil, fmt.Errorf("%w (%d): read body failed: %w", errFPNewsHTTP, resp.StatusCode, readErr)
 		}

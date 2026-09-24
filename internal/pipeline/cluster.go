@@ -41,10 +41,16 @@ type ClusterResult struct {
 	Status          string `json:"status"`
 }
 
-// AssignBatch clusters all unclustered items.
-func (c *Clusterer) AssignBatch(ctx context.Context) (*ClusterResult, error) {
+// AssignBatch clusters up to limit unclustered items. The query is bounded:
+// each item triggers a nearest-neighbor scan over every embedding in the
+// table, so an unbounded run (a backlog after an outage, an initial
+// backfill) pins both CPU and memory for hours.
+func (c *Clusterer) AssignBatch(ctx context.Context, limit int) (*ClusterResult, error) {
+	if limit <= 0 {
+		limit = defaultClusterBatch
+	}
 	rows, err := c.pool.Query(ctx,
-		"SELECT id FROM news_item WHERE cluster_id IS NULL ORDER BY created_at DESC")
+		"SELECT id FROM news_item WHERE cluster_id IS NULL ORDER BY created_at DESC LIMIT $1", limit)
 	if err != nil {
 		return nil, fmt.Errorf("query unclustered items: %w", err)
 	}

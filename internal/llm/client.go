@@ -16,6 +16,10 @@ import (
 
 var errChatHTTP = errors.New("chat HTTP error")
 
+// maxErrorBodyBytes caps how much of a non-200 response body is read for
+// the error message — error paths must not become unbounded allocations.
+const maxErrorBodyBytes = 64 << 10 // 64 KiB
+
 // Client is an Ollama Cloud chat completion client.
 type Client struct {
 	url    string
@@ -87,7 +91,7 @@ func (c *Client) Chat(ctx context.Context, prompt string, temperature float64) (
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, err := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		if err != nil {
 			respBody = []byte("(unable to read error response body)")
 		}

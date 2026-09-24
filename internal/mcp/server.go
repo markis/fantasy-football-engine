@@ -642,6 +642,11 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
+// maxRequestBodyBytes caps the size of an accepted MCP JSON-RPC request so
+// a huge POST can't balloon the daemon's heap before the JSON is even
+// parsed.
+const maxRequestBodyBytes = 1 << 20 // 1 MiB
+
 // handleReady is the readiness endpoint (GET /readyz). It delegates to the
 // health Checker, which pings the daemon's own Postgres pool. When no checker
 // is wired it falls back to the liveness response so the endpoint never 5xxs
@@ -666,6 +671,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
 
 	var req struct {
 		JSONRPC string          `json:"jsonrpc"`

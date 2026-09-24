@@ -168,7 +168,7 @@ func (g *StoryGenerator) generateOne(ctx context.Context, itemID uuid.UUID) erro
 
 func (g *StoryGenerator) compactFacts(ctx context.Context, itemID uuid.UUID) []string {
 	rows, err := g.pool.Query(ctx,
-		"SELECT fact_text FROM fact WHERE news_item_id = $1 ORDER BY extracted_at", itemID)
+		"SELECT fact_text FROM fact WHERE news_item_id = $1 ORDER BY extracted_at LIMIT 20", itemID)
 	if err != nil {
 		return []string{"- (no atomic facts extracted)"}
 	}

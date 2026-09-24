@@ -219,7 +219,7 @@ type DraftPick struct {
 // --- Player / TrendingPlayer ---
 
 // Player models one entry in the /players/nfl dump (the value object; the
-// player_id is the map key returned by FetchPlayerDump). Fields are typed
+// player_id is the map key streamed by StreamPlayerDump). Fields are typed
 // where the Sleeper API is consistent, and use *FlexString for the external
 // ID fields that arrive as numbers in some records and strings in others.
 // Nullable fields are pointers so a JSON null decodes to nil (and persists as

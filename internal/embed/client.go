@@ -32,6 +32,12 @@ const MaxEmbedChars = 7000
 // rather than looping indefinitely.
 const minEmbedChars = 64
 
+// maxErrorBodyBytes caps how much of a non-200 response body is read for
+// the error message — error paths must not become unbounded allocations.
+// The context-size error from llama-server is a short JSON document, well
+// under the cap.
+const maxErrorBodyBytes = 64 << 10 // 64 KiB
+
 // Client is an embedding client that calls a llama-server HTTP endpoint.
 type Client struct {
 	url    string
@@ -147,7 +153,7 @@ func (c *Client) embedBatch(ctx context.Context, texts []string) ([][]float32, e
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		respBody, readErr := io.ReadAll(resp.Body)
+		respBody, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		if readErr != nil {
 			respBody = []byte("(unable to read error response body)")
 		}

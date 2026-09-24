@@ -26,6 +26,11 @@ var errFeedHTTP = errors.New("feed HTTP error")
 
 const (
 	userAgent = "ZeroClawFantasyBot/0.1 (homelab)"
+
+	// maxFeedBytes caps how much of an RSS/Atom response body is read into
+	// memory. Feeds are fetched 8-at-a-time, so without a cap a single huge
+	// or hostile response balloons the daemon's heap.
+	maxFeedBytes = 10 << 20 // 10 MiB
 )
 
 // RSSFetcher fetches and ingests RSS/Atom feeds into the database.
@@ -127,7 +132,7 @@ func (f *RSSFetcher) readAndParseFeed(
 		headersJSON []byte
 		contentType string
 	)
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxFeedBytes))
 	if err != nil {
 		return "", nil, nil, "", fmt.Errorf("read body: %w", err)
 	}

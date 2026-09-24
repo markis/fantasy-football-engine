@@ -19,6 +19,12 @@ import (
 
 var errSleeperHTTP = errors.New("sleeper HTTP error")
 
+var errPlayerDumpShape = errors.New("player dump: unexpected top-level JSON shape")
+
+// maxErrorBodyBytes caps how much of a non-200 response body is read for
+// the error message — error paths must not become unbounded allocations.
+const maxErrorBodyBytes = 64 << 10 // 64 KiB
+
 // Client is a Sleeper Fantasy Football API client.
 type Client struct {
 	baseURL string
@@ -97,6 +103,13 @@ func (c *Client) get(ctx context.Context, path string, target any) error {
 	c.cache[path] = cacheEntry{data: stored, expires: time.Now().Add(5 * time.Minute)}
 	if len(c.cache) > cacheSweepThreshold {
 		c.sweepExpiredLocked()
+		// Hot entries never expire, so a sweep alone can leave the cache
+		// above the threshold forever. Hard-reset once evicting expired
+		// entries isn't enough — entries are fully decoded API payloads,
+		// so an unbounded cache is an unbounded heap.
+		if len(c.cache) > cacheSweepThreshold {
+			c.cache = make(map[string]cacheEntry)
+		}
 	}
 	c.mu.Unlock()
 	return nil
@@ -116,7 +129,7 @@ func (c *Client) sweepExpiredLocked() {
 // doGet performs an HTTP GET against the Sleeper API with the same
 // retry-with-backoff behavior as get(), but returns the raw response
 // instead of decoding+caching it — used for endpoints too large to cache
-// (FetchPlayerDump's ~16MB player database).
+// (StreamPlayerDump's ~16MB player database).
 func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error) {
 	url := c.baseURL + "/" + path
 	var lastErr error
@@ -132,7 +145,7 @@ func (c *Client) doGet(ctx context.Context, path string) (*http.Response, error)
 			continue
 		}
 		if resp.StatusCode != http.StatusOK {
-			body, err := io.ReadAll(resp.Body)
+			body, err := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 			if err != nil {
 				body = []byte("(unable to read error body)")
 			}
@@ -246,19 +259,45 @@ func (c *Client) GetTrendingPlayers(ctx context.Context, trendType string, lookb
 	return players, nil
 }
 
-// FetchPlayerDump fetches the full Sleeper NFL player database (~16MB JSON).
-// This is NOT cached due to size.
-func (c *Client) FetchPlayerDump(ctx context.Context) (map[string]*Player, error) {
+// StreamPlayerDump streams the full Sleeper NFL player database (~16MB JSON)
+// one player at a time, invoking fn for each (sleeperID, player) pair. The
+// dump is far too large to materialize: decoding it wholesale (even into
+// typed structs) holds every player object in the heap at once and has
+// OOMed the daemon. Token-walking the top-level object keeps peak memory
+// at one player. This is NOT cached due to size.
+func (c *Client) StreamPlayerDump(ctx context.Context, fn func(pid string, p *Player) error) error {
 	resp, err := c.doGet(ctx, "players/nfl")
 	if err != nil {
-		return nil, fmt.Errorf("fetch player dump: %w", err)
+		return fmt.Errorf("fetch player dump: %w", err)
 	}
 	defer resp.Body.Close()
-	var result map[string]*Player
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("decode player dump: %w", err)
+
+	dec := json.NewDecoder(resp.Body)
+	tok, err := dec.Token()
+	if err != nil {
+		return fmt.Errorf("decode player dump: %w", err)
 	}
-	return result, nil
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return fmt.Errorf("%w: expected object, got %v", errPlayerDumpShape, tok)
+	}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return fmt.Errorf("decode player dump: %w", err)
+		}
+		pid, ok := keyTok.(string)
+		if !ok {
+			return fmt.Errorf("%w: expected object key, got %v", errPlayerDumpShape, keyTok)
+		}
+		var p Player
+		if err := dec.Decode(&p); err != nil {
+			return fmt.Errorf("decode player %s: %w", pid, err)
+		}
+		if err := fn(pid, &p); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // CurrentSeason returns the current NFL season string.

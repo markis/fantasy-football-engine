@@ -10,6 +10,10 @@ import (
 	"ff-engine/internal/config"
 )
 
+// maxErrorBodyBytes caps how much of a non-200 response body is read for
+// the error message — error paths must not become unbounded allocations.
+const maxErrorBodyBytes = 64 << 10 // 64 KiB
+
 // fetchFPJSON issues an authenticated GET request against a FantasyPros API
 // endpoint and decodes the JSON response into out. reqErrCtx and
 // decodeErrCtx customize the wrapped error messages for the request and
@@ -39,7 +43,7 @@ func fetchFPJSON(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		body, readErr := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxErrorBodyBytes))
 		if readErr != nil {
 			body = []byte("(unable to read error response body)")
 		}

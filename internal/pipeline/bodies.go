@@ -33,6 +33,10 @@ const (
 	staleFetchingMinutes = 10
 	minBodyChars         = 200
 	bodyUserAgent        = "Mozilla/5.0 (X11; Linux x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+
+	// maxBodyFetchBytes caps how much of an article page is read into
+	// memory; anything larger can't be a usable article body.
+	maxBodyFetchBytes = 5 << 20 // 5 MiB
 )
 
 var botBlockedHosts = map[string]bool{
@@ -161,7 +165,7 @@ func (b *BodyFetcher) processItem(ctx context.Context, item *pendingItem) string
 		return statusSkipped
 	}
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyFetchBytes))
 	if err != nil || len(bodyBytes) < 500 {
 		return statusSkipped
 	}

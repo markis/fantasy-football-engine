@@ -23,6 +23,9 @@ services:
     # image: ghcr.io/markis/fantasy-football-engine:latest
     ports:
       - "3102:3100"
+    # Hard cap for the container; GOMEMLIMIT (soft limit, Go-runtime native)
+    # sits just below it so the GC tightens before the kernel OOM-kill does.
+    mem_limit: 1g
     volumes:
       - ./config.yaml:/data/config.yaml:ro
       - ff-corpus:/data/corpus
@@ -31,6 +34,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       FF_GITHUB_PAT: ${FF_GITHUB_PAT:-}
       FF_SECRETS_DIR: /run/secrets
+      GOMEMLIMIT: 900MiB
     secrets:
       - llm-api-key
       - fantasypros-api

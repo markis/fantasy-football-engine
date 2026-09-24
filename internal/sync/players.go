@@ -31,24 +31,26 @@ type PlayerSyncResult struct {
 	Status     string         `json:"status"`
 }
 
-// Sync fetches the full player dump and upserts into the player table.
+// Sync streams the full player dump and upserts into the player table,
+// flushing rows incrementally so peak memory stays at one flush batch.
 func (s *PlayerSyncer) Sync(ctx context.Context) (*PlayerSyncResult, error) {
 	slog.Info("fetching player dump from Sleeper...")
-	players, err := s.sleeper.FetchPlayerDump(ctx)
+
+	batch := &pgxBatch{pool: s.pool}
+	count := 0
+
+	err := s.sleeper.StreamPlayerDump(ctx, func(pid string, p *sleeper.Player) error {
+		batch.add(projectPlayer(pid, p))
+		count++
+		if len(batch.rows) >= pgxFlushBatchSize {
+			batch.flush(ctx)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("fetch player dump: %w", err)
 	}
-	slog.Info("player dump received", "players", len(players))
-
-	// Build batch
-	batch := &pgxBatch{pool: s.pool}
-
-	count := 0
-	for pid, p := range players {
-		row := projectPlayer(pid, p)
-		batch.add(row)
-		count++
-	}
+	slog.Info("player dump received", "players", count)
 
 	batch.flush(ctx)
 
@@ -152,6 +154,12 @@ func projectPlayer(pid string, p *sleeper.Player) []any {
 	}
 }
 
+// pgxFlushBatchSize is how many player rows accumulate before being
+// executed against the database. Keeping this bounded caps the sync's
+// peak memory; rows are streamed in from the player dump, not held all
+// at once.
+const pgxFlushBatchSize = 500
+
 // pgxBatch accumulates player rows and executes them in batches.
 type pgxBatch struct {
 	pool *db.Pool
@@ -197,13 +205,13 @@ func (b *pgxBatch) flush(ctx context.Context) {
 	`, strings.Join(colNames, ", "), strings.Join(placeholders, ", "), strings.Join(updates, ", "))
 
 	// Execute batch
-	batchSize := 500
-	for i := 0; i < len(b.rows); i += batchSize {
-		end := min(i+batchSize, len(b.rows))
+	for i := 0; i < len(b.rows); i += pgxFlushBatchSize {
+		end := min(i+pgxFlushBatchSize, len(b.rows))
 		for _, row := range b.rows[i:end] {
 			if _, err := b.pool.Exec(ctx, sql, row...); err != nil {
 				slog.Warn("player upsert error", "err", err)
 			}
 		}
 	}
+	b.rows = b.rows[:0]
 }
