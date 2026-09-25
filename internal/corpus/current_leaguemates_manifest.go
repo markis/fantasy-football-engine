@@ -1,6 +1,7 @@
 package corpus
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -307,17 +308,39 @@ func (p *Publisher) renderManifest(_ context.Context, targetDir, prevDir string,
 	}, nil
 }
 
-// carryForwardChangeLog copies the prior run's change-log.jsonl forward, or creates an empty one.
+// maxChangeLogBytes caps the change-log carried forward each publish. The
+// log is append-only and grew to 635MB over months of hourly publishes —
+// far past GitHub's 100MB file limit (the push was rejected with
+// pre-receive declined). When the prior log exceeds the cap, only the most
+// recent entries (up to the last line boundary) are carried forward.
+const maxChangeLogBytes = 16 << 20 // 16 MiB
+
+// carryForwardChangeLog copies the prior run's change-log.jsonl forward
+// (capped at maxChangeLogBytes), or creates an empty one.
 func carryForwardChangeLog(clPath, clPrev string) {
-	if data, err := readFileRooted(clPrev); err == nil {
-		if err := os.WriteFile(clPath, data, 0o600); err != nil {
-			slog.Warn("failed to write change-log", "err", err)
+	data, err := readFileRooted(clPrev)
+	if err != nil {
+		if writeErr := os.WriteFile(clPath, []byte(""), 0o600); writeErr != nil {
+			slog.Warn("failed to create change-log", "err", writeErr)
 		}
-	} else {
-		if err := os.WriteFile(clPath, []byte(""), 0o600); err != nil {
-			slog.Warn("failed to create change-log", "err", err)
-		}
+		return
 	}
+	if len(data) > maxChangeLogBytes {
+		data = tailCompleteLines(data, maxChangeLogBytes)
+	}
+	if err := os.WriteFile(clPath, data, 0o600); err != nil {
+		slog.Warn("failed to write change-log", "err", err)
+	}
+}
+
+// tailCompleteLines returns the last at-most-limit bytes of data, trimmed
+// to a complete-line boundary so no JSONL record is left half-written.
+func tailCompleteLines(data []byte, limit int) []byte {
+	tail := data[len(data)-limit:]
+	if idx := bytes.IndexByte(tail, '\n'); idx >= 0 {
+		tail = tail[idx+1:]
+	}
+	return tail
 }
 
 // appendEvidenceChangeLog appends change-log entries for evidence added/superseded this run,
