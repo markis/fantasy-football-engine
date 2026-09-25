@@ -155,7 +155,7 @@ func evidenceIndexRow(rec *EvidenceRecord) string {
 	players += playersSb89.String()
 	title := rec.Title
 	if len(title) > 60 {
-		title = title[:60]
+		title = util.TruncateRunes(title, 60)
 	}
 	title = strings.ReplaceAll(title, "|", "/")
 	return fmt.Sprintf("| %s | %s | %s | %s | %s |",
@@ -354,7 +354,7 @@ func evidenceSummary(item map[string]any, urlStr string) string {
 		summary = urlStr
 	}
 	if len(summary) > 1200 {
-		summary = summary[:1200]
+		summary = util.TruncateRunes(summary, 1200)
 	}
 	return summary
 }

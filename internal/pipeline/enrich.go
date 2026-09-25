@@ -161,7 +161,7 @@ func (e *Enricher) enrichOne(ctx context.Context, itemID uuid.UUID) (bool, error
 func (e *Enricher) classifyRelevance(ctx context.Context, title, summary string) bool {
 	summaryTrunc := summary
 	if len(summaryTrunc) > 500 {
-		summaryTrunc = summaryTrunc[:500]
+		summaryTrunc = util.TruncateRunes(summaryTrunc, 500)
 	}
 	prompt := fmt.Sprintf(fantasyPrompt, title, summaryTrunc)
 	answer, err := e.llm.Chat(ctx, prompt, 0)
@@ -182,7 +182,7 @@ const maxEntityScanChars = 20000
 func extractEntities(text, title string) []string {
 	combined := title + " " + text
 	if len(combined) > maxEntityScanChars {
-		combined = combined[:maxEntityScanChars]
+		combined = util.TruncateRunes(combined, maxEntityScanChars)
 	}
 	entities := make(map[string]bool)
 
@@ -258,7 +258,7 @@ var topicKeywords = map[string][]string{
 func extractTopics(text, title string) []string {
 	textLower := strings.ToLower(text) + " " + strings.ToLower(title)
 	if len(textLower) > maxEntityScanChars {
-		textLower = textLower[:maxEntityScanChars]
+		textLower = util.TruncateRunes(textLower, maxEntityScanChars)
 	}
 	topics := make(map[string]bool)
 	for topic, keywords := range topicKeywords {

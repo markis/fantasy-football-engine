@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"ff-engine/internal/telemetry"
+	"ff-engine/internal/util"
 )
 
 var (
@@ -92,7 +93,7 @@ func (c *Client) Embed(ctx context.Context, text string) ([]float32, error) {
 			return nil, err
 		}
 		prev := len(text)
-		text = truncateForEmbed(text[:half])
+		text = truncateForEmbed(util.TruncateRunes(text, half))
 		slog.Warn("embed retry with shorter text", "prev_chars", prev, "chars", len(text))
 	}
 }
@@ -192,7 +193,7 @@ func truncateForEmbed(text string) string {
 		return text
 	}
 	if len(text) > MaxEmbedChars {
-		return text[:MaxEmbedChars]
+		return util.TruncateRunes(text, MaxEmbedChars)
 	}
 	return text
 }

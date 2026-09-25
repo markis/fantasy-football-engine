@@ -20,6 +20,7 @@ import (
 
 	"ff-engine/internal/db"
 	"ff-engine/internal/telemetry"
+	"ff-engine/internal/util"
 )
 
 var errFeedHTTP = errors.New("feed HTTP error")
@@ -372,7 +373,7 @@ func extractContentFields(item *gofeed.Item) (string, string, string) {
 	if summaryShort == "" && contentHTML != "" {
 		summaryShort = stripHTML(contentHTML)
 		if len(summaryShort) > 500 {
-			summaryShort = summaryShort[:500]
+			summaryShort = util.TruncateRunes(summaryShort, 500)
 		}
 	}
 

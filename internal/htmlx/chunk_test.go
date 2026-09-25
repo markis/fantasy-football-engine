@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSplitByHeadings_MultiHeading(t *testing.T) {
@@ -164,6 +165,25 @@ func TestSplitByHeadings_LongArticleNoHeadings(t *testing.T) {
 	for i, c := range chunks {
 		if len(c.Text) > MaxChunkChars {
 			t.Errorf("chunk %d exceeds cap: %d chars", i, len(c.Text))
+		}
+	}
+}
+
+func TestSplitLongChunks_GiantSentenceMultiByteRunes(t *testing.T) {
+	// A run-on sentence of em-dashes (3-byte runes) must hard-split at rune
+	// boundaries — a mid-rune cut produces invalid UTF-8 that Postgres
+	// rejects with SQLSTATE 22021.
+	long := strings.Repeat("—", MaxChunkChars+500)
+	chunks := SplitLongChunks([]Chunk{{Heading: "", Text: "T " + long, Prefix: "T"}})
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple sub-chunks, got %d", len(chunks))
+	}
+	for i, c := range chunks {
+		if !utf8.ValidString(c.Text) {
+			t.Errorf("sub-chunk %d contains invalid UTF-8", i)
+		}
+		if len(c.Text) > MaxChunkChars {
+			t.Errorf("sub-chunk %d exceeds cap: %d bytes", i, len(c.Text))
 		}
 	}
 }

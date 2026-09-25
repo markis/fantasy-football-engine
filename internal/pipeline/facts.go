@@ -167,7 +167,7 @@ func (f *FactExtractor) loadFactSource(ctx context.Context, itemID uuid.UUID) (*
 		return nil, errNoFactBody
 	}
 	if len(body) > maxBodyChars {
-		body = body[:maxBodyChars]
+		body = util.TruncateRunes(body, maxBodyChars)
 	}
 
 	return &factSource{title: util.StrOrEmpty(title), body: body, publishedAt: publishedAt, createdAt: createdAt}, nil

@@ -4,9 +4,12 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/PuerkitoBio/goquery"
 	"golang.org/x/net/html"
+
+	"ff-engine/internal/util"
 )
 
 // Chunk is a section of an article split at heading boundaries.
@@ -138,14 +141,7 @@ func splitOne(c Chunk) []Chunk {
 				sub = appendChunk(sub, c.Heading, prefix, current.String())
 				current.Reset()
 			}
-			for s != "" {
-				end := min(MaxChunkChars-prefixOverhead, len(s))
-				if end <= 0 {
-					end = 1
-				}
-				sub = append(sub, Chunk{Heading: c.Heading, Text: prefix + " " + s[:end], Prefix: prefix})
-				s = s[end:]
-			}
+			sub = append(sub, hardSplitSentence(c.Heading, prefix, s)...)
 			continue
 		}
 		// If adding this sentence would exceed the cap and we already have
@@ -161,6 +157,36 @@ func splitOne(c Chunk) []Chunk {
 	}
 	if current.Len() > 0 {
 		sub = appendChunk(sub, c.Heading, prefix, current.String())
+	}
+	return sub
+}
+
+// hardSplitSentence splits a single sentence longer than the chunk budget
+// into fixed-size pieces, each carrying the heading/prefix. Cuts land on
+// rune boundaries — cutting mid-rune produces invalid UTF-8 that Postgres
+// rejects (SQLSTATE 22021).
+func hardSplitSentence(heading, prefix, s string) []Chunk {
+	prefixOverhead := len(prefix) + 1
+	var sub []Chunk
+	for s != "" {
+		end := min(MaxChunkChars-prefixOverhead, len(s))
+		if end <= 0 {
+			end = 1
+		}
+		cut := util.TruncateRunes(s, end)
+		if cut == "" {
+			// A single rune larger than the whole chunk budget (only
+			// possible with the end==1 fallback): drop it rather than
+			// loop forever.
+			_, size := utf8.DecodeRuneInString(s)
+			if size == 0 {
+				size = 1
+			}
+			s = s[min(size, len(s)):]
+			continue
+		}
+		sub = append(sub, Chunk{Heading: heading, Text: prefix + " " + cut, Prefix: prefix})
+		s = s[len(cut):]
 	}
 	return sub
 }

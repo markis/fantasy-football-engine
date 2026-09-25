@@ -193,7 +193,7 @@ func truncate(text string, limit int) string {
 	if len(text) <= limit {
 		return text
 	}
-	return strings.TrimRight(text[:limit-1], " ") + "\u2026"
+	return strings.TrimRight(util.TruncateRunes(text, limit-1), " ") + "\u2026"
 }
 
 var (
@@ -213,7 +213,7 @@ func validateStory(text string) string {
 		return ""
 	}
 	if len(text) > maxStoryChars {
-		text = strings.TrimRight(text[:maxStoryChars-1], " ") + "\u2026"
+		text = strings.TrimRight(util.TruncateRunes(text, maxStoryChars-1), " ") + "\u2026"
 	}
 	// Reject if it looks like a list
 	listCount := 0
