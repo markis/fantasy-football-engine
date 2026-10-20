@@ -16,11 +16,15 @@ embeddings:
   batchSize: 32              # texts per HTTP call (batched)
 
 llm:
-  provider: "ollama-cloud"
-  url: "https://ollama.com"
-  model: "minimax-m3"
-  apiKey: ""                 # from env LLM_API_KEY or docker secret llm-api-key
-  apiKeySecret: "llm-api-key"  # docker secret name; apiKey is read from this file when apiKey is empty
+  # provider selects the chat wire format:
+  #   "ollama-cloud"   (default) Ollama native /api/chat
+  #   "agentgateway"   OpenAI-compatible /v1/chat/completions (model = alias)
+  #   "openai"         same wire format as agentgateway
+  provider: "agentgateway"
+  url: "http://agentgateway.default.svc.cluster.local"  # base URL, protocol path is appended
+  model: "agent-default"
+  apiKey: ""                 # from env LLM_API_KEY or the docker secret named by apiKeySecret
+  apiKeySecret: "gateway-api-key"  # file name under /run/secrets (or FF_SECRETS_DIR)
   timeoutSecs: 300
   maxConcurrency: 4          # gate fan-out
 

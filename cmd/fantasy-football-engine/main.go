@@ -110,7 +110,7 @@ func run() int {
 
 	// Initialize clients
 	embedClient := embed.New(cfg.Embeddings.URL, cfg.Embeddings.Model)
-	llmClient := llm.New(cfg.LLM.URL, cfg.LLM.Model, cfg.LLM.APIKey, cfg.LLMTimeout())
+	llmClient := llm.New(cfg.LLM.Provider, cfg.LLM.URL, cfg.LLM.Model, cfg.LLM.APIKey, cfg.LLMTimeout())
 	sleeperClient := sleeper.New(cfg.Sleeper.BaseURL)
 
 	// Initialize pipeline components

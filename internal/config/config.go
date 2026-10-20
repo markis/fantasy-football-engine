@@ -55,6 +55,9 @@ type EmbeddingsConfig struct {
 }
 
 type LLMConfig struct {
+	// Provider selects the chat wire format: "ollama-cloud" (default) uses
+	// Ollama's native /api/chat; "agentgateway"/"openai" use the OpenAI
+	// chat-completions protocol at {url}/v1/chat/completions.
 	Provider       string `default:"ollama-cloud"       yaml:"provider"`
 	URL            string `default:"https://ollama.com" yaml:"url"`
 	Model          string `default:"minimax-m3"         yaml:"model"`
