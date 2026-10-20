@@ -78,7 +78,7 @@ var settingsJSONKeys = func() map[string]int {
 	m := make(map[string]int, t.NumField())
 	for i := range t.NumField() {
 		f := t.Field(i)
-		name := strings.Split(f.Tag.Get("json"), ",")[0]
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if name == "" || name == "-" {
 			continue
 		}

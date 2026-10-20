@@ -257,7 +257,7 @@ func (f *RSSFetcher) Fetch(ctx context.Context, feedURL string, maxAgeDays int) 
 	f.processFeedEntries(ctx, sourceID, feed, rawDocID, maxAgeDays, result)
 
 	// Update source poll state
-	newETag := resp.Header.Get("etag")
+	newETag := resp.Header.Get("ETag")
 	newLastModified := resp.Header.Get("Last-Modified")
 	newETagPtr := &newETag
 	if newETag == "" {

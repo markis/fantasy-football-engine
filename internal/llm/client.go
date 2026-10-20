@@ -14,7 +14,10 @@ import (
 	"ff-engine/internal/telemetry"
 )
 
-var errChatHTTP = errors.New("chat HTTP error")
+var (
+	errChatHTTP  = errors.New("chat HTTP error")
+	errNoChoices = errors.New("chat response has no choices")
+)
 
 // maxErrorBodyBytes caps how much of a non-200 response body is read for
 // the error message — error paths must not become unbounded allocations.
@@ -42,7 +45,7 @@ type Client struct {
 }
 
 // New creates a new chat client for the given provider, base URL, and model.
-func New(provider string, url, model, apiKey string, timeout time.Duration) *Client {
+func New(provider, url, model, apiKey string, timeout time.Duration) *Client {
 	return &Client{
 		provider: strings.ToLower(strings.TrimSpace(provider)),
 		url:      strings.TrimRight(url, "/"),
@@ -171,7 +174,7 @@ func (c *Client) decodeContent(respBody []byte) (string, error) {
 			return "", fmt.Errorf("decode chat response: %w", err)
 		}
 		if len(result.Choices) == 0 {
-			return "", fmt.Errorf("chat response has no choices")
+			return "", errNoChoices
 		}
 		return strings.TrimSpace(result.Choices[0].Message.Content), nil
 	}
