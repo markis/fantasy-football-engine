@@ -11,6 +11,12 @@ on:
     branches:
       - main
 
+# Serialize runs per ref. The tag job must never race a previous run and
+# compute the same version twice, so superseded builds queue instead of cancel.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   PLATFORMS: linux/amd64
 
@@ -19,20 +25,119 @@ permissions:
   packages: write
 
 jobs:
-  docker:
+  test:
+    # Gate tag + image publication on the unit tests (pure, no DB needed).
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Run unit tests
+        run: go test ./...
+
+  tag:
+    # Cut the next version tag from the squash-merged PR title (main pushes
+    # only; the squash commit message's first line IS the PR title):
+    #   feat: / feat(scope):      -> minor
+    #   fix: / fix(scope):, perf: -> patch
+    #   any "<type>(scope)!:" or a BREAKING CHANGE footer -> major
+    #   chore/docs/ci/test/refactor/... -> no release (latest + sha only)
+    name: tag release
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      released: ${{ steps.semver.outputs.released }}
+      version: ${{ steps.semver.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # Full history + all tags: the bump is computed from the newest v* tag.
+          fetch-depth: 0
+
+      - name: Compute next version from PR title
+        id: semver
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          title="$(printf '%s' "$COMMIT_MESSAGE" | head -n 1)"
+
+          major_re='^[a-z]+(\([^)]*\))?!:'
+          minor_re='^feat(\([^)]*\))?:'
+          patch_re='^(fix|perf)(\([^)]*\))?:'
+
+          bump=''
+          if printf '%s' "$COMMIT_MESSAGE" | grep -q '^BREAKING CHANGE:'; then
+            bump='major'
+          elif [[ "$title" =~ $major_re ]]; then
+            bump='major'
+          elif [[ "$title" =~ $minor_re ]]; then
+            bump='minor'
+          elif [[ "$title" =~ $patch_re ]]; then
+            bump='patch'
+          fi
+
+          if [[ -z "$bump" ]]; then
+            echo "::notice::No release: '$title' is not a feat/fix/perf commit."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest="$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1)"
+          base="${latest#v}"
+          # Ignore a manual pre-release suffix on the latest tag, e.g. 1.2.3-rc1.
+          base="${base%%-*}"
+          IFS='.' read -r major minor patch <<< "${base:-0.0.0}"
+
+          case "$bump" in
+            major) next="$((major + 1)).0.0" ;;
+            minor) next="${major}.$((minor + 1)).0" ;;
+            patch) next="${major}.${minor}.$((patch + 1))" ;;
+          esac
+
+          echo "released=true" >> "$GITHUB_OUTPUT"
+          echo "version=v${next}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Bumping ${bump}: ${base:+v${base} -> }v${next} (${title})"
+
+      - name: Push version tag
+        if: steps.semver.outputs.released == 'true'
+        env:
+          VERSION: ${{ steps.semver.outputs.version }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$VERSION" -m "release $VERSION"
+          git push origin "refs/tags/$VERSION"
+
+  docker:
+    needs: [test, tag]
+    # tag is skipped on PRs and manual v* tag pushes, so "skipped" is fine.
+    if: ${{ !cancelled() && needs.test.result == 'success' && needs.tag.result != 'failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -40,22 +145,22 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         with:
-          flavor: |
-            latest=auto
           tags: |
-            # set latest tag for default branch
+            # rolling tag for every build on the default branch
             type=raw,value=latest,enable={{is_default_branch}}
+            # immutable version tag, only when the tag job cut a release
+            type=raw,value=${{ needs.tag.outputs.version }},enable=${{ needs.tag.outputs.released == 'true' }}
+            # manual v* tag pushes build straight from the git ref
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            # unique build identifier (also what PR builds push)
             type=sha
           images: |
             ghcr.io/${{ github.repository }}
 
       - name: Build and push
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ env.PLATFORMS }}

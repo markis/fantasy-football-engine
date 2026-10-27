@@ -11,7 +11,7 @@ go test ./internal/pipeline -run TestX   # single test
 golangci-lint run                        # lint — CI pins v2.12.2; config is very strict
 ```
 
-No Makefile/Taskfile. CI (`.github/workflows/lint.yml`) only runs golangci-lint; `docker.yml` builds/pushes to ghcr.io on main and `v*` tags. Run lint before pushing — with 80+ linters enabled, `go vet` alone is not enough.
+No Makefile/Taskfile. CI (`.github/workflows/lint.yml`) only runs golangci-lint. `docker.yml` gates on `go test`, then on main auto-tags a release from the squash-merged PR title (`feat:` → minor, `fix:`/`perf:` → patch, `!:` or a `BREAKING CHANGE:` footer → major) and builds/pushes to ghcr.io on main and `v*` tags (latest + sha on PRs too). Run lint before pushing — with 80+ linters enabled, `go vet` alone is not enough.
 
 ## Lint conventions that will bite you
 
