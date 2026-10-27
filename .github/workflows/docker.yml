@@ -147,13 +147,17 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
+          # Kill latest=auto (the default), which also fires on tag events and
+          # would let a manual tag of an old commit move latest backwards.
+          flavor: |
+            latest=false
           tags: |
             # rolling tag for every build on the default branch
-            type=raw,value=latest,enable={{is_default_branch}}
-            # immutable version tag, only when the tag job cut a release
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            # immutable vX.Y.Z, pushed by the tag job on main releases
             type=raw,value=${{ needs.tag.outputs.version }},enable=${{ needs.tag.outputs.released == 'true' }}
-            # manual v* tag pushes build straight from the git ref
-            type=semver,pattern={{version}}
+            # manual v* tag pushes build from the git ref, same vX.Y.Z form
+            type=ref,event=tag
             # unique build identifier (also what PR builds push)
             type=sha
           images: |
