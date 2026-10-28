@@ -5,7 +5,7 @@ go 1.26.5
 require (
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/creasty/defaults v1.8.0
-	github.com/exaring/otelpgx v0.11.1
+	github.com/exaring/otelpgx v0.13.0
 	github.com/go-git/go-git/v5 v5.19.3
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
