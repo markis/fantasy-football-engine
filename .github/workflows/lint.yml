@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           # Use the toolchain from go.mod, not "stable": the pinned
           # golangci-lint binary is built with go1.26 and panics
