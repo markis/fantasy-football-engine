@@ -8,7 +8,7 @@ require (
 	github.com/exaring/otelpgx v0.11.1
 	github.com/go-git/go-git/v5 v5.19.3
 	github.com/google/uuid v1.6.0
-	github.com/jackc/pgx/v5 v5.9.2
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/mmcdole/gofeed v1.3.0
 	github.com/pgvector/pgvector-go v0.2.3
 	github.com/prometheus/client_golang v1.25.0
