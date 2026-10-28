@@ -140,7 +140,7 @@ jobs:
         # PR builds are build-only (no publish), and Dependabot PRs run with a
         # read-only GITHUB_TOKEN — logging in is pointless on pull_request.
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
