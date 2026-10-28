@@ -1,8 +1,10 @@
 version: 2
 
-# PR titles follow Conventional Commits (chore(deps): Bump x from 1 to 2) so
-# they work with the release automation in .github/workflows/docker.yml:
-# chore is deliberately NOT in its feat/fix/perf mapping (no release).
+# PR titles follow Conventional Commits and are chosen to work with the
+# release automation in .github/workflows/docker.yml:
+# - Go module + Containerfile changes ship in the binary -> fix(deps) ->
+#   every merged bump is a patch release (vX.Y.(Z+1) image tag).
+# - GitHub Actions bumps are build infra -> chore(deps) -> no release.
 updates:
   # Go module dependencies (go.mod / go.sum)
   - package-ecosystem: "gomod"
@@ -10,7 +12,7 @@ updates:
     schedule:
       interval: "weekly"
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "fix(deps)"
 
   # GitHub Actions pinned in .github/workflows/
   - package-ecosystem: "github-actions"
@@ -26,4 +28,4 @@ updates:
     schedule:
       interval: "weekly"
     commit-message:
-      prefix: "chore(deps)"
+      prefix: "fix(deps)"
