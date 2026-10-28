@@ -1,0 +1,29 @@
+version: 2
+
+# PR titles follow Conventional Commits (chore(deps): Bump x from 1 to 2) so
+# they work with the release automation in .github/workflows/docker.yml:
+# chore is deliberately NOT in its feat/fix/perf mapping (no release).
+updates:
+  # Go module dependencies (go.mod / go.sum)
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # GitHub Actions pinned in .github/workflows/
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Base images pinned in the root Containerfile
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps)"
