@@ -6,7 +6,7 @@ import (
 	"os"
 
 	otelslog "go.opentelemetry.io/contrib/bridges/otelslog"
-	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/otel"
 )
 
 func installSlogHandler(serviceName string) {
@@ -16,7 +16,7 @@ func installSlogHandler(serviceName string) {
 
 	otelHandler := otelslog.NewHandler(
 		serviceName,
-		otelslog.WithLoggerProvider(global.GetLoggerProvider()),
+		otelslog.WithLoggerProvider(otel.GetLoggerProvider()),
 		otelslog.WithSource(true),
 	)
 
