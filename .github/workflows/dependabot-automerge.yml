@@ -1,0 +1,42 @@
+---
+name: "dependabot auto-merge"
+
+# Arms squash auto-merge on Dependabot version-update PRs once the required
+# checks pass (merge fires only when lint + build images are green).
+#
+# - Dependabot-triggered runs get a read-only GITHUB_TOKEN by default; the
+#   permissions block below elevates it (documented pattern).
+# - squash titles are Conventional ("chore(deps): Bump ..."), so the release
+#   tag job in docker.yml treats them as chore (no release; latest + sha only).
+# - Only minor/patch updates are armed here; major bumps stay manual.
+# - Squash-only repo: don't switch the merge method.
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    name: enable auto-merge
+    runs-on: ubuntu-latest
+    if: >-
+      github.repository == 'markis/fantasy-football-engine' &&
+      github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Enable auto-merge for minor/patch updates
+        if: >-
+          steps.meta.outputs.update-type == 'version-update:semver-minor' ||
+          steps.meta.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
