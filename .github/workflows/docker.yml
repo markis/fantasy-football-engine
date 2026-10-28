@@ -148,7 +148,7 @@ jobs:
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           # Kill latest=auto (the default), which also fires on tag events and
           # would let a manual tag of an old commit move latest backwards.
